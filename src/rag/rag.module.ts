@@ -5,6 +5,8 @@ import { ChunkerFactoryService } from './chunking/chunker-factory.service';
 import { ChunkingService } from './chunking/chunking.service';
 import { FixedSizeChunkerService } from './chunking/fixed-size-chunker.service';
 import { StructureAwareChunkerService } from './chunking/structure-aware-chunker.service';
+import { ChunkEmbeddingService } from './embedding/chunk-embedding.service';
+import { VectorSchemaService } from './embedding/vector-schema.service';
 import { DocumentCleanerService } from './ingestion/document-cleaner.service';
 import { DocumentDeduplicatorService } from './ingestion/document-deduplicator.service';
 import { DocumentNormalizerService } from './ingestion/document-normalizer.service';
@@ -15,7 +17,8 @@ import { IngestionService } from './ingestion/ingestion.service';
  * Lõi RAG.
  *   PHASE 1: pipeline ingestion (normalize -> clean -> dedup -> quality)
  *   PHASE 2: chunking (structure-aware | fixed) + chunk quality
- * Các phase sau thêm embedding, retrieval, grounding, evaluation.
+ *   PHASE 3: embedding đa provider (batch) + lưu pgvector
+ * Các phase sau thêm retrieval, grounding, evaluation.
  */
 @Module({
   imports: [ParsersModule],
@@ -30,6 +33,8 @@ import { IngestionService } from './ingestion/ingestion.service';
     ChunkerFactoryService,
     ChunkQualityService,
     ChunkingService,
+    VectorSchemaService,
+    ChunkEmbeddingService,
   ],
   exports: [
     IngestionService,
@@ -39,6 +44,8 @@ import { IngestionService } from './ingestion/ingestion.service';
     ChunkingService,
     ChunkerFactoryService,
     ChunkQualityService,
+    ChunkEmbeddingService,
+    VectorSchemaService,
   ],
 })
 export class RagModule {}

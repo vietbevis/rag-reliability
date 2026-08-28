@@ -31,6 +31,7 @@ export interface AppConfig {
     provider: Env['EMBEDDING_PROVIDER'];
     dimension: number;
     batchSize: number;
+    distance: Env['EMBEDDING_DISTANCE'];
     openai: { apiKey?: string; baseUrl?: string; model: string };
     gemini: { apiKey?: string; model: string };
     custom: { baseUrl?: string; apiKey?: string; model?: string };
@@ -102,6 +103,7 @@ export function loadConfiguration(): AppConfig {
       provider: env.EMBEDDING_PROVIDER,
       dimension: env.EMBEDDING_DIMENSION,
       batchSize: env.EMBEDDING_BATCH_SIZE,
+      distance: env.EMBEDDING_DISTANCE,
       openai: {
         apiKey: env.OPENAI_API_KEY,
         baseUrl: env.OPENAI_BASE_URL,

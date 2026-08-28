@@ -15,7 +15,14 @@ export const LlmProviderValues = [
   'anthropic',
   'custom',
 ] as const;
-export const EmbeddingProviderValues = ['openai', 'gemini', 'custom'] as const;
+// `fake`: embedding tất định (seed theo hash nội dung) — chỉ dùng cho CI/dev,
+// KHÔNG có ý nghĩa ngữ nghĩa. Dùng để test toàn bộ pipeline mà không cần API key.
+export const EmbeddingProviderValues = [
+  'openai',
+  'gemini',
+  'custom',
+  'fake',
+] as const;
 
 // Nhận diện "true"/"false"/"1"/"0" từ env và chuyển về boolean.
 const boolish = (def: boolean) =>
@@ -110,6 +117,9 @@ export const envSchema = z
       max: 2048,
       default: 96,
     }),
+    // Metric khoảng cách cho pgvector (khớp với loại index HNSW đã tạo):
+    // cosine (chuẩn cho embedding đã normalize) | l2 | ip
+    EMBEDDING_DISTANCE: z.enum(['cosine', 'l2', 'ip']).default('cosine'),
 
     // ---- Parsing tài liệu (anydoc) ----------------------------------------
     FIRECRAWL_API_KEY: z.string().trim().optional(),

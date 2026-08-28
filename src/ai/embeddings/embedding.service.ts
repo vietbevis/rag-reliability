@@ -22,6 +22,14 @@ export class EmbeddingService {
     return this.factory.create().dimensions;
   }
 
+  get activeModel(): string {
+    return this.factory.create().defaultModel;
+  }
+
+  isConfigured(provider?: EmbeddingProviderName): boolean {
+    return this.factory.create(provider).isConfigured();
+  }
+
   embed(
     text: string,
     provider?: EmbeddingProviderName,

@@ -5,6 +5,7 @@ import { ConfigError } from '../../common/errors';
 import { EmbeddingProviderName } from '../llm/llm-provider.enum';
 import type { EmbeddingProvider } from './embedding.interface';
 import { CustomEmbeddingProvider } from './providers/custom-embedding.provider';
+import { FakeEmbeddingProvider } from './providers/fake-embedding.provider';
 import { GeminiEmbeddingProvider } from './providers/gemini-embedding.provider';
 import { OpenAiEmbeddingProvider } from './providers/openai-embedding.provider';
 
@@ -18,11 +19,13 @@ export class EmbeddingFactoryService {
     openai: OpenAiEmbeddingProvider,
     gemini: GeminiEmbeddingProvider,
     custom: CustomEmbeddingProvider,
+    fake: FakeEmbeddingProvider,
   ) {
     this.registry = {
       [EmbeddingProviderName.OPENAI]: openai,
       [EmbeddingProviderName.GEMINI]: gemini,
       [EmbeddingProviderName.CUSTOM]: custom,
+      [EmbeddingProviderName.FAKE]: fake,
     };
   }
 

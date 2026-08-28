@@ -45,7 +45,7 @@ describe('PrismaService (integration)', () => {
     expect(gone).toBeNull();
   });
 
-  it('ghi và đọc lại được cột vector qua raw SQL', async () => {
+  it('ghi và đọc lại được cột vector(1536) + toán tử cosine', async () => {
     const doc = await prisma.document.create({
       data: {
         title: 't',
@@ -63,15 +63,22 @@ describe('PrismaService (integration)', () => {
         tokenCount: 1,
       },
     });
+    // PHASE 3: cột là vector(1536) sau migration -> vector phải đủ 1536 chiều.
+    const dim = 1536;
+    const v = `[${Array.from({ length: dim }, (_, i) => (i === 0 ? 1 : 0)).join(',')}]`;
     const id = `emb-${Date.now()}`;
     await prisma.$executeRaw`
       INSERT INTO "Embedding" ("id","chunkId","provider","model","dimensions","embedding")
-      VALUES (${id}, ${chunk.id}, 'test', 'test', 3, ${'[0.1,0.2,0.3]'}::vector)
+      VALUES (${id}, ${chunk.id}, 'test', 'test', ${dim}, ${v}::vector)
     `;
-    const rows = await prisma.$queryRaw<Array<{ d: number }>>`
-      SELECT "embedding" <-> '[0,0,0]'::vector AS d FROM "Embedding" WHERE "id" = ${id}
+    const zero = `[${Array.from({ length: dim }, () => 0).join(',')}]`;
+    const rows = await prisma.$queryRaw<Array<{ vdims: number; d: number }>>`
+      SELECT vector_dims("embedding") AS vdims,
+             "embedding" <-> ${zero}::vector AS d
+      FROM "Embedding" WHERE "id" = ${id}
     `;
-    expect(rows[0]?.d).toBeGreaterThan(0);
+    expect(Number(rows[0]?.vdims)).toBe(dim);
+    expect(Number(rows[0]?.d)).toBeGreaterThan(0);
 
     await prisma.document.delete({ where: { id: doc.id } });
   });

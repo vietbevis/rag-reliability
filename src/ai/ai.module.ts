@@ -4,6 +4,7 @@ import { AiProbeService } from './ai-probe.service';
 import { EmbeddingFactoryService } from './embeddings/embedding-factory.service';
 import { EmbeddingService } from './embeddings/embedding.service';
 import { CustomEmbeddingProvider } from './embeddings/providers/custom-embedding.provider';
+import { FakeEmbeddingProvider } from './embeddings/providers/fake-embedding.provider';
 import { GeminiEmbeddingProvider } from './embeddings/providers/gemini-embedding.provider';
 import { OpenAiEmbeddingProvider } from './embeddings/providers/openai-embedding.provider';
 import { LlmFactoryService } from './llm/llm-factory.service';
@@ -32,6 +33,7 @@ import { TokenCounterService } from './tokenizer/token-counter.service';
     OpenAiEmbeddingProvider,
     GeminiEmbeddingProvider,
     CustomEmbeddingProvider,
+    FakeEmbeddingProvider,
     EmbeddingFactoryService,
     EmbeddingService,
     TokenCounterService,

@@ -11,6 +11,8 @@ export enum EmbeddingProviderName {
   OPENAI = 'openai',
   GEMINI = 'gemini',
   CUSTOM = 'custom',
+  /** Tất định, seed theo hash — chỉ cho CI/dev, không có ý nghĩa ngữ nghĩa. */
+  FAKE = 'fake',
 }
 
 export const ALL_LLM_PROVIDERS: readonly LlmProvider[] =

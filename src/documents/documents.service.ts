@@ -1,9 +1,11 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
+import { AppError } from '../common/errors';
 import { sha256 } from '../common/utils';
 import {
   IngestionService,
@@ -14,6 +16,11 @@ import {
   type ChunkingResult,
 } from '../rag/chunking/chunking.service';
 import type { ChunkingStrategyName } from '../rag/chunking/chunking.interface';
+import {
+  ChunkEmbeddingService,
+  type EmbeddingRunResult,
+} from '../rag/embedding/chunk-embedding.service';
+import type { EmbeddingProviderName } from '../ai/llm/llm-provider.enum';
 import {
   DocumentStatus,
   type Document,
@@ -40,21 +47,46 @@ export interface CreateDocumentInput {
 
 @Injectable()
 export class DocumentsService {
+  private readonly logger = new Logger(DocumentsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly ingestion: IngestionService,
     private readonly chunking: ChunkingService,
+    private readonly embedding: ChunkEmbeddingService,
   ) {}
 
   /**
-   * Tạo document từ file hoặc text, lưu bytes gốc, chạy ingestion đồng bộ
-   * (anydoc rất nhanh — PROMPT §5.4). Nếu document đạt (VALIDATING) thì chunk
-   * luôn. Trả về document + kết quả ingestion + chunking (nếu có).
+   * Chạy embedding trong pipeline tự động (upload). Lỗi provider (rate limit,
+   * API down) KHÔNG làm hỏng cả request — document + chunk đã lưu vẫn hợp lệ.
+   * Trả về `{ error }`, document giữ ở `EMBEDDING` để chạy lại qua
+   * `POST /documents/:id/embed` (endpoint đó vẫn ném lỗi rõ ràng).
+   */
+  private async autoEmbed(id: string): Promise<EmbeddingRunResult> {
+    try {
+      return await this.embedding.embedDocument(id);
+    } catch (err) {
+      const reason =
+        err instanceof AppError
+          ? `${err.code}: ${err.message}`
+          : ((err as Error)?.message ?? 'unknown');
+      this.logger.warn(
+        `Auto-embed ${id} thất bại (document + chunk vẫn hợp lệ): ${reason}`,
+      );
+      return { documentId: id, skipped: false, error: reason };
+    }
+  }
+
+  /**
+   * Tạo document từ file/text, lưu bytes gốc, rồi chạy toàn bộ pipeline có sẵn
+   * đồng bộ: ingest → (đạt) chunk → (có provider) embedding. Provider embedding
+   * chưa cấu hình thì bỏ qua bước embedding (document dừng ở CHUNKING).
    */
   async create(input: CreateDocumentInput): Promise<{
     document: DocumentView;
     ingestion: IngestionResult;
     chunking: ChunkingResult | null;
+    embedding: EmbeddingRunResult | null;
   }> {
     const { dto, file } = input;
 
@@ -103,17 +135,22 @@ export class DocumentsService {
       ingestion.status === DocumentStatus.VALIDATING
         ? await this.chunking.chunk(created.id)
         : null;
+    const embedding =
+      chunking && chunking.chunkCount > 0
+        ? await this.autoEmbed(created.id)
+        : null;
 
     const document = await this.prisma.document.findUniqueOrThrow({
       where: { id: created.id },
       omit: OMIT_RAW_CONTENT,
     });
-    return { document, ingestion, chunking };
+    return { document, ingestion, chunking, embedding };
   }
 
   async reingest(id: string): Promise<{
     ingestion: IngestionResult;
     chunking: ChunkingResult | null;
+    embedding: EmbeddingRunResult | null;
   }> {
     await this.getOrThrow(id);
     const ingestion = await this.ingestion.ingest(id);
@@ -121,7 +158,9 @@ export class DocumentsService {
       ingestion.status === DocumentStatus.VALIDATING
         ? await this.chunking.chunk(id)
         : null;
-    return { ingestion, chunking };
+    const embedding =
+      chunking && chunking.chunkCount > 0 ? await this.autoEmbed(id) : null;
+    return { ingestion, chunking, embedding };
   }
 
   async chunk(
@@ -130,6 +169,40 @@ export class DocumentsService {
   ): Promise<ChunkingResult> {
     await this.getOrThrow(id);
     return this.chunking.chunk(id, strategy);
+  }
+
+  async embed(
+    id: string,
+    provider?: EmbeddingProviderName,
+  ): Promise<EmbeddingRunResult> {
+    await this.getOrThrow(id);
+    return this.embedding.embedDocument(id, provider);
+  }
+
+  async embeddingSummary(id: string): Promise<{
+    total: number;
+    byModel: Array<{
+      provider: string;
+      model: string;
+      dimensions: number;
+      count: number;
+    }>;
+  }> {
+    await this.getOrThrow(id);
+    const grouped = await this.prisma.embedding.groupBy({
+      by: ['provider', 'model', 'dimensions'],
+      where: { chunk: { documentId: id } },
+      _count: { _all: true },
+    });
+    return {
+      total: grouped.reduce((s, g) => s + g._count._all, 0),
+      byModel: grouped.map((g) => ({
+        provider: g.provider,
+        model: g.model,
+        dimensions: g.dimensions,
+        count: g._count._all,
+      })),
+    };
   }
 
   async listChunks(
