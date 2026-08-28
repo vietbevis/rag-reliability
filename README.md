@@ -16,21 +16,25 @@ NestJS 11 · TypeScript (strict) · PostgreSQL + pgvector · Prisma 7 (generator
 LangGraph.js · Multi-provider LLM (OpenAI · Gemini · Anthropic · Custom) ·
 `@firecrawl/anydoc` (parsing) · Docker Compose · Jest.
 
-## Trạng thái: PHASE 0 (Bootstrap) ✅
+## Trạng thái: PHASE 0-1 ✅
 
-| Có sẵn                                                                     | Chưa (phase sau)                                 |
-| -------------------------------------------------------------------------- | ------------------------------------------------ |
-| Config validate bằng Zod, health check (`/health` gồm pgvector)            | Ingestion / cleaning / quality (P1)              |
-| Prisma 7 + schema đầy đủ + migration + pgvector                            | Chunking (P2)                                    |
-| Tầng AI đa provider: 4 LLM + 3 embedding, đổi bằng env                     | Embedding + lưu vector (P3)                      |
-| Token counting, cost estimation theo provider, retry/timeout/phân loại lỗi | Retrieval / hybrid / rerank (P4-6)               |
-| Parser: anydoc (chính) + plaintext/html (fallback)                         | Grounding / citation / faithfulness (P7-9)       |
-| `GET /ai/providers`, `POST /ai/providers/test`                             | Evaluation / regression / observability (P10-12) |
-| Docker Compose (app + postgres), Dockerfile multi-stage                    |                                                  |
-| 72 test (unit + e2e + integration)                                         |                                                  |
+| Có sẵn                                                                                           | Chưa (phase sau)                                 |
+| ------------------------------------------------------------------------------------------------ | ------------------------------------------------ |
+| Config validate bằng Zod, health check (`/health` gồm pgvector)                                  | Chunking theo cấu trúc (P2)                      |
+| Prisma 7 + schema đầy đủ + migration + pgvector                                                  | Embedding + lưu vector (P3)                      |
+| Tầng AI đa provider: 4 LLM + 3 embedding, đổi bằng env                                           | Retrieval / hybrid / rerank (P4-6)               |
+| Token counting, cost estimation theo provider, retry/timeout/phân loại lỗi                       | Grounding / citation / faithfulness (P7-9)       |
+| Parser: anydoc (chính) + plaintext/html (fallback)                                               | Evaluation / regression / observability (P10-12) |
+| **Ingestion**: normalize → clean → dedup → quality gate, có trace                                |                                                  |
+| **API tài liệu**: `POST /documents`, `GET /documents[/:id][/jobs]`, `POST /documents/:id/ingest` |                                                  |
+| `GET /ai/providers`, `POST /ai/providers/test`                                                   |                                                  |
+| Docker Compose (app + postgres), Dockerfile multi-stage                                          |                                                  |
+| 102 test (unit + e2e + integration)                                                              |                                                  |
 
 Chi tiết: [`docs/architecture/rag-architecture.md`](docs/architecture/rag-architecture.md),
-[`docs/architecture/llm-providers.md`](docs/architecture/llm-providers.md).
+[`docs/architecture/llm-providers.md`](docs/architecture/llm-providers.md),
+[`docs/rag/document-parsing.md`](docs/rag/document-parsing.md),
+[`docs/rag/data-cleaning.md`](docs/rag/data-cleaning.md).
 
 ## Bắt đầu
 
@@ -92,6 +96,27 @@ EMBEDDING_DIMENSION=768        # khớp text-embedding-004
 
 Kiểm tra: `GET /ai/providers` và `POST /ai/providers/test` (`{"provider":"anthropic"}`).
 
+## Ingest tài liệu
+
+```bash
+# Upload file (docx/pdf/xlsx/csv/... qua anydoc, hoặc txt/md/html)
+curl -F "file=@bao-cao.docx" -F "title=Báo cáo" -F "source=phòng ĐT" \
+  http://localhost:3000/documents
+
+# Hoặc gửi text trực tiếp
+curl -H 'content-type: application/json' \
+  -d '{"title":"Quy chế","source":"test","text":"# Quy chế..."}' \
+  http://localhost:3000/documents
+
+curl http://localhost:3000/documents/<id>         # chi tiết (đã clean)
+curl http://localhost:3000/documents/<id>/jobs    # các stage + thời gian
+curl -X POST http://localhost:3000/documents/<id>/ingest   # chạy lại
+```
+
+Pipeline: `PARSE → NORMALIZE → CLEAN → DEDUPLICATE → QUALITY`. Kết quả:
+`VALIDATING` (đạt, chờ chunking) · `REJECTED` (trùng lặp / chất lượng kém) ·
+`FAILED` (parse lỗi). Xem [`docs/rag/data-cleaning.md`](docs/rag/data-cleaning.md).
+
 ## Cấu trúc
 
 ```
@@ -99,9 +124,11 @@ src/
 ├── config/           # ConfigModule + env.schema.ts (Zod)
 ├── database/          # PrismaService (Prisma 7 + adapter-pg)
 ├── ai/{llm,embeddings,reranking,tokenizer}/
-├── documents/parsers/ # anydoc + fallback
+├── documents/         # upload/CRUD + parsers/ (anydoc + fallback)
+├── rag/ingestion/     # normalize · clean · dedup · quality · orchestrator
 ├── common/{errors,types,utils,constants}/
 └── health/
 prisma/                # schema.prisma + migrations
 docs/architecture/     # rag-architecture.md, llm-providers.md
+docs/rag/              # document-parsing.md, data-cleaning.md
 ```

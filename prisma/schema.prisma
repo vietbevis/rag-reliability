@@ -45,17 +45,29 @@ model Document {
   title          String
   source         String
   mimeType       String
+  /// SHA-256 của bytes gốc — dùng phát hiện trùng lặp chính xác (exact).
   checksum       String
+  /// Hash của text đã chuẩn hoá — dùng phát hiện trùng lặp gần (near).
+  normalizedHash String?
   version        Int            @default(1)
   status         DocumentStatus @default(UPLOADED)
   parserUsed     ParserType?
+  /// Bytes gốc của file upload — để re-ingest / debug / parse lại.
+  rawContent     Bytes?
   rawText        String?
   cleanedText    String?
   parsedMarkdown String?
+  contentTokens  Int?
   qualityScore   Float?
   qualityReport  Json?
+  /// Danh sách các phép biến đổi quan trọng đã áp (PROMPT §9 — phải trace được).
+  transformations Json          @default("[]")
   metadata       Json           @default("{}")
   rejectedReason String?
+  /// Trỏ tới document mà bản này trùng lặp (nếu là near-duplicate được giữ lại).
+  duplicateOfId  String?
+  duplicateOf    Document?      @relation("DocumentDuplicates", fields: [duplicateOfId], references: [id], onDelete: SetNull)
+  duplicates     Document[]     @relation("DocumentDuplicates")
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
@@ -66,6 +78,7 @@ model Document {
   @@unique([checksum, version])
   @@index([status])
   @@index([mimeType])
+  @@index([normalizedHash])
 }
 
 model DocumentChunk {

@@ -42,6 +42,22 @@ export class DatabaseError extends AppError {
   override readonly httpStatus = 503;
 }
 
+export class IngestionError extends AppError {
+  readonly code: string;
+  override readonly httpStatus: number;
+
+  constructor(
+    code: 'INGESTION_PRECONDITION' | 'INGESTION_FAILED',
+    message: string,
+    context?: Record<string, unknown>,
+    options?: { cause?: unknown },
+  ) {
+    super(message, context, options);
+    this.code = code;
+    this.httpStatus = code === 'INGESTION_PRECONDITION' ? 409 : 422;
+  }
+}
+
 export class ParserError extends AppError {
   readonly code: string;
   override readonly httpStatus = 422;

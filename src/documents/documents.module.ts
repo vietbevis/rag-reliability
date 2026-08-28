@@ -1,21 +1,17 @@
 import { Module } from '@nestjs/common';
-import { AnydocParserService } from './parsers/anydoc-parser.service';
-import { HtmlParserService } from './parsers/html-parser.service';
-import { ParserFactoryService } from './parsers/parser-factory.service';
-import { PlainTextParserService } from './parsers/plain-text-parser.service';
+import { RagModule } from '../rag/rag.module';
+import { DocumentsController } from './documents.controller';
+import { DocumentsService } from './documents.service';
+import { ParsersModule } from './parsers/parsers.module';
 
 /**
- * Phạm vi PHASE 0: chỉ parsing tài liệu (anydoc + fallback). Ingestion,
- * cleaning, normalize, dedup và chấm điểm chất lượng thuộc PHASE 1; controller
- * upload sẽ đi kèm ở đó.
+ * Upload / CRUD tài liệu. Ingestion pipeline nằm ở {@link RagModule}; module
+ * này chỉ nhận file, lưu bytes gốc, và gọi ingestion.
  */
 @Module({
-  providers: [
-    AnydocParserService,
-    PlainTextParserService,
-    HtmlParserService,
-    ParserFactoryService,
-  ],
-  exports: [ParserFactoryService],
+  imports: [ParsersModule, RagModule],
+  controllers: [DocumentsController],
+  providers: [DocumentsService],
+  exports: [DocumentsService],
 })
 export class DocumentsModule {}

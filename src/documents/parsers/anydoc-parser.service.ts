@@ -42,13 +42,12 @@ export class AnydocParserService implements DocumentParser {
   async parse(input: ParserInput): Promise<ParsedDocument> {
     const parsing = this.config.get('parsing', { infer: true });
 
-    // Ưu tiên nhận diện format từ nội dung; extension chỉ là fallback cho các
-    // format không có chữ ký (CSV) hoặc container không nhận ra.
+    // Ưu tiên nhận diện format từ nội dung; sau đó tới tên file, cuối cùng là
+    // MIME type — cần cho các format không có chữ ký (CSV).
     const format: Format | null =
       formatFromBytes(input.bytes) ??
-      (input.filename
-        ? formatFromPath(input.filename)
-        : formatFromExtension(mimeToExt(input.mimeType) ?? ''));
+      (input.filename ? formatFromPath(input.filename) : null) ??
+      formatFromExtension(mimeToExt(input.mimeType) ?? '');
 
     try {
       const markdown = await toMarkdownBytes(input.bytes, format, {
