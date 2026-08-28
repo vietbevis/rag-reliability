@@ -16,25 +16,27 @@ NestJS 11 · TypeScript (strict) · PostgreSQL + pgvector · Prisma 7 (generator
 LangGraph.js · Multi-provider LLM (OpenAI · Gemini · Anthropic · Custom) ·
 `@firecrawl/anydoc` (parsing) · Docker Compose · Jest.
 
-## Trạng thái: PHASE 0-1 ✅
+## Trạng thái: PHASE 0-2 ✅
 
-| Có sẵn                                                                                           | Chưa (phase sau)                                 |
-| ------------------------------------------------------------------------------------------------ | ------------------------------------------------ |
-| Config validate bằng Zod, health check (`/health` gồm pgvector)                                  | Chunking theo cấu trúc (P2)                      |
-| Prisma 7 + schema đầy đủ + migration + pgvector                                                  | Embedding + lưu vector (P3)                      |
-| Tầng AI đa provider: 4 LLM + 3 embedding, đổi bằng env                                           | Retrieval / hybrid / rerank (P4-6)               |
-| Token counting, cost estimation theo provider, retry/timeout/phân loại lỗi                       | Grounding / citation / faithfulness (P7-9)       |
-| Parser: anydoc (chính) + plaintext/html (fallback)                                               | Evaluation / regression / observability (P10-12) |
-| **Ingestion**: normalize → clean → dedup → quality gate, có trace                                |                                                  |
-| **API tài liệu**: `POST /documents`, `GET /documents[/:id][/jobs]`, `POST /documents/:id/ingest` |                                                  |
-| `GET /ai/providers`, `POST /ai/providers/test`                                                   |                                                  |
-| Docker Compose (app + postgres), Dockerfile multi-stage                                          |                                                  |
-| 102 test (unit + e2e + integration)                                                              |                                                  |
+| Có sẵn                                                                                   | Chưa (phase sau)                                 |
+| ---------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| Config validate bằng Zod, health check (`/health` gồm pgvector)                          | Embedding + lưu pgvector (P3)                    |
+| Prisma 7 + schema đầy đủ + migration + pgvector                                          | Retrieval / hybrid / rerank (P4-6)               |
+| Tầng AI đa provider: 4 LLM + 3 embedding, đổi bằng env                                   | Grounding / citation / faithfulness (P7-9)       |
+| Token counting, cost estimation theo provider, retry/timeout/phân loại lỗi               | Evaluation / regression / observability (P10-12) |
+| Parser: anydoc (chính) + plaintext/html (fallback)                                       |                                                  |
+| **Ingestion**: normalize → clean → dedup → quality gate, có trace                        |                                                  |
+| **Chunking**: structure-aware (Markdown) + fixed (baseline), chunk quality, đổi bằng env |                                                  |
+| **API tài liệu**: upload/ingest/chunk/CRUD + `GET /documents/:id/chunks`                 |                                                  |
+| `GET /ai/providers`, `POST /ai/providers/test`                                           |                                                  |
+| Docker Compose (app + postgres), Dockerfile multi-stage                                  |                                                  |
+| 124 test (unit + e2e + integration)                                                      |                                                  |
 
 Chi tiết: [`docs/architecture/rag-architecture.md`](docs/architecture/rag-architecture.md),
 [`docs/architecture/llm-providers.md`](docs/architecture/llm-providers.md),
 [`docs/rag/document-parsing.md`](docs/rag/document-parsing.md),
-[`docs/rag/data-cleaning.md`](docs/rag/data-cleaning.md).
+[`docs/rag/data-cleaning.md`](docs/rag/data-cleaning.md),
+[`docs/rag/chunking.md`](docs/rag/chunking.md).
 
 ## Bắt đầu
 

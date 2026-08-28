@@ -40,6 +40,12 @@ export interface AppConfig {
     firecrawlApiUrl?: string;
     ocr: Env['ANYDOC_OCR'];
   };
+  chunking: {
+    strategy: Env['CHUNKING_STRATEGY'];
+    maxTokens: number;
+    minTokens: number;
+    overlapTokens: number;
+  };
   rag: {
     qualityThreshold: number;
     retrievalTopK: number;
@@ -115,6 +121,12 @@ export function loadConfiguration(): AppConfig {
       firecrawlApiKey: env.FIRECRAWL_API_KEY,
       firecrawlApiUrl: env.FIRECRAWL_API_URL,
       ocr: env.ANYDOC_OCR,
+    },
+    chunking: {
+      strategy: env.CHUNKING_STRATEGY,
+      maxTokens: env.CHUNK_MAX_TOKENS,
+      minTokens: env.CHUNK_MIN_TOKENS,
+      overlapTokens: env.CHUNK_OVERLAP_TOKENS,
     },
     rag: {
       qualityThreshold: env.QUALITY_THRESHOLD,

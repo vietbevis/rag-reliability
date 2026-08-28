@@ -40,17 +40,20 @@ describe('Documents ingestion (e2e) — PHASE 1', () => {
       `Điều ${i + 1}. Sinh viên phải hoàn thành học phần theo kế hoạch của nhà trường.`,
   ).join('\n\n')}\n`;
 
-  it('POST /documents (text) -> ingest thành công, status VALIDATING', async () => {
+  it('POST /documents (text) -> ingest + chunk, status CHUNKING', async () => {
     const res = await request(app.getHttpServer())
       .post('/documents')
       .send({ title: 'Quy chế', source: 'test', text: goodMarkdown });
     expect(res.status).toBe(201);
     created.push(res.body.document.id);
 
-    expect(res.body.document.status).toBe('VALIDATING');
+    expect(res.body.ingestion.status).toBe('VALIDATING');
+    expect(res.body.document.status).toBe('CHUNKING'); // đã auto-chunk
     expect(res.body.document.parserUsed).toBe('PLAINTEXT');
     expect(res.body.document.qualityScore).toBeGreaterThan(0.7);
     expect(res.body.document.checksum).toHaveLength(64);
+    expect(res.body.chunking.chunkCount).toBeGreaterThan(0);
+    expect(res.body.chunking.strategy).toBe('structure');
     expect(
       res.body.ingestion.stages.map((s: { stage: string }) => s.stage),
     ).toEqual(
@@ -72,15 +75,45 @@ describe('Documents ingestion (e2e) — PHASE 1', () => {
     expect(Array.isArray(res.body.transformations)).toBe(true);
   });
 
-  it('GET /documents/:id/jobs liệt kê các stage kèm thời gian', async () => {
+  it('GET /documents/:id/jobs liệt kê các stage kèm thời gian (gồm CHUNK)', async () => {
     const res = await request(app.getHttpServer()).get(
       `/documents/${created[0]}/jobs`,
     );
     expect(res.status).toBe(200);
-    expect(res.body.length).toBeGreaterThanOrEqual(5);
+    expect(res.body.length).toBeGreaterThanOrEqual(6);
+    expect(res.body.map((j: { stage: string }) => j.stage)).toContain('CHUNK');
     expect(
       res.body.every((j: { status: string }) => j.status === 'COMPLETED'),
     ).toBe(true);
+  });
+
+  it('GET /documents/:id/chunks trả về chunk có heading/section/quality', async () => {
+    const res = await request(app.getHttpServer()).get(
+      `/documents/${created[0]}/chunks`,
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.total).toBeGreaterThan(0);
+    const c = res.body.items[0];
+    expect(c.sequence).toBe(0);
+    expect(c.tokenCount).toBeGreaterThan(0);
+    expect(c.contentHash).toHaveLength(64);
+    expect(typeof c.qualityScore).toBe('number');
+    expect(c.metadata.strategy).toBe('structure');
+  });
+
+  it('POST /documents/:id/chunk?strategy=fixed đổi chiến lược (benchmark)', async () => {
+    const res = await request(app.getHttpServer())
+      .post(`/documents/${created[0]}/chunk`)
+      .send({ strategy: 'fixed' });
+    expect(res.status).toBe(200);
+    expect(res.body.strategy).toBe('fixed');
+    expect(res.body.chunkCount).toBeGreaterThan(0);
+
+    const chunks = await request(app.getHttpServer()).get(
+      `/documents/${created[0]}/chunks`,
+    );
+    expect(chunks.body.items[0].metadata.strategy).toBe('fixed');
+    expect(chunks.body.items[0].heading).toBeNull();
   });
 
   it('upload trùng bytes -> REJECTED là exact-duplicate', async () => {

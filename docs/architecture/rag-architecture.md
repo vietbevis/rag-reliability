@@ -24,7 +24,7 @@ Faithfulness tăng A→B, latency +C ms, cost +D%".
 | ----- | ----------------------------------------------------------------------------------------------------------- | ------------- |
 | 0     | Bootstrap: Nest · Prisma 7 · PostgreSQL · pgvector · Docker · config · health · multi-provider LLM · anydoc | ✅ Hoàn thành |
 | 1     | Ingestion: parsing, normalize, cleaning, dedup, quality score, API upload/CRUD                              | ✅ Hoàn thành |
-| 2     | Chunking theo cấu trúc (Markdown-aware) + chunk quality                                                     | ⏳            |
+| 2     | Chunking: structure-aware (Markdown) + fixed (baseline) + chunk quality + API                               | ✅ Hoàn thành |
 | 3     | Embedding đa provider + lưu pgvector + ANN index                                                            | ⏳            |
 | 4     | Baseline RAG (fixed chunk + vector search + prompt đơn giản) + evaluation                                   | ⏳            |
 | 5     | Retrieval nâng cao: metadata filter, keyword, hybrid, fusion                                                | ⏳            |
@@ -44,6 +44,7 @@ src/
 ├── database/        # PrismaService (Prisma 7 + driver adapter @prisma/adapter-pg)
 ├── documents/       # upload/CRUD tài liệu + parsers (anydoc + fallback)
 ├── rag/ingestion/   # normalize · clean · dedup · quality · orchestrator
+├── rag/chunking/    # structure-aware | fixed · chunk quality · factory
 ├── ai/
 │   ├── llm/         # LLMProvider interface + 4 provider (openai|gemini|anthropic|custom)
 │   ├── embeddings/  # EmbeddingProvider interface + 3 provider

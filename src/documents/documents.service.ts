@@ -9,11 +9,25 @@ import {
   IngestionService,
   type IngestionResult,
 } from '../rag/ingestion/ingestion.service';
-import type { Document, Prisma } from '../generated/prisma/client';
+import {
+  ChunkingService,
+  type ChunkingResult,
+} from '../rag/chunking/chunking.service';
+import type { ChunkingStrategyName } from '../rag/chunking/chunking.interface';
+import {
+  DocumentStatus,
+  type Document,
+  type DocumentChunk,
+  type Prisma,
+} from '../generated/prisma/client';
 import type { CreateDocumentDto } from './dto/create-document.dto';
+import type { ListChunksDto } from './dto/list-chunks.dto';
 import type { ListDocumentsDto } from './dto/list-documents.dto';
 
-const TEXT_MIME_FALLBACK = 'text/plain';
+// Text gửi qua field `text` (không kèm file) mặc định coi là Markdown —
+// plain text là tập con hợp lệ của Markdown, và người dùng thường viết có
+// cấu trúc (# heading) để structure-aware chunking tận dụng.
+const TEXT_MIME_FALLBACK = 'text/markdown';
 
 /** Không trả `rawContent` (byte blob) ra API. */
 const OMIT_RAW_CONTENT = { rawContent: true } as const;
@@ -29,15 +43,19 @@ export class DocumentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ingestion: IngestionService,
+    private readonly chunking: ChunkingService,
   ) {}
 
   /**
-   * Tạo document từ file hoặc text, lưu bytes gốc, rồi chạy ingestion đồng bộ
-   * (anydoc rất nhanh — PROMPT §5.4). Trả về document + kết quả ingestion.
+   * Tạo document từ file hoặc text, lưu bytes gốc, chạy ingestion đồng bộ
+   * (anydoc rất nhanh — PROMPT §5.4). Nếu document đạt (VALIDATING) thì chunk
+   * luôn. Trả về document + kết quả ingestion + chunking (nếu có).
    */
-  async create(
-    input: CreateDocumentInput,
-  ): Promise<{ document: DocumentView; ingestion: IngestionResult }> {
+  async create(input: CreateDocumentInput): Promise<{
+    document: DocumentView;
+    ingestion: IngestionResult;
+    chunking: ChunkingResult | null;
+  }> {
     const { dto, file } = input;
 
     const bytes: Buffer = file
@@ -81,16 +99,54 @@ export class DocumentsService {
     });
 
     const ingestion = await this.ingestion.ingest(created.id);
+    const chunking =
+      ingestion.status === DocumentStatus.VALIDATING
+        ? await this.chunking.chunk(created.id)
+        : null;
+
     const document = await this.prisma.document.findUniqueOrThrow({
       where: { id: created.id },
       omit: OMIT_RAW_CONTENT,
     });
-    return { document, ingestion };
+    return { document, ingestion, chunking };
   }
 
-  async reingest(id: string): Promise<IngestionResult> {
+  async reingest(id: string): Promise<{
+    ingestion: IngestionResult;
+    chunking: ChunkingResult | null;
+  }> {
     await this.getOrThrow(id);
-    return this.ingestion.ingest(id);
+    const ingestion = await this.ingestion.ingest(id);
+    const chunking =
+      ingestion.status === DocumentStatus.VALIDATING
+        ? await this.chunking.chunk(id)
+        : null;
+    return { ingestion, chunking };
+  }
+
+  async chunk(
+    id: string,
+    strategy?: ChunkingStrategyName,
+  ): Promise<ChunkingResult> {
+    await this.getOrThrow(id);
+    return this.chunking.chunk(id, strategy);
+  }
+
+  async listChunks(
+    id: string,
+    query: ListChunksDto,
+  ): Promise<{ total: number; items: DocumentChunk[] }> {
+    await this.getOrThrow(id);
+    const [total, items] = await this.prisma.$transaction([
+      this.prisma.documentChunk.count({ where: { documentId: id } }),
+      this.prisma.documentChunk.findMany({
+        where: { documentId: id },
+        orderBy: { sequence: 'asc' },
+        take: query.take,
+        skip: query.skip,
+      }),
+    ]);
+    return { total, items };
   }
 
   async findOne(id: string): Promise<DocumentView> {

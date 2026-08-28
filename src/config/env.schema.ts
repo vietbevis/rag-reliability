@@ -116,6 +116,18 @@ export const envSchema = z
     FIRECRAWL_API_URL: z.string().trim().url().optional(),
     ANYDOC_OCR: z.enum(['reject', 'hosted']).default('reject'),
 
+    // ---- Chunking (PHASE 2) ----------------------------------------------
+    // structure = Markdown-aware (từ anydoc); fixed = cửa sổ token cố định (baseline)
+    CHUNKING_STRATEGY: z.enum(['structure', 'fixed']).default('structure'),
+    CHUNK_MAX_TOKENS: numeric({ int: true, min: 64, max: 4000, default: 512 }),
+    CHUNK_MIN_TOKENS: numeric({ int: true, min: 1, max: 2000, default: 64 }),
+    CHUNK_OVERLAP_TOKENS: numeric({
+      int: true,
+      min: 0,
+      max: 1000,
+      default: 64,
+    }),
+
     // ---- Cấu hình RAG ------------------------------------------------
     QUALITY_THRESHOLD: numeric({ min: 0, max: 1, default: 0.7 }),
     RETRIEVAL_TOP_K: numeric({ int: true, min: 1, max: 200, default: 20 }),
@@ -152,6 +164,21 @@ export const envSchema = z
       if (cond) return;
       ctx.addIssue({ code: 'custom', path: [path], message });
     };
+
+    if (env.CHUNK_MIN_TOKENS >= env.CHUNK_MAX_TOKENS) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['CHUNK_MIN_TOKENS'],
+        message: 'CHUNK_MIN_TOKENS phải nhỏ hơn CHUNK_MAX_TOKENS',
+      });
+    }
+    if (env.CHUNK_OVERLAP_TOKENS >= env.CHUNK_MAX_TOKENS) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['CHUNK_OVERLAP_TOKENS'],
+        message: 'CHUNK_OVERLAP_TOKENS phải nhỏ hơn CHUNK_MAX_TOKENS',
+      });
+    }
 
     switch (env.LLM_PROVIDER) {
       case 'openai':

@@ -13,7 +13,9 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { DocumentsService } from './documents.service';
+import { ChunkDocumentDto } from './dto/chunk-document.dto';
 import { CreateDocumentDto } from './dto/create-document.dto';
+import { ListChunksDto } from './dto/list-chunks.dto';
 import { ListDocumentsDto } from './dto/list-documents.dto';
 
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
@@ -67,10 +69,25 @@ export class DocumentsController {
     return this.documents.listJobs(id);
   }
 
+  @Get(':id/chunks')
+  @ApiOperation({ summary: 'Danh sách chunk của tài liệu — PROMPT §39' })
+  chunks(@Param('id') id: string, @Query() query: ListChunksDto) {
+    return this.documents.listChunks(id, query);
+  }
+
   @Post(':id/ingest')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Chạy lại pipeline ingestion — PROMPT §39' })
+  @ApiOperation({
+    summary: 'Chạy lại ingestion (+ chunking nếu đạt) — PROMPT §39',
+  })
   reingest(@Param('id') id: string) {
     return this.documents.reingest(id);
+  }
+
+  @Post(':id/chunk')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Chạy lại chunking (chọn strategy để benchmark)' })
+  chunk(@Param('id') id: string, @Body() dto: ChunkDocumentDto) {
+    return this.documents.chunk(id, dto.strategy);
   }
 }
