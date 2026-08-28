@@ -20,21 +20,26 @@ Faithfulness tăng A→B, latency +C ms, cost +D%".
 
 ## 2. Trạng thái theo phase
 
+> Lộ trình gốc = `PROMPT.md §47`. Đã chèn **Graph RAG** (entity graph + local
+> traversal, lưu Neo4j) — dời P5-P12 xuống 1 bậc; graph retriever ghép vào
+> phase retrieval. Xem `docs/architecture/graph-rag.md`.
+
 | Phase | Nội dung                                                                                                    | Trạng thái    |
 | ----- | ----------------------------------------------------------------------------------------------------------- | ------------- |
 | 0     | Bootstrap: Nest · Prisma 7 · PostgreSQL · pgvector · Docker · config · health · multi-provider LLM · anydoc | ✅ Hoàn thành |
 | 1     | Ingestion: parsing, normalize, cleaning, dedup, quality score, API upload/CRUD                              | ✅ Hoàn thành |
 | 2     | Chunking: structure-aware (Markdown) + fixed (baseline) + chunk quality + API                               | ✅ Hoàn thành |
 | 3     | Embedding đa provider (batch) + pgvector + HNSW index + API                                                 | ✅ Hoàn thành |
-| 4     | Baseline RAG (fixed chunk + vector search + prompt đơn giản) + evaluation                                   | ⏳            |
-| 5     | Retrieval nâng cao: metadata filter, keyword, hybrid, fusion                                                | ⏳            |
-| 6     | Reranking + benchmark before/after                                                                          | ⏳            |
-| 7     | Grounded generation + abstention                                                                            | ⏳            |
-| 8     | Citation: claim → evidence → chunk → document                                                               | ⏳            |
-| 9     | Faithfulness: claim extraction, evidence matching, contradiction                                            | ⏳            |
-| 10    | Evaluation framework: golden dataset, metrics, experiments                                                  | ⏳            |
-| 11    | Regression + observability                                                                                  | ⏳            |
-| 12    | Benchmark đa provider (quality / cost / latency)                                                            | ⏳            |
+| 4     | Baseline RAG (fixed chunk + vector search + prompt đơn giản) + evaluation harness + lưu baseline metrics    | ⏳            |
+| 5     | **Graph RAG — construction**: entity + relationship extraction (LLM) → Neo4j; ingestion stage `GRAPH`; API  | ⏳            |
+| 6     | Retrieval nâng cao: metadata filter · keyword · **graph traversal (local)** · hybrid · fusion               | ⏳            |
+| 7     | Reranking + benchmark before/after                                                                          | ⏳            |
+| 8     | Grounded generation + abstention                                                                            | ⏳            |
+| 9     | Citation: claim → evidence → chunk/**entity/relationship** → document                                       | ⏳            |
+| 10    | Faithfulness: claim extraction, evidence matching, contradiction                                            | ⏳            |
+| 11    | Evaluation framework: golden dataset, metrics, experiments                                                  | ⏳            |
+| 12    | Regression + observability                                                                                  | ⏳            |
+| 13    | Benchmark đa provider + **vector vs graph vs hybrid** (quality / cost / latency)                            | ⏳            |
 
 ## 3. Cấu trúc module
 
@@ -46,6 +51,8 @@ src/
 ├── rag/ingestion/   # normalize · clean · dedup · quality · orchestrator
 ├── rag/chunking/    # structure-aware | fixed · chunk quality · factory
 ├── rag/embedding/   # orchestrator (chunk→pgvector) + kiểm tra vector schema
+├── rag/graph/       # (P5) entity/relation extraction · Neo4j store · graph traversal (P6)
+├── graph/           # (P5) Neo4jService (driver) + graph.module
 ├── ai/
 │   ├── llm/         # LLMProvider interface + 4 provider (openai|gemini|anthropic|custom)
 │   ├── embeddings/  # EmbeddingProvider interface + 4 provider (openai|gemini|custom|fake)
