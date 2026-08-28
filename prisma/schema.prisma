@@ -1,0 +1,303 @@
+// RAG Reliability Service — mô hình dữ liệu (PROMPT §7, §8).
+//
+// Ghi chú pgvector: Prisma không có kiểu `vector` native. Cột
+// `Embedding.embedding` được khai báo `Unsupported("vector")` — cột có thật,
+// nhưng chỉ được ghi/đọc qua `$queryRaw` / `$executeRaw`. Extension `vector` do
+// migration của Prisma tạo (không dùng `db push` — PROMPT §51).
+
+generator client {
+  provider        = "prisma-client"
+  output          = "../src/generated/prisma"
+  moduleFormat    = "cjs"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  extensions = [vector]
+}
+
+// ---------------------------------------------------------------------------
+// Tài liệu
+// ---------------------------------------------------------------------------
+
+enum DocumentStatus {
+  UPLOADED
+  PARSING
+  CLEANING
+  VALIDATING
+  CHUNKING
+  EMBEDDING
+  COMPLETED
+  FAILED
+  REJECTED
+}
+
+enum ParserType {
+  ANYDOC
+  PLAINTEXT
+  HTML
+  FALLBACK
+}
+
+model Document {
+  id             String         @id @default(cuid())
+  title          String
+  source         String
+  mimeType       String
+  checksum       String
+  version        Int            @default(1)
+  status         DocumentStatus @default(UPLOADED)
+  parserUsed     ParserType?
+  rawText        String?
+  cleanedText    String?
+  parsedMarkdown String?
+  qualityScore   Float?
+  qualityReport  Json?
+  metadata       Json           @default("{}")
+  rejectedReason String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  chunks        DocumentChunk[]
+  ingestionJobs IngestionJob[]
+  citations     Citation[]
+
+  @@unique([checksum, version])
+  @@index([status])
+  @@index([mimeType])
+}
+
+model DocumentChunk {
+  id           String   @id @default(cuid())
+  documentId   String
+  document     Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  content      String
+  contentHash  String
+  sequence     Int
+  tokenCount   Int
+  heading      String?
+  section      String?
+  page         Int?
+  qualityScore Float?
+  metadata     Json     @default("{}")
+  createdAt    DateTime @default(now())
+
+  embeddings Embedding[]
+  citations  Citation[]
+
+  @@unique([documentId, sequence])
+  @@index([documentId])
+  @@index([contentHash])
+}
+
+/// Mỗi (chunk, model) có một embedding. Cột `vector` do SQL migration thêm vào;
+/// Prisma chỉ theo dõi các cột bookkeeping.
+model Embedding {
+  id         String                 @id @default(cuid())
+  chunkId    String
+  chunk      DocumentChunk          @relation(fields: [chunkId], references: [id], onDelete: Cascade)
+  provider   String
+  model      String
+  dimensions Int
+  embedding  Unsupported("vector")?
+  createdAt  DateTime               @default(now())
+
+  @@unique([chunkId, model])
+  @@index([provider, model])
+}
+
+// ---------------------------------------------------------------------------
+// Ingestion
+// ---------------------------------------------------------------------------
+
+enum IngestionStage {
+  PARSE
+  CLEAN
+  NORMALIZE
+  DEDUPLICATE
+  QUALITY
+  CHUNK
+  EMBED
+  STORE
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  SKIPPED
+}
+
+model IngestionJob {
+  id         String         @id @default(cuid())
+  documentId String
+  document   Document       @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  stage      IngestionStage
+  status     JobStatus      @default(PENDING)
+  attempt    Int            @default(1)
+  error      String?
+  metrics    Json           @default("{}")
+  startedAt  DateTime?
+  finishedAt DateTime?
+  createdAt  DateTime       @default(now())
+
+  @@index([documentId, stage])
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// Retrieval + truy vấn RAG
+// ---------------------------------------------------------------------------
+
+enum RagStatus {
+  GROUNDED
+  PARTIALLY_GROUNDED
+  INSUFFICIENT_EVIDENCE
+  CONFLICTING_EVIDENCE
+}
+
+model RagQuery {
+  id           String     @id @default(cuid())
+  query        String
+  status       RagStatus?
+  answer       String?
+  provider     String?
+  model        String?
+  faithfulness Float?
+  usage        Json       @default("{}")
+  trace        Json       @default("{}")
+  latencyMs    Int?
+  error        String?
+  createdAt    DateTime   @default(now())
+
+  citations     Citation[]
+  retrievalLogs RetrievalLog[]
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model RetrievalLog {
+  id         String    @id @default(cuid())
+  ragQueryId String?
+  ragQuery   RagQuery? @relation(fields: [ragQueryId], references: [id], onDelete: SetNull)
+  query      String
+  strategy   String
+  topK       Int
+  filters    Json      @default("{}")
+  results    Json      @default("[]")
+  latencyMs  Int?
+  createdAt  DateTime  @default(now())
+
+  @@index([ragQueryId])
+  @@index([createdAt])
+}
+
+model Citation {
+  id         String         @id @default(cuid())
+  ragQueryId String
+  ragQuery   RagQuery       @relation(fields: [ragQueryId], references: [id], onDelete: Cascade)
+  claimText  String
+  documentId String?
+  document   Document?      @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  chunkId    String?
+  chunk      DocumentChunk? @relation(fields: [chunkId], references: [id], onDelete: SetNull)
+  page       Int?
+  section    String?
+  valid      Boolean        @default(false)
+  createdAt  DateTime       @default(now())
+
+  @@index([ragQueryId])
+}
+
+// ---------------------------------------------------------------------------
+// Đánh giá (evaluation)
+// ---------------------------------------------------------------------------
+
+enum EvaluationCaseType {
+  DIRECT_RETRIEVAL
+  MULTI_HOP
+  UNANSWERABLE
+  ADVERSARIAL
+  CONFLICTING_SOURCES
+  EXACT_IDENTIFIER
+  SEMANTIC_QUERY
+}
+
+enum EvaluationRunStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+model EvaluationDataset {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  version     String   @default("1")
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  cases EvaluationCase[]
+  runs  EvaluationRun[]
+}
+
+model EvaluationCase {
+  id                String             @id @default(cuid())
+  datasetId         String
+  dataset           EvaluationDataset  @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  externalId        String
+  type              EvaluationCaseType
+  question          String
+  answerable        Boolean
+  expectedAnswer    String?
+  expectedDocuments Json               @default("[]")
+  expectedChunks    Json               @default("[]")
+  metadata          Json               @default("{}")
+
+  results EvaluationResult[]
+
+  @@unique([datasetId, externalId])
+}
+
+model EvaluationRun {
+  id         String              @id @default(cuid())
+  datasetId  String
+  dataset    EvaluationDataset   @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  label      String
+  status     EvaluationRunStatus @default(PENDING)
+  config     Json                @default("{}")
+  provider   String?
+  model      String?
+  metrics    Json                @default("{}")
+  isBaseline Boolean             @default(false)
+  startedAt  DateTime?
+  finishedAt DateTime?
+  createdAt  DateTime            @default(now())
+
+  results EvaluationResult[]
+
+  @@index([datasetId])
+  @@index([isBaseline])
+}
+
+model EvaluationResult {
+  id           String         @id @default(cuid())
+  runId        String
+  run          EvaluationRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  caseId       String
+  case         EvaluationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  passed       Boolean
+  actualAnswer String?
+  actualStatus String?
+  metrics      Json           @default("{}")
+  failureLayer String?
+  notes        String?
+  createdAt    DateTime       @default(now())
+
+  @@unique([runId, caseId])
+  @@index([runId])
+}

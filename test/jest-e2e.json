@@ -3,7 +3,24 @@
   "rootDir": ".",
   "testEnvironment": "node",
   "testRegex": ".e2e-spec.ts$",
+  "extensionsToTreatAsEsm": [".ts"],
+  "setupFiles": ["<rootDir>/jest-e2e.setup.ts"],
+  "moduleNameMapper": {
+    "^(\\.{1,2}/.*)\\.js$": "$1"
+  },
   "transform": {
-    "^.+\\.(t|j)s$": "ts-jest"
-  }
+    "^.+\\.(t|j)s$": [
+      "ts-jest",
+      {
+        "useESM": true,
+        "tsconfig": {
+          "module": "esnext",
+          "moduleResolution": "bundler"
+        }
+      }
+    ]
+  },
+  "transformIgnorePatterns": [
+    "node_modules/(?!(?:\\.pnpm/)?(@nestjs/config|@langchain|langchain|langsmith|js-tiktoken)/)"
+  ]
 }

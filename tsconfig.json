@@ -5,6 +5,7 @@
     "resolvePackageJsonExports": true,
     "esModuleInterop": true,
     "isolatedModules": true,
+    "verbatimModuleSyntax": false,
     "declaration": true,
     "removeComments": true,
     "emitDecoratorMetadata": true,
@@ -13,13 +14,15 @@
     "target": "ES2023",
     "sourceMap": true,
     "outDir": "./dist",
-    "baseUrl": "./",
     "incremental": true,
-    "skipLibCheck": true,
+    "strict": true,
+    "noImplicitAny": true,
     "strictNullChecks": true,
+    "strictBindCallApply": true,
     "forceConsistentCasingInFileNames": true,
-    "noImplicitAny": false,
-    "strictBindCallApply": false,
-    "noFallthroughCasesInSwitch": false
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true,
+    "types": ["node", "jest"]
   }
 }

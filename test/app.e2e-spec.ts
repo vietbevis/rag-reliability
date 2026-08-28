@@ -1,29 +1,73 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication } from '@nestjs/common';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
 import request from 'supertest';
-import { App } from 'supertest/types';
-import { AppModule } from './../src/app.module';
+import { AppModule } from '../src/app.module';
+import { AllExceptionsFilter } from '../src/common/errors';
 
-describe('AppController (e2e)', () => {
-  let app: INestApplication<App>;
+/**
+ * E2E PHASE 0: xác nhận ứng dụng boot và các endpoint hạ tầng hoạt động.
+ * Cần PostgreSQL + pgvector đang chạy (docker compose up -d postgres) và một
+ * `.env` hợp lệ. `POST /ai/providers/test` phải xử lý êm khi không có API key.
+ */
+describe('RAG Reliability Service (e2e) — PHASE 0', () => {
+  let app: INestApplication;
 
-  beforeEach(async () => {
-    const moduleFixture: TestingModule = await Test.createTestingModule({
+  beforeAll(async () => {
+    const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
 
-    app = moduleFixture.createNestApplication();
+    app = moduleRef.createNestApplication();
+    app.useGlobalPipes(
+      new ValidationPipe({ whitelist: true, transform: true }),
+    );
+    app.useGlobalFilters(new AllExceptionsFilter());
     await app.init();
   });
 
-  it('/ (GET)', () => {
-    return request(app.getHttpServer())
-      .get('/')
-      .expect(200)
-      .expect('Hello World!');
+  afterAll(async () => {
+    await app.close();
   });
 
-  afterEach(async () => {
-    await app.close();
+  it('GET /health → 200 và database "up"', async () => {
+    const res = await request(app.getHttpServer()).get('/health');
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('ok');
+    expect(res.body.info).toHaveProperty('database');
+    expect(res.body.info.database.status).toBe('up');
+    expect(res.body.info).toHaveProperty('pgvector');
+  });
+
+  it('GET /health/live → 200', async () => {
+    const res = await request(app.getHttpServer()).get('/health/live');
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('ok');
+  });
+
+  it('GET /ai/providers liệt kê 4 LLM + 3 embedding provider', async () => {
+    const res = await request(app.getHttpServer()).get('/ai/providers');
+    expect(res.status).toBe(200);
+    expect(res.body.llm.providers).toHaveLength(4);
+    expect(res.body.embedding.providers).toHaveLength(3);
+    expect(res.body.embedding.dimension).toBe(1536);
+    expect(['openai', 'gemini', 'anthropic', 'custom']).toContain(
+      res.body.llm.active,
+    );
+  });
+
+  it('POST /ai/providers/test xử lý êm khi provider chưa cấu hình', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/ai/providers/test')
+      .send({ provider: 'gemini' });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(false);
+    expect(res.body.configured).toBe(false);
+  });
+
+  it('POST /ai/providers/test từ chối provider không hợp lệ (validation)', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/ai/providers/test')
+      .send({ provider: 'not-a-provider' });
+    expect(res.status).toBe(400);
   });
 });
