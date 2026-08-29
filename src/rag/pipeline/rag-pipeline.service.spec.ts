@@ -237,4 +237,15 @@ describe('RagPipelineService (PHASE 4 baseline)', () => {
     await svc.query({ query: 'q' });
     expect(rerankMock).toHaveBeenCalled();
   });
+
+  it('rerank + req.topK > RERANK_CANDIDATES -> retrieval kéo ít nhất topK', async () => {
+    const { svc } = build();
+    const retrieve = (svc as unknown as { retrieval: RetrievalService })
+      .retrieval.retrieve as jest.Mock;
+    await svc.query({ query: 'q', rerank: true, topK: 40 });
+    // config.mock rerank.candidates mặc định 20 → phải kéo max(20, 40) = 40
+    expect(retrieve).toHaveBeenCalledWith(
+      expect.objectContaining({ topK: 40 }),
+    );
+  });
 });

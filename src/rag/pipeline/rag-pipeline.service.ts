@@ -124,8 +124,11 @@ export class RagPipelineService {
     try {
       const rerankOn = req.rerank ?? this.rerankCfg.enabled;
       const finalTopK = req.topK ?? this.rerankCfg.topK;
-      // Rerank bật → kéo nhiều ứng viên rồi mới thu về finalTopK.
-      const retrieveTopK = rerankOn ? this.rerankCfg.candidates : finalTopK;
+      // Rerank bật → kéo nhiều ứng viên rồi mới thu về finalTopK (nhưng không ít
+      // hơn finalTopK nếu client yêu cầu topK > RERANK_CANDIDATES).
+      const retrieveTopK = rerankOn
+        ? Math.max(this.rerankCfg.candidates, finalTopK)
+        : finalTopK;
 
       const retrieval = await this.retrieval.retrieve({
         query: req.query,
@@ -232,10 +235,11 @@ export class RagPipelineService {
         faithfulness: null,
         retrieval: {
           strategy: retrieval.strategy,
-          chunkCount: workingChunks.length,
+          // Chunk THỰC SỰ vào prompt generation (sau rerank + token budget của
+          // ContextBuilder), KHÔNG phải danh sách retrieval thô.
+          chunkCount: context.chunks.length,
           topScore: validation.topScore,
-          // Chunk THỰC SỰ vào context (sau rerank nếu có).
-          chunks: workingChunks.map((c) => ({
+          chunks: context.chunks.map((c) => ({
             chunkId: c.chunkId,
             documentId: c.documentId,
             score: c.score,

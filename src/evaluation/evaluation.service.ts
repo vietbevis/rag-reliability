@@ -169,11 +169,7 @@ export class EvaluationService {
    * `rerank: false` rồi `rerank: true` — rồi so số liệu. Chứng minh rerank có
    * cải thiện đủ để bù cost/latency hay không.
    */
-  async benchmarkRerank(opts: {
-    datasetName: string;
-    mode?: EvalMode;
-    topK?: number;
-  }): Promise<{
+  async benchmarkRerank(opts: { datasetName: string; topK?: number }): Promise<{
     before: EvaluationRunSummary;
     after: EvaluationRunSummary;
     deltas: Array<{
@@ -185,11 +181,13 @@ export class EvaluationService {
   }> {
     const before = await this.run({
       ...opts,
+      mode: 'full', // rerank chỉ có tác dụng trong pipeline generation
       rerank: false,
       label: `${opts.datasetName}-rerank-off-${stamp()}`,
     });
     const after = await this.run({
       ...opts,
+      mode: 'full',
       rerank: true,
       label: `${opts.datasetName}-rerank-on-${stamp()}`,
     });

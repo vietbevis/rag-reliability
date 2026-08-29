@@ -1,5 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
+import { ToBoolean } from '../../common/dto/boolean.transform';
 import {
   IsArray,
   IsBoolean,
@@ -75,7 +76,7 @@ export class RagQueryDto {
       'Ghi đè RERANK_ENABLED cho request này (benchmark before/after).',
   })
   @IsOptional()
-  @Type(() => Boolean)
+  @ToBoolean()
   @IsBoolean()
   rerank?: boolean;
 }

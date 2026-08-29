@@ -38,7 +38,7 @@ LangGraph.js · Multi-provider LLM (OpenAI · Gemini · Anthropic · Custom) ·
 | `GET /ai/providers`, `POST /ai/providers/test`                                                                      |                                                     |
 | **API graph (P5)**: `POST/GET /documents/:id/graph` · `DELETE /documents/:id` (dọn Neo4j) · `POST /graph/reconcile` |                                                     |
 | Docker Compose (app + postgres + neo4j), Dockerfile multi-stage                                                     |                                                     |
-| 302 unit test + 45 e2e/integration test (8 graph e2e chỉ chạy khi bật Neo4j)                                        |                                                     |
+| 309 unit test + 45 e2e/integration test (8 graph e2e chỉ chạy khi bật Neo4j)                                        |                                                     |
 
 Chi tiết: [`docs/architecture/rag-architecture.md`](docs/architecture/rag-architecture.md),
 [`docs/architecture/graph-rag.md`](docs/architecture/graph-rag.md),

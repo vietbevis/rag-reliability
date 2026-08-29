@@ -49,7 +49,6 @@ export class EvaluationController {
   benchmarkRerank(@Body() dto: BenchmarkRerankDto) {
     return this.evaluation.benchmarkRerank({
       datasetName: dto.datasetName,
-      mode: dto.mode,
       topK: dto.topK,
     });
   }

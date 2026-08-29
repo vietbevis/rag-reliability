@@ -92,9 +92,16 @@ export class RerankerService {
         topK,
       );
 
+      // Token đã tốn cho lời gọi LLM thất bại KHÔNG được mất dấu (§38, §56).
+      const spent = (err as { usage?: RerankResult['usage'] }).usage;
+
       return {
         chunks: fallbackChunks,
-        usage: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
+        usage: {
+          inputTokens: spent?.inputTokens ?? 0,
+          outputTokens: spent?.outputTokens ?? 0,
+          estimatedCost: spent?.estimatedCost ?? 0,
+        },
         latencyMs: Date.now() - t0,
         method: targetMethod,
         fellBack: true,

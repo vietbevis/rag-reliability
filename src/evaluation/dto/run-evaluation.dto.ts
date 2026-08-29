@@ -10,6 +10,7 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
+import { ToBoolean } from '../../common/dto/boolean.transform';
 
 /** Body cho `POST /evaluation/run` (PROMPT §31). */
 export class RunEvaluationDto {
@@ -34,7 +35,7 @@ export class RunEvaluationDto {
 
   @ApiPropertyOptional({ description: 'Đánh dấu run này là baseline' })
   @IsOptional()
-  @Type(() => Boolean)
+  @ToBoolean()
   @IsBoolean()
   isBaseline?: boolean;
 
@@ -51,22 +52,20 @@ export class RunEvaluationDto {
       'Ghi đè RERANK_ENABLED cho run này (§36 benchmark before/after)',
   })
   @IsOptional()
-  @Type(() => Boolean)
+  @ToBoolean()
   @IsBoolean()
   rerank?: boolean;
 }
 
-/** Body cho `POST /evaluation/benchmark-rerank`. */
+/**
+ * Body cho `POST /evaluation/benchmark-rerank`. LUÔN chạy `mode: 'full'` — rerank
+ * chỉ tác động trong pipeline generation, `mode: 'retrieval'` sẽ cho deltas = 0.
+ */
 export class BenchmarkRerankDto {
   @ApiProperty({ description: 'Tên dataset' })
   @IsString()
   @MinLength(1)
   datasetName!: string;
-
-  @ApiPropertyOptional({ enum: ['retrieval', 'full'], default: 'full' })
-  @IsOptional()
-  @IsIn(['retrieval', 'full'])
-  mode?: 'retrieval' | 'full';
 
   @ApiPropertyOptional({ minimum: 1, maximum: 200 })
   @IsOptional()

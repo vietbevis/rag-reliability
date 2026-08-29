@@ -138,4 +138,55 @@ describe('LlmRerankerProvider', () => {
     expect(result.usage?.inputTokens).toBe(0);
     expect(llmService.chatStructured).not.toHaveBeenCalled();
   });
+
+  it('LLM trả index ngoài khoảng / thiếu → chunk tương ứng nhận relevance 0, không crash', async () => {
+    const chunks = [
+      makeChunk('c1', 'nội dung 1'),
+      makeChunk('c2', 'nội dung 2'),
+    ];
+    llmService.chatStructured.mockResolvedValueOnce({
+      data: {
+        ranking: [
+          { index: 99, relevance: 9 },
+          { index: 1, relevance: 3 },
+        ],
+      },
+      usage: { inputTokens: 10, outputTokens: 2, estimatedCost: 0 },
+    });
+    const r = await provider.rerank('q', chunks, 5);
+    expect(r.chunks).toHaveLength(2);
+    // c1 (index 1) = 0.3, c2 (không được nhắc) = 0 → c1 trên
+    expect(r.chunks[0]!.chunkId).toBe('c1');
+    expect(r.chunks[0]!.rerankScore).toBeCloseTo(0.3, 4);
+    expect(r.chunks[1]!.rerankScore).toBe(0);
+  });
+
+  it('RerankError khi ranking rỗng mang theo token usage đã tốn', async () => {
+    llmService.chatStructured.mockResolvedValueOnce({
+      data: { ranking: [] },
+      usage: { inputTokens: 42, outputTokens: 3, estimatedCost: 0.001 },
+    });
+    await provider
+      .rerank('q', [makeChunk('c1', 'x')], 5)
+      .catch((err: unknown) => {
+        expect(
+          (err as { usage: { inputTokens: number } }).usage.inputTokens,
+        ).toBe(42);
+      });
+    expect.assertions(1);
+  });
+
+  it('chunk dài bị cắt ~1200 ký tự trước khi đưa vào prompt', async () => {
+    const long = 'A'.repeat(3000);
+    llmService.chatStructured.mockResolvedValueOnce({
+      data: { ranking: [{ index: 1, relevance: 5 }] },
+      usage: { inputTokens: 1, outputTokens: 1, estimatedCost: 0 },
+    });
+    await provider.rerank('q', [makeChunk('c1', long)], 5);
+    const userMsg = llmService.chatStructured.mock.calls[0][0].find(
+      (m: { role: string }) => m.role === 'user',
+    );
+    expect(userMsg.content).toContain('<chunk index="1">');
+    expect(userMsg.content).not.toContain('A'.repeat(1300));
+  });
 });
