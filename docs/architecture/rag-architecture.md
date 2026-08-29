@@ -30,7 +30,7 @@ Faithfulness tăng A→B, latency +C ms, cost +D%".
 | 1     | Ingestion: parsing, normalize, cleaning, dedup, quality score, API upload/CRUD                              | ✅ Hoàn thành |
 | 2     | Chunking: structure-aware (Markdown) + fixed (baseline) + chunk quality + API                               | ✅ Hoàn thành |
 | 3     | Embedding đa provider (batch) + pgvector + HNSW index + API                                                 | ✅ Hoàn thành |
-| 4     | Baseline RAG (fixed chunk + vector search + prompt đơn giản) + evaluation harness + lưu baseline metrics    | ⏳            |
+| 4     | Baseline RAG: vector retrieval → context → validate → generate + evaluation harness + golden dataset + baseline metrics | ✅ Hoàn thành |
 | 5     | **Graph RAG — construction**: entity + relationship extraction (LLM) → Neo4j; ingestion stage `GRAPH`; API  | ⏳            |
 | 6     | Retrieval nâng cao: metadata filter · keyword · **graph traversal (local)** · hybrid · fusion               | ⏳            |
 | 7     | Reranking + benchmark before/after                                                                          | ⏳            |
@@ -51,10 +51,15 @@ src/
 ├── rag/ingestion/   # normalize · clean · dedup · quality · orchestrator
 ├── rag/chunking/    # structure-aware | fixed · chunk quality · factory
 ├── rag/embedding/   # orchestrator (chunk→pgvector) + kiểm tra vector schema
+├── rag/retrieval/   # (P4) Retriever interface · VectorRetriever (pgvector) · RetrievalService orchestrator
+├── rag/context/     # (P4) ContextBuilder (dedup·sort·token budget) · ContextValidator (abstain gate §22)
+├── rag/grounding/   # (P4) AnswerGeneration (structured output + schema.parse §50); claim/faithfulness ở P8-10
+├── rag/pipeline/    # (P4) RagPipelineService: retrieve→context→validate→generate→persist RagQuery
 ├── rag/graph/       # (P5) entity/relation extraction · Neo4j store · graph traversal (P6)
 ├── graph/           # (P5) Neo4jService (driver) + graph.module
+├── evaluation/      # (P4) golden dataset loader · retrieval + generation metrics · EvaluationRun · CLI
 ├── ai/
-│   ├── llm/         # LLMProvider interface + 4 provider (openai|gemini|anthropic|custom)
+│   ├── llm/         # LLMProvider interface + 5 provider (openai|gemini|anthropic|custom|fake)
 │   ├── embeddings/  # EmbeddingProvider interface + 4 provider (openai|gemini|custom|fake)
 │   ├── reranking/   # RerankerProvider interface (hiện thực ở PHASE 6)
 │   └── tokenizer/   # đếm token (js-tiktoken)
@@ -89,28 +94,39 @@ flowchart TD
   PG --> DONE["Document COMPLETED"]
 ```
 
-## 5. Pipeline truy vấn RAG (`POST /rag/query` — hiện thực từ PHASE 4)
+## 5. Pipeline truy vấn RAG (`POST /rag/query`)
+
+Đường xanh (`PHASE 4` — đã hiện thực): vector search → context builder →
+context validation → grounded generation → citation map thô → response.
+Đường xám (P6-10): query analyzer, keyword search, fusion, reranker, claim
+extraction, evidence matching, contradiction, faithfulness check.
 
 ```mermaid
 flowchart TD
-  QRY[Query] --> AN["Query analyzer: exact | semantic | filtered | multi-concept"]
-  AN --> VEC[Vector search]
-  AN --> KW[Keyword search - full-text]
-  VEC --> FUS["Fusion: RRF / weighted"]
+  QRY[Query] --> AN["(P6) Query analyzer: exact | semantic | filtered | multi-concept"]
+  AN --> VEC["VECTOR SEARCH (P4)"]
+  AN --> KW["(P6) Keyword search - full-text"]
+  AN --> GR["(P6) Graph traversal (local)"]
+  VEC --> FUS["(P6) Fusion: RRF / weighted"]
   KW --> FUS
-  FUS --> RR["Reranker: top 20 -> top 5 (co fallback)"]
-  RR --> CB["Context builder: dedup, sort, token budget"]
-  CB --> CV{"Context validation: du evidence?"}
-  CV -->|khong| ABS["INSUFFICIENT_EVIDENCE (khong goi LLM)"]
-  CV -->|co| GEN["Grounded generation (structured JSON output)"]
-  GEN --> CE[Claim extraction]
-  CE --> EM["Evidence matching: claim -> chunk"]
-  EM --> CD{Contradiction?}
-  CD -->|co| CF["CONFLICTING_EVIDENCE: citation ca 2 nguon / abstain"]
-  CD -->|khong| FF["Faithfulness check: supported / unsupported / contradicted"]
-  FF --> CIT["Citation do backend map: claim -> chunk -> document/page"]
+  GR --> FUS
+  FUS --> RR["(P7) Reranker: top 20 -> top 5 (co fallback)"]
+  RR --> CB["CONTEXT BUILDER (P4): dedup, sort, token budget"]
+  CB --> CV{"CONTEXT VALIDATION (P4): du evidence?"}
+  CV -->|khong| ABS["INSUFFICIENT_EVIDENCE (khong goi LLM) — P4"]
+  CV -->|co| GEN["GROUNDED GENERATION (P4): structured JSON + schema.parse"]
+  GEN --> CE["(P8) Claim extraction"]
+  CE --> EM["(P9) Evidence matching: claim -> chunk"]
+  EM --> CD{"(P9) Contradiction?"}
+  CD -->|co| CF["(P9) CONFLICTING_EVIDENCE: citation ca 2 nguon / abstain"]
+  CD -->|khong| FF["(P10) Faithfulness check: supported / unsupported / contradicted"]
+  FF --> CIT["CITATION MAP (P4 tho: usedContext -> chunk -> document; P9 cap claim)"]
   CIT --> RESP["Response: answer, status, citations, claims, retrieval, faithfulness, provider, model, usage"]
 ```
+
+> PHASE 4 bỏ qua query analyzer / keyword / graph / fusion / reranker (đi thẳng
+> `VEC → CB`) và trả `claims: []`, `faithfulness: null`. Xem `docs/rag/retrieval.md`
+> và `docs/rag/grounding.md`.
 
 ## 6. Failure handling (PROMPT §54)
 

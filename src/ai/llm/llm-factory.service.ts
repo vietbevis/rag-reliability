@@ -6,6 +6,7 @@ import { LlmProvider } from './llm-provider.enum';
 import type { LLMProvider } from './llm.interface';
 import { AnthropicLlmProvider } from './providers/anthropic-llm.provider';
 import { CustomLlmProvider } from './providers/custom-llm.provider';
+import { FakeLlmProvider } from './providers/fake-llm.provider';
 import { GeminiLlmProvider } from './providers/gemini-llm.provider';
 import { OpenAiLlmProvider } from './providers/openai-llm.provider';
 
@@ -24,12 +25,14 @@ export class LlmFactoryService {
     gemini: GeminiLlmProvider,
     anthropic: AnthropicLlmProvider,
     custom: CustomLlmProvider,
+    fake: FakeLlmProvider,
   ) {
     this.registry = {
       [LlmProvider.OPENAI]: openai,
       [LlmProvider.GEMINI]: gemini,
       [LlmProvider.ANTHROPIC]: anthropic,
       [LlmProvider.CUSTOM]: custom,
+      [LlmProvider.FAKE]: fake,
     };
   }
 

@@ -4,6 +4,8 @@ export enum LlmProvider {
   GEMINI = 'gemini',
   ANTHROPIC = 'anthropic',
   CUSTOM = 'custom',
+  /** Tất định — chỉ cho CI/dev, không suy luận thật. */
+  FAKE = 'fake',
 }
 
 /** Các back-end tạo embedding. Chọn qua `EMBEDDING_PROVIDER`. */

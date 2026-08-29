@@ -35,6 +35,7 @@ const PROVIDER_DEFAULT: Record<LlmProvider, ModelPrice> = {
   [LlmProvider.GEMINI]: { inputPer1k: 0.0003, outputPer1k: 0.0025 },
   [LlmProvider.ANTHROPIC]: { inputPer1k: 0.003, outputPer1k: 0.015 },
   [LlmProvider.CUSTOM]: { inputPer1k: 0, outputPer1k: 0 },
+  [LlmProvider.FAKE]: { inputPer1k: 0, outputPer1k: 0 },
 };
 
 export function getModelPrice(

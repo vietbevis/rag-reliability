@@ -12,16 +12,25 @@ import { DocumentDeduplicatorService } from './ingestion/document-deduplicator.s
 import { DocumentNormalizerService } from './ingestion/document-normalizer.service';
 import { DocumentQualityService } from './ingestion/document-quality.service';
 import { IngestionService } from './ingestion/ingestion.service';
+import { VectorRetrieverService } from './retrieval/vector-retriever.service';
+import { RetrievalService } from './retrieval/retrieval.service';
+import { ContextBuilderService } from './context/context-builder.service';
+import { ContextValidatorService } from './context/context-validator.service';
+import { AnswerGenerationService } from './grounding/answer-generation.service';
+import { RagPipelineService } from './pipeline/rag-pipeline.service';
+import { RagController } from './rag.controller';
 
 /**
  * Lõi RAG.
- *   PHASE 1: pipeline ingestion (normalize -> clean -> dedup -> quality)
+ *   PHASE 1: ingestion (normalize -> clean -> dedup -> quality)
  *   PHASE 2: chunking (structure-aware | fixed) + chunk quality
  *   PHASE 3: embedding đa provider (batch) + lưu pgvector
- * Các phase sau thêm retrieval, grounding, evaluation.
+ *   PHASE 4: baseline RAG — vector retrieval -> context -> validate -> generate
+ * Các phase sau thêm graph, keyword/hybrid, rerank, faithfulness, evaluation.
  */
 @Module({
   imports: [ParsersModule],
+  controllers: [RagController],
   providers: [
     DocumentNormalizerService,
     DocumentCleanerService,
@@ -35,6 +44,12 @@ import { IngestionService } from './ingestion/ingestion.service';
     ChunkingService,
     VectorSchemaService,
     ChunkEmbeddingService,
+    VectorRetrieverService,
+    RetrievalService,
+    ContextBuilderService,
+    ContextValidatorService,
+    AnswerGenerationService,
+    RagPipelineService,
   ],
   exports: [
     IngestionService,
@@ -46,6 +61,9 @@ import { IngestionService } from './ingestion/ingestion.service';
     ChunkQualityService,
     ChunkEmbeddingService,
     VectorSchemaService,
+    RetrievalService,
+    ContextBuilderService,
+    RagPipelineService,
   ],
 })
 export class RagModule {}

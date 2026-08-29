@@ -52,6 +52,9 @@ export interface AppConfig {
     retrievalTopK: number;
     rerankTopK: number;
     maxContextTokens: number;
+    minRelevance: number;
+    minChunks: number;
+    temperature: number;
   };
   reliability: {
     faithfulnessThreshold: number;
@@ -135,6 +138,9 @@ export function loadConfiguration(): AppConfig {
       retrievalTopK: env.RETRIEVAL_TOP_K,
       rerankTopK: env.RERANK_TOP_K,
       maxContextTokens: env.MAX_CONTEXT_TOKENS,
+      minRelevance: env.RAG_MIN_RELEVANCE,
+      minChunks: env.RAG_MIN_CHUNKS,
+      temperature: env.RAG_TEMPERATURE,
     },
     reliability: {
       faithfulnessThreshold: env.FAITHFULNESS_THRESHOLD,

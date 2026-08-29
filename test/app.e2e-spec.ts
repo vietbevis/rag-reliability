@@ -44,16 +44,19 @@ describe('RAG Reliability Service (e2e) — PHASE 0', () => {
     expect(res.body.status).toBe('ok');
   });
 
-  it('GET /ai/providers liệt kê 4 LLM + 4 embedding provider (gồm fake)', async () => {
+  it('GET /ai/providers liệt kê 5 LLM + 4 embedding provider (gồm fake)', async () => {
     const res = await request(app.getHttpServer()).get('/ai/providers');
     expect(res.status).toBe(200);
-    expect(res.body.llm.providers).toHaveLength(4);
+    expect(res.body.llm.providers).toHaveLength(5);
     expect(res.body.embedding.providers).toHaveLength(4);
+    expect(
+      res.body.llm.providers.map((p: { provider: string }) => p.provider),
+    ).toContain('fake');
     expect(
       res.body.embedding.providers.map((p: { provider: string }) => p.provider),
     ).toContain('fake');
     expect(res.body.embedding.dimension).toBe(1536);
-    expect(['openai', 'gemini', 'anthropic', 'custom']).toContain(
+    expect(['openai', 'gemini', 'anthropic', 'custom', 'fake']).toContain(
       res.body.llm.active,
     );
   });

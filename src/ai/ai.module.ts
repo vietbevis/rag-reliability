@@ -11,6 +11,7 @@ import { LlmFactoryService } from './llm/llm-factory.service';
 import { LlmService } from './llm/llm.service';
 import { AnthropicLlmProvider } from './llm/providers/anthropic-llm.provider';
 import { CustomLlmProvider } from './llm/providers/custom-llm.provider';
+import { FakeLlmProvider } from './llm/providers/fake-llm.provider';
 import { GeminiLlmProvider } from './llm/providers/gemini-llm.provider';
 import { OpenAiLlmProvider } from './llm/providers/openai-llm.provider';
 import { TokenCounterService } from './tokenizer/token-counter.service';
@@ -28,6 +29,7 @@ import { TokenCounterService } from './tokenizer/token-counter.service';
     GeminiLlmProvider,
     AnthropicLlmProvider,
     CustomLlmProvider,
+    FakeLlmProvider,
     LlmFactoryService,
     LlmService,
     OpenAiEmbeddingProvider,

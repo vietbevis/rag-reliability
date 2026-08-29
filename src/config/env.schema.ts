@@ -14,6 +14,7 @@ export const LlmProviderValues = [
   'gemini',
   'anthropic',
   'custom',
+  'fake',
 ] as const;
 // `fake`: embedding tất định (seed theo hash nội dung) — chỉ dùng cho CI/dev,
 // KHÔNG có ý nghĩa ngữ nghĩa. Dùng để test toàn bộ pipeline mà không cần API key.
@@ -148,6 +149,11 @@ export const envSchema = z
       max: 200000,
       default: 4000,
     }),
+    // Ngưỡng điểm relevance của chunk tốt nhất để KHÔNG abstain (PROMPT §22).
+    // Mặc định 0 ở baseline (chỉ abstain khi 0 chunk) — PHASE 7 siết lại.
+    RAG_MIN_RELEVANCE: numeric({ min: 0, max: 1, default: 0 }),
+    RAG_MIN_CHUNKS: numeric({ int: true, min: 0, max: 50, default: 1 }),
+    RAG_TEMPERATURE: numeric({ min: 0, max: 2, default: 0 }),
 
     // ---- Ngưỡng độ tin cậy ------------------------------------------
     FAITHFULNESS_THRESHOLD: numeric({ min: 0, max: 1, default: 0.8 }),

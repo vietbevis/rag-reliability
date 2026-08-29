@@ -25,6 +25,8 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
+    "evaluate": "nest build && node dist/evaluation/cli/evaluate.js",
+    "evaluate:retrieval": "nest build && node dist/evaluation/cli/evaluate.js --retrieval",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down"
   },
@@ -81,6 +83,7 @@
     "ts-loader": "^9.5.2",
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
+    "tsx": "^4.23.12",
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.20.0"
   },

@@ -95,18 +95,31 @@ export interface EmbeddingVector {
   vector: number[];
 }
 
+export type RetrievalSource = 'vector' | 'keyword' | 'graph' | 'hybrid';
+
+export interface RetrievalFilters {
+  documentIds?: string[];
+  sources?: string[];
+  /** Lọc theo khoá trong `DocumentChunk.metadata` (khớp bằng nhau). */
+  metadata?: Record<string, string | number | boolean>;
+}
+
 export interface RetrievalQuery {
   query: string;
   topK: number;
-  filters?: Record<string, unknown>;
+  filters?: RetrievalFilters;
 }
 
 export interface RetrievedChunk {
   chunkId: string;
   documentId: string;
   content: string;
+  /** Điểm tương đồng đã chuẩn hoá về [0,1] (cao = liên quan hơn). */
   score: number;
-  source: 'vector' | 'keyword' | 'hybrid';
+  source: RetrievalSource;
+  heading?: string;
+  section?: string;
+  page?: number;
   metadata: Record<string, unknown>;
 }
 
@@ -116,7 +129,7 @@ export interface RerankedChunk extends RetrievedChunk {
 }
 
 export interface GroundingContext {
-  chunks: RerankedChunk[];
+  chunks: RetrievedChunk[];
   totalTokens: number;
   sources: Array<{ documentId: string; chunkIds: string[] }>;
 }
