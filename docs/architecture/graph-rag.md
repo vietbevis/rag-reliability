@@ -28,6 +28,35 @@
 | **Test**                                     | Unit (resolution, extractor, retriever traversal, cleanup, cache); integration Neo4j thật (compose profile `graph`); e2e pipeline với `LLM_PROVIDER=fake` (tất định) — chạy trong CI không cần API key.                                      |
 | **Bảo mật**                                  | Neo4j **luôn có mật khẩu** (kể cả dev/CI); bolt/http **không map ra host** trong compose (trừ khi dev cần). Query Cypher tham số hoá 100% (không nối chuỗi).                                                                                 |
 
+## 0b. Trạng thái hiện thực — PHASE 5 (✅ construction)
+
+Đã xong (commit phase-5): `src/graph/` (Neo4jService pool + read/write/writeTx,
+Neo4jSchemaService tạo 6 constraint/index lúc boot, Neo4jHealthIndicator vào
+`/health` chỉ khi bật) · `src/rag/graph/` (EntityExtractorService LLM structured
++ gleaning + post-validate; `entity-resolution` hàm thuần gộp theo key;
+GraphExtractionCacheService bảng `GraphExtractionCache`; GraphWriteService cleanup
++ write TRONG CÙNG 1 tx Neo4j → re-ingest song song nhất quán; GraphCleanupService
+`removeDocument`/`reconcile`; GraphIngestionService orchestrator; GraphQueryService
+tóm tắt; GraphController `/graph/reconcile`) · migration `phase5_graph_rag`
+(`DocumentStatus.GRAPHING`, `IngestionStage.GRAPH`, bảng cache) · wiring
+DocumentsService (`autoGraph` sau embedding, `POST/GET /documents/:id/graph`,
+`DELETE /documents/:id`) · docker-compose service `neo4j` profile `graph` +
+`docker-compose.override.yml.example` · 32 unit test + 6 e2e (Neo4j thật, opt-in
+qua `GRAPH_RAG_ENABLED=true`).
+
+Khác thiết kế gốc ở vài điểm (đơn giản hoá có chủ đích cho P5, không mất tính
+production):
+- **Extraction theo từng chunk** (không gộp nhiều chunk/lời gọi) → giữ được
+  ánh xạ entity→chunkId cho citation P9; trần `GRAPH_EXTRACT_MAX_LLM_CALLS_PER_DOC`
+  giới hạn số chunk xử lý, cache theo `sha256(chunkText)` khiến re-ingest gần như
+  free.
+- **Đồng bộ re-graph** bằng cách gộp cleanup + write vào MỘT transaction Neo4j
+  (Neo4j serialize theo write-lock trên node) thay vì `pg_advisory_xact_lock` —
+  vì thao tác graph không nằm trong transaction Postgres.
+- **`weight` của cạnh RELATED = `size(chunkIds)`** (số chunk chứng thực), tính lại
+  mỗi lần write/cleanup → không drift khi re-ingest.
+- `EntityAlias` + community detection: để P6 / P13 như kế hoạch.
+
 ## 1. Vì sao thêm Graph RAG
 
 Vector search kém ở **multi-hop** (PROMPT §32 Type B — thông tin rải rác nhiều

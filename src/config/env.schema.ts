@@ -155,6 +155,51 @@ export const envSchema = z
     RAG_MIN_CHUNKS: numeric({ int: true, min: 0, max: 50, default: 1 }),
     RAG_TEMPERATURE: numeric({ min: 0, max: 2, default: 0 }),
 
+    // ---- Graph RAG (PHASE 5 — construction) ------------------------------
+    // Công tắc tính năng. Khi bật: NEO4J_URI + NEO4J_PASSWORD bắt buộc, pipeline
+    // ingest thêm bước GRAPHING (trích entity/quan hệ → Neo4j).
+    GRAPH_RAG_ENABLED: boolish(false),
+    NEO4J_URI: z.string().trim().optional(),
+    NEO4J_USER: z.string().trim().default('neo4j'),
+    NEO4J_PASSWORD: z.string().trim().optional(),
+    NEO4J_MAX_POOL_SIZE: numeric({ int: true, min: 1, max: 500, default: 50 }),
+    NEO4J_QUERY_TIMEOUT_MS: numeric({
+      int: true,
+      min: 1000,
+      max: 120000,
+      default: 15000,
+    }),
+    // Gộp chunk vào một lời gọi extraction tới trần token này.
+    GRAPH_EXTRACT_MAX_TOKENS: numeric({
+      int: true,
+      min: 256,
+      max: 32000,
+      default: 3000,
+    }),
+    // Số vòng "gleaning" hỏi lại "còn sót entity/quan hệ nào không?" (tăng recall).
+    GRAPH_EXTRACT_GLEANINGS: numeric({ int: true, min: 0, max: 5, default: 1 }),
+    // Trần cứng số lời gọi LLM cho một tài liệu (chặn chi phí).
+    GRAPH_EXTRACT_MAX_LLM_CALLS_PER_DOC: numeric({
+      int: true,
+      min: 1,
+      max: 500,
+      default: 40,
+    }),
+    // Danh sách loại thực thể (CSV) — giới hạn không gian output của extractor.
+    GRAPH_ENTITY_TYPES: z
+      .string()
+      .trim()
+      .default('PERSON,ORG,LOCATION,DATE,REGULATION,CONCEPT,EVENT,PRODUCT')
+      .transform((v) =>
+        v
+          .split(',')
+          .map((s) => s.trim().toUpperCase())
+          .filter(Boolean),
+      )
+      .pipe(z.array(z.string()).min(1)),
+    // Đổi prompt extraction ⇒ tăng số này ⇒ cache extraction cũ tự vô hiệu.
+    GRAPH_PROMPT_VERSION: z.string().trim().default('1'),
+
     // ---- Ngưỡng độ tin cậy ------------------------------------------
     FAITHFULNESS_THRESHOLD: numeric({ min: 0, max: 1, default: 0.8 }),
     HALLUCINATION_THRESHOLD: numeric({ min: 0, max: 1, default: 0.1 }),
@@ -194,6 +239,19 @@ export const envSchema = z
         path: ['CHUNK_OVERLAP_TOKENS'],
         message: 'CHUNK_OVERLAP_TOKENS phải nhỏ hơn CHUNK_MAX_TOKENS',
       });
+    }
+
+    if (env.GRAPH_RAG_ENABLED) {
+      requireKey(
+        !!env.NEO4J_URI,
+        'NEO4J_URI',
+        'NEO4J_URI is required when GRAPH_RAG_ENABLED=true',
+      );
+      requireKey(
+        !!env.NEO4J_PASSWORD,
+        'NEO4J_PASSWORD',
+        'NEO4J_PASSWORD is required when GRAPH_RAG_ENABLED=true (Neo4j luôn phải có mật khẩu)',
+      );
     }
 
     switch (env.LLM_PROVIDER) {

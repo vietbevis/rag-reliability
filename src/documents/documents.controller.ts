@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Param,
@@ -111,5 +112,31 @@ export class DocumentsController {
       id,
       dto.provider as EmbeddingProviderName | undefined,
     );
+  }
+
+  @Post(':id/graph')
+  @HttpCode(200)
+  @ApiOperation({
+    summary:
+      'Chạy / chạy lại Graph RAG construction (trích entity+quan hệ → Neo4j) — PHASE 5',
+  })
+  graph(@Param('id') id: string) {
+    return this.documents.graph(id);
+  }
+
+  @Get(':id/graph')
+  @ApiOperation({
+    summary: 'Tóm tắt graph của tài liệu: entity/quan hệ count, top entity',
+  })
+  graphSummary(@Param('id') id: string) {
+    return this.documents.graphSummary(id);
+  }
+
+  @Delete(':id')
+  @ApiOperation({
+    summary: 'Xoá tài liệu (dọn graph Neo4j trước, rồi cascade Postgres)',
+  })
+  remove(@Param('id') id: string) {
+    return this.documents.remove(id);
   }
 }

@@ -132,3 +132,26 @@ export class EmbeddingError extends AppError {
     super(message, { ...context, kind }, options);
   }
 }
+
+/**
+ * Lỗi tầng Graph RAG (PHASE 5). `GRAPH_DISABLED` = gọi khi `GRAPH_RAG_ENABLED`
+ * tắt (lỗi lập trình — caller phải guard). `GRAPH_UNAVAILABLE` = Neo4j chết /
+ * quá tải (hạ tầng — retriever nuốt, ingestion giữ ở `GRAPHING` để chạy lại).
+ */
+export class GraphError extends AppError {
+  readonly code: string;
+  override readonly httpStatus: number;
+  override readonly retryable: boolean;
+
+  constructor(
+    code: 'GRAPH_DISABLED' | 'GRAPH_UNAVAILABLE' | 'GRAPH_EXTRACTION_FAILED',
+    message: string,
+    context?: Record<string, unknown>,
+    options?: { cause?: unknown },
+  ) {
+    super(message, context, options);
+    this.code = code;
+    this.httpStatus = code === 'GRAPH_DISABLED' ? 409 : 502;
+    this.retryable = code === 'GRAPH_UNAVAILABLE';
+  }
+}

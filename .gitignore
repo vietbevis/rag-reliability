@@ -42,6 +42,9 @@ lerna-debug.log*
 .env.production.local
 .env.local
 
+# Docker Compose override cục bộ (dev) — không commit; xem *.example
+docker-compose.override.yml
+
 # temp directory
 .temp
 .tmp

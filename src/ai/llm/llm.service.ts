@@ -25,6 +25,11 @@ export class LlmService {
     return this.factory.defaultProviderName;
   }
 
+  /** Model chat mặc định của provider đang active — dùng làm khoá cache. */
+  get activeModel(): string {
+    return this.factory.create().defaultModel;
+  }
+
   chat(
     messages: ChatMessage[],
     options?: LLMOptions & { provider?: LlmProvider },

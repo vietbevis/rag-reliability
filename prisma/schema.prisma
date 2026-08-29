@@ -28,6 +28,8 @@ enum DocumentStatus {
   VALIDATING
   CHUNKING
   EMBEDDING
+  // Chỉ khi GRAPH_RAG_ENABLED=true: trích entity/quan hệ → Neo4j (PHASE 5).
+  GRAPHING
   COMPLETED
   FAILED
   REJECTED
@@ -41,35 +43,35 @@ enum ParserType {
 }
 
 model Document {
-  id             String         @id @default(cuid())
-  title          String
-  source         String
-  mimeType       String
+  id              String         @id @default(cuid())
+  title           String
+  source          String
+  mimeType        String
   /// SHA-256 của bytes gốc — dùng phát hiện trùng lặp chính xác (exact).
-  checksum       String
+  checksum        String
   /// Hash của text đã chuẩn hoá — dùng phát hiện trùng lặp gần (near).
-  normalizedHash String?
-  version        Int            @default(1)
-  status         DocumentStatus @default(UPLOADED)
-  parserUsed     ParserType?
+  normalizedHash  String?
+  version         Int            @default(1)
+  status          DocumentStatus @default(UPLOADED)
+  parserUsed      ParserType?
   /// Bytes gốc của file upload — để re-ingest / debug / parse lại.
-  rawContent     Bytes?
-  rawText        String?
-  cleanedText    String?
-  parsedMarkdown String?
-  contentTokens  Int?
-  qualityScore   Float?
-  qualityReport  Json?
+  rawContent      Bytes?
+  rawText         String?
+  cleanedText     String?
+  parsedMarkdown  String?
+  contentTokens   Int?
+  qualityScore    Float?
+  qualityReport   Json?
   /// Danh sách các phép biến đổi quan trọng đã áp (PROMPT §9 — phải trace được).
-  transformations Json          @default("[]")
-  metadata       Json           @default("{}")
-  rejectedReason String?
+  transformations Json           @default("[]")
+  metadata        Json           @default("{}")
+  rejectedReason  String?
   /// Trỏ tới document mà bản này trùng lặp (nếu là near-duplicate được giữ lại).
-  duplicateOfId  String?
-  duplicateOf    Document?      @relation("DocumentDuplicates", fields: [duplicateOfId], references: [id], onDelete: SetNull)
-  duplicates     Document[]     @relation("DocumentDuplicates")
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  duplicateOfId   String?
+  duplicateOf     Document?      @relation("DocumentDuplicates", fields: [duplicateOfId], references: [id], onDelete: SetNull)
+  duplicates      Document[]     @relation("DocumentDuplicates")
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 
   chunks        DocumentChunk[]
   ingestionJobs IngestionJob[]
@@ -132,6 +134,7 @@ enum IngestionStage {
   QUALITY
   CHUNK
   EMBED
+  GRAPH
   STORE
 }
 
@@ -223,6 +226,26 @@ model Citation {
   createdAt  DateTime       @default(now())
 
   @@index([ragQueryId])
+}
+
+// ---------------------------------------------------------------------------
+// Graph RAG (PHASE 5) — nguồn sự thật cho graph là Neo4j; Postgres chỉ giữ
+// cache extraction để re-ingest cùng nội dung không phải gọi lại LLM.
+// ---------------------------------------------------------------------------
+
+/// Cache kết quả trích entity/quan hệ theo (nội dung chunk, model, phiên bản
+/// prompt). Idempotent: đổi prompt (GRAPH_PROMPT_VERSION) hoặc model ⇒ khoá mới.
+model GraphExtractionCache {
+  chunkHash     String
+  model         String
+  promptVersion String
+  entities      Json     @default("[]")
+  relationships Json     @default("[]")
+  inputTokens   Int      @default(0)
+  outputTokens  Int      @default(0)
+  createdAt     DateTime @default(now())
+
+  @@id([chunkHash, model, promptVersion])
 }
 
 // ---------------------------------------------------------------------------

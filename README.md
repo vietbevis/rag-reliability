@@ -16,27 +16,30 @@ NestJS 11 · TypeScript (strict) · PostgreSQL + pgvector · Prisma 7 (generator
 LangGraph.js · Multi-provider LLM (OpenAI · Gemini · Anthropic · Custom) ·
 `@firecrawl/anydoc` (parsing) · Docker Compose · Jest.
 
-## Trạng thái: PHASE 0-4 ✅
+## Trạng thái: PHASE 0-5 ✅
 
 | Có sẵn                                                                                                              | Chưa (phase sau)                                      |
 | ----------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| Config validate bằng Zod, health check (`/health` gồm pgvector)                                                     | Graph RAG — construction (P5)                        |
-| Prisma 7 + schema đầy đủ + migration + pgvector                                                                     | Retrieval nâng cao: keyword · graph · hybrid (P6)    |
-| Tầng AI đa provider: 5 LLM + 4 embedding (gồm `fake`), đổi bằng env                                                 | Reranking (P7)                                       |
-| Token counting, cost estimation theo provider, retry/timeout/phân loại lỗi                                          | Grounded generation nghiêm ngặt + abstention (P8)    |
-| Parser: anydoc (chính) + plaintext/html (fallback)                                                                  | Citation cấp claim / faithfulness (P9-10)            |
-| **Ingestion**: normalize → clean → dedup → quality gate, có trace                                                   | Evaluation framework đầy đủ / regression / obs (P11-12) |
+| Config validate bằng Zod, health check (`/health` gồm pgvector)                                                     | Retrieval nâng cao: keyword · graph · hybrid (P6)    |
+| Prisma 7 + schema đầy đủ + migration + pgvector                                                                     | Reranking (P7)                                       |
+| Tầng AI đa provider: 5 LLM + 4 embedding (gồm `fake`), đổi bằng env                                                 | Grounded generation nghiêm ngặt + abstention (P8)    |
+| Token counting, cost estimation theo provider, retry/timeout/phân loại lỗi                                          | Citation cấp claim / faithfulness (P9-10)            |
+| Parser: anydoc (chính) + plaintext/html (fallback)                                                                  | Evaluation framework đầy đủ / regression / obs (P11-12) |
+| **Ingestion**: normalize → clean → dedup → quality gate, có trace                                                   |                                                     |
 | **Chunking**: structure-aware (Markdown) + fixed (baseline), chunk quality, đổi bằng env                            |                                                     |
 | **Embedding**: đa provider (openai/gemini/custom/fake) + pgvector + HNSW cosine index, batch, cost tracking         |                                                     |
 | **Baseline RAG (P4)**: vector retrieval → context builder (token budget) → context validation → grounded generation (structured output + `schema.parse` server-side) → citation map thô → `RagQuery` trace |          |
+| **Graph RAG — construction (P5)**: Neo4j entity/relation graph, extraction LLM + gleaning, cache hash, cleanup doc |                                                     |
 | **API RAG**: `POST /rag/search` (chỉ retrieval, không LLM) · `POST /rag/query` (pipeline đầy đủ)                    |                                                     |
 | **Evaluation harness (P4)**: golden dataset + retrieval metrics (Recall@K/MRR/NDCG…) + generation metrics (abstention/correctness) + baseline `EvaluationRun` |          |
 | **API tài liệu**: upload → ingest → chunk → embed (tới `COMPLETED`) + `GET /documents/:id/{chunks,embeddings,jobs}` |                                                     |
 | `GET /ai/providers`, `POST /ai/providers/test`                                                                      |                                                     |
-| Docker Compose (app + postgres), Dockerfile multi-stage                                                             |                                                     |
-| 198 unit test + 31 e2e/integration test                                                                            |                                                     |
+| **API graph (P5)**: `POST/GET /documents/:id/graph` · `DELETE /documents/:id` (dọn Neo4j) · `POST /graph/reconcile` |                                                     |
+| Docker Compose (app + postgres + neo4j), Dockerfile multi-stage                                                     |                                                     |
+| 245 unit test + 38 e2e/integration test (6 graph e2e chỉ chạy khi bật Neo4j)                                        |                                                     |
 
 Chi tiết: [`docs/architecture/rag-architecture.md`](docs/architecture/rag-architecture.md),
+[`docs/architecture/graph-rag.md`](docs/architecture/graph-rag.md),
 [`docs/architecture/llm-providers.md`](docs/architecture/llm-providers.md),
 [`docs/rag/document-parsing.md`](docs/rag/document-parsing.md),
 [`docs/rag/data-cleaning.md`](docs/rag/data-cleaning.md),
@@ -112,6 +115,26 @@ EMBEDDING_DIMENSION=768        # khớp text-embedding-004 — CẦN migration m
   dev/CI) để chạy được toàn bộ pipeline.
 - Đổi `EMBEDDING_DIMENSION` phải kèm migration đổi cột `vector(N)` — xem
   [`docs/rag/embedding.md`](docs/rag/embedding.md).
+
+## Graph RAG (tuỳ chọn)
+
+Graph RAG là tính năng tuỳ chọn lưu trữ đồ thị thực thể và quan hệ trên Neo4j.
+
+1. **Khởi động Neo4j** (sử dụng compose profile `graph`):
+   ```bash
+   docker compose --profile graph up -d neo4j
+   ```
+   > Để truy cập Neo4j Browser UI tại `http://localhost:7474` khi dev:
+   > `cp docker-compose.override.yml.example docker-compose.override.yml`
+
+2. **Kích hoạt trong `.env`**:
+   ```env
+   GRAPH_RAG_ENABLED=true
+   NEO4J_URI=bolt://localhost:7687
+   NEO4J_USER=neo4j
+   NEO4J_PASSWORD=neo4jlocalpass
+   ```
+   Khi `GRAPH_RAG_ENABLED=true`, pipeline ingestion sẽ tự động chạy stage `GRAPH` (sau embedding) để trích xuất thực thể/quan hệ bằng LLM (có gleaning + cache hash) và nạp vào Neo4j. Chi tiết: [`docs/architecture/graph-rag.md`](docs/architecture/graph-rag.md).
 
 ## Ingest tài liệu
 

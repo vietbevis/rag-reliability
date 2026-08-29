@@ -31,7 +31,7 @@ Faithfulness tăng A→B, latency +C ms, cost +D%".
 | 2     | Chunking: structure-aware (Markdown) + fixed (baseline) + chunk quality + API                               | ✅ Hoàn thành |
 | 3     | Embedding đa provider (batch) + pgvector + HNSW index + API                                                 | ✅ Hoàn thành |
 | 4     | Baseline RAG: vector retrieval → context → validate → generate + evaluation harness + golden dataset + baseline metrics | ✅ Hoàn thành |
-| 5     | **Graph RAG — construction**: entity + relationship extraction (LLM) → Neo4j; ingestion stage `GRAPH`; API  | ⏳            |
+| 5     | **Graph RAG — construction**: entity + relationship extraction (LLM + gleaning) → Neo4j; cache theo hash; ingestion stage `GRAPH`; cleanup/reconcile idempotent; API | ✅ Hoàn thành |
 | 6     | Retrieval nâng cao: metadata filter · keyword · **graph traversal (local)** · hybrid · fusion               | ⏳            |
 | 7     | Reranking + benchmark before/after                                                                          | ⏳            |
 | 8     | Grounded generation + abstention                                                                            | ⏳            |
@@ -55,8 +55,8 @@ src/
 ├── rag/context/     # (P4) ContextBuilder (dedup·sort·token budget) · ContextValidator (abstain gate §22)
 ├── rag/grounding/   # (P4) AnswerGeneration (structured output + schema.parse §50); claim/faithfulness ở P8-10
 ├── rag/pipeline/    # (P4) RagPipelineService: retrieve→context→validate→generate→persist RagQuery
-├── rag/graph/       # (P5) entity/relation extraction · Neo4j store · graph traversal (P6)
-├── graph/           # (P5) Neo4jService (driver) + graph.module
+├── rag/graph/       # (P5) EntityExtractor (LLM+gleaning) · entity-resolution (thuần) · GraphWrite (UNWIND MERGE) · GraphCleanup (removeDoc/reconcile) · GraphExtractionCache · GraphIngestion (orchestrator) · GraphController (/graph/reconcile); graph traversal ở P6
+├── graph/           # (P5) Neo4jService (driver pool, read/write/writeTx) · Neo4jSchemaService (constraint/index) · Neo4jHealthIndicator · graph.module (@Global)
 ├── evaluation/      # (P4) golden dataset loader · retrieval + generation metrics · EvaluationRun · CLI
 ├── ai/
 │   ├── llm/         # LLMProvider interface + 5 provider (openai|gemini|anthropic|custom|fake)
@@ -91,8 +91,15 @@ flowchart TD
   CHK --> CQ[Chunk quality score]
   CQ --> EMB["Embedding da provider (batch): openai|gemini|custom|fake"]
   EMB --> PG[("pgvector: vector(1536) + HNSW cosine")]
-  PG --> DONE["Document COMPLETED"]
+  PG --> GRF{"GRAPH_RAG_ENABLED?"}
+  GRF -->|khong| DONE["Document COMPLETED"]
+  GRF -->|co| GEX["(P5) GRAPHING: extract entity/quan he (cache theo hash) -> cleanup+write Neo4j"]
+  GEX --> DONE
 ```
+
+> Bước GRAPHING bọc try/catch (giống autoEmbed): Neo4j/extraction lỗi KHÔNG làm
+> hỏng request — document + chunk + embedding vẫn hợp lệ, doc giữ ở `GRAPHING`,
+> chạy lại qua `POST /documents/:id/graph`. Xem `docs/architecture/graph-rag.md`.
 
 ## 5. Pipeline truy vấn RAG (`POST /rag/query`)
 
@@ -135,7 +142,8 @@ flowchart TD
 | Parser (anydoc)   | thử fallback parser → vẫn lỗi → `INGESTION_FAILED` với lý do cụ thể (`NEEDS_OCR`, `ENCRYPTED`, `MALFORMED`…)                                                   |
 | Quality gate      | `REJECTED`                                                                                                                                                     |
 | Embedding         | provider chưa cấu hình → bỏ qua (dừng `CHUNKING`); số chiều lệch → `INGESTION_PRECONDITION`; API lỗi → retry giới hạn rồi ném (giữ `EMBEDDING`, re-embed được) |
-| Vector search     | fallback keyword nếu phù hợp                                                                                                                                   |
+| Graph (P5)        | `GRAPH_RAG_ENABLED=false` → bỏ qua; Neo4j chết / extraction lỗi → ghi `IngestionJob(GRAPH, FAILED)`, giữ doc ở `GRAPHING` (chạy lại `POST /:id/graph`), request KHÔNG 500. Explicit endpoint ném lỗi rõ ràng. |
+| Vector search     | lỗi hạ tầng (embed query fail) → HTTP 502 (`RetrievalService.error`), KHÔNG che thành `INSUFFICIENT_EVIDENCE`; fallback keyword ở P6                              |
 | Reranker          | fallback ranking (giữ thứ tự fusion)                                                                                                                           |
 | LLM               | phân loại lỗi (`RATE_LIMIT`, `OVERLOADED`, `SAFETY_BLOCK`…), retry lỗi tạm thời, (tương lai) fallback provider                                                 |
 | Faithfulness fail | regenerate hoặc abstain                                                                                                                                        |

@@ -7,5 +7,6 @@ import { HealthController } from './health.controller';
   imports: [TerminusModule],
   controllers: [HealthController],
   providers: [DatabaseHealthIndicator],
+  // Neo4jHealthIndicator đến từ GraphModule (@Global).
 })
 export class HealthModule {}

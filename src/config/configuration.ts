@@ -60,6 +60,24 @@ export interface AppConfig {
     faithfulnessThreshold: number;
     hallucinationThreshold: number;
   };
+  graph: {
+    /** Công tắc tính năng Graph RAG (PROMPT §47 mở rộng). */
+    enabled: boolean;
+    neo4j: {
+      uri?: string;
+      user: string;
+      password?: string;
+      maxPoolSize: number;
+      queryTimeoutMs: number;
+    };
+    extract: {
+      maxTokens: number;
+      gleanings: number;
+      maxLlmCallsPerDoc: number;
+      entityTypes: string[];
+      promptVersion: string;
+    };
+  };
 }
 
 /**
@@ -145,6 +163,23 @@ export function loadConfiguration(): AppConfig {
     reliability: {
       faithfulnessThreshold: env.FAITHFULNESS_THRESHOLD,
       hallucinationThreshold: env.HALLUCINATION_THRESHOLD,
+    },
+    graph: {
+      enabled: env.GRAPH_RAG_ENABLED,
+      neo4j: {
+        uri: env.NEO4J_URI,
+        user: env.NEO4J_USER,
+        password: env.NEO4J_PASSWORD,
+        maxPoolSize: env.NEO4J_MAX_POOL_SIZE,
+        queryTimeoutMs: env.NEO4J_QUERY_TIMEOUT_MS,
+      },
+      extract: {
+        maxTokens: env.GRAPH_EXTRACT_MAX_TOKENS,
+        gleanings: env.GRAPH_EXTRACT_GLEANINGS,
+        maxLlmCallsPerDoc: env.GRAPH_EXTRACT_MAX_LLM_CALLS_PER_DOC,
+        entityTypes: env.GRAPH_ENTITY_TYPES,
+        promptVersion: env.GRAPH_PROMPT_VERSION,
+      },
     },
   };
 }
