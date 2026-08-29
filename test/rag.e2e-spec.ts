@@ -132,6 +132,13 @@ Trong thời gian bảo lưu, sinh viên không được hưởng các chế đ�
     expect(res.status).toBe(400);
   });
 
+  it('POST /rag/query — validation: filters lồng sai kiểu -> 400', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/rag/query')
+      .send({ query: 'câu hỏi hợp lệ', filters: { documentIds: [123] } });
+    expect(res.status).toBe(400);
+  });
+
   it('POST /rag/search chỉ trả tài liệu COMPLETED (lọc status)', async () => {
     // Tạo doc REJECTED (quá ngắn) rồi đảm bảo nó không xuất hiện trong search.
     const rej = await request(app.getHttpServer())

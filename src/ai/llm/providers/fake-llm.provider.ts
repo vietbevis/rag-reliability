@@ -114,7 +114,7 @@ export function fakeValueForSchema(
     case 'string':
       return fakeString(fieldName, ctx);
     case 'number':
-      return fieldName === 'strength' ? 5 : 0;
+      return fakeNumber(fieldName, def);
     case 'boolean':
       return false;
     case 'literal':
@@ -156,6 +156,44 @@ export function fakeValueForSchema(
     default:
       return undefined;
   }
+}
+
+/**
+ * Sinh số tất định thoả ràng buộc schema. Mặc định `1` (an toàn cho
+ * `.int().min(1)` / `.positive()` và cho cả số không ràng buộc); trường điểm số
+ * (`score`/`confidence`/`rating`/`relevance`) trả `0.9` để eval với
+ * `LLM_PROVIDER=fake` không bị đánh rớt toàn bộ; `strength` (đồ thị) trả `5`.
+ */
+function fakeNumber(
+  fieldName: string | undefined,
+  def: Record<string, unknown>,
+): number {
+  if (fieldName === 'strength') return 5;
+  if (
+    fieldName &&
+    ['score', 'confidence', 'rating', 'relevance'].includes(fieldName)
+  ) {
+    return 0.9;
+  }
+  // Tôn trọng `min` nếu Zod có ghi lại (Zod 4: def.checks[].._zod.def).
+  const min = readNumericMin(def);
+  return min ?? 1;
+}
+
+function readNumericMin(def: Record<string, unknown>): number | undefined {
+  const checks = def.checks;
+  if (!Array.isArray(checks)) return undefined;
+  for (const c of checks) {
+    const cd = (c as { _zod?: { def?: Record<string, unknown> } })?._zod?.def;
+    if (
+      cd &&
+      (cd.check === 'greater_than' || cd.check === 'min_length') &&
+      typeof cd.value === 'number'
+    ) {
+      return cd.inclusive === false ? cd.value + 1 : cd.value;
+    }
+  }
+  return undefined;
 }
 
 function fakeString(fieldName: string | undefined, ctx: FakeCtx): string {

@@ -4,31 +4,31 @@ import { Injectable } from '@nestjs/common';
 import { ConfigError } from '../../common/errors';
 import { evalCaseSchema, type EvalCase } from './case.schema';
 
-/** Thư mục chứa dataset — override bằng env cho test/CI nếu cần. */
-const DATASETS_DIR =
-  process.env.EVAL_DATASETS_DIR ??
-  resolve(process.cwd(), 'evaluation/datasets');
-
 /**
  * Đọc golden dataset dạng JSONL, validate từng dòng bằng Zod. Tên dataset =
  * tên file không đuôi (vd `answerable`, `unanswerable`, `adversarial`,
- * `multi-hop`).
+ * `multi-hop`). Thư mục lấy từ `EVAL_DATASETS_DIR` (đọc lúc khởi tạo — override
+ * được cho test/CI), mặc định `<cwd>/evaluation/datasets`.
  */
 @Injectable()
 export class DatasetLoaderService {
+  private readonly dir =
+    process.env.EVAL_DATASETS_DIR ??
+    resolve(process.cwd(), 'evaluation/datasets');
+
   get datasetsDir(): string {
-    return DATASETS_DIR;
+    return this.dir;
   }
 
   listDatasetNames(): string[] {
-    return readdirSync(DATASETS_DIR)
+    return readdirSync(this.dir)
       .filter((f) => f.endsWith('.jsonl'))
       .map((f) => f.replace(/\.jsonl$/, ''))
       .sort();
   }
 
   load(datasetName: string): EvalCase[] {
-    const path = join(DATASETS_DIR, `${datasetName}.jsonl`);
+    const path = join(this.dir, `${datasetName}.jsonl`);
     let raw: string;
     try {
       raw = readFileSync(path, 'utf8');

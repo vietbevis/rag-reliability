@@ -31,6 +31,7 @@ function build(
     };
     genThrows?: unknown;
     minChunks?: number;
+    retrievalError?: string;
   } = {},
 ) {
   const ragQueryCreate = jest
@@ -45,10 +46,13 @@ function build(
     retrieve: jest.fn().mockResolvedValue({
       query: 'q',
       strategy: 'vector',
-      chunks: opts.retrievedChunks ?? [chunk('a', 0.8), chunk('b', 0.6)],
+      chunks: opts.retrievalError
+        ? []
+        : (opts.retrievedChunks ?? [chunk('a', 0.8), chunk('b', 0.6)]),
       latencyMs: 2,
       usage: { embeddingTokens: 4, estimatedCost: 0.001 },
       trace: {},
+      error: opts.retrievalError,
     }),
   } as unknown as RetrievalService;
 
@@ -147,6 +151,31 @@ describe('RagPipelineService (PHASE 4 baseline)', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           error: expect.stringContaining('LLM_ERROR'),
+        }),
+      }),
+    );
+  });
+
+  it('lỗi hạ tầng retrieval (embed query fail) -> KHÔNG che thành INSUFFICIENT_EVIDENCE', async () => {
+    const { svc, generate } = build({ retrievalError: 'embed_query_failed' });
+    const r = await svc.query({ query: 'q' });
+    expect(r.status).toBe('ERROR');
+    expect(r.error).toContain('embed_query_failed');
+    expect(generate).not.toHaveBeenCalled();
+  });
+
+  it('rethrow=true (biên API) -> ném lỗi hạ tầng thay vì trả status ERROR', async () => {
+    const { svc, ragQueryUpdate } = build({
+      retrievalError: 'embed_query_failed',
+    });
+    await expect(svc.query({ query: 'q' }, { rethrow: true })).rejects.toThrow(
+      /embed_query_failed/,
+    );
+    // vẫn ghi RagQuery.error trước khi ném
+    expect(ragQueryUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          error: expect.stringContaining('embed_query_failed'),
         }),
       }),
     );

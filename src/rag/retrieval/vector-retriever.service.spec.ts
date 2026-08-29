@@ -29,8 +29,10 @@ function build(
     activeModel: 'text-embedding-3-small',
   } as unknown as EmbeddingService;
 
+  const distanceOperator =
+    opts.distance === 'l2' ? '<->' : opts.distance === 'ip' ? '<#>' : '<=>';
   const vectorSchema = {
-    distanceOperator: opts.distance === 'l2' ? '<->' : '<=>',
+    distanceOperator,
   } as unknown as VectorSchemaService;
 
   const config = mockConfigService({
@@ -67,6 +69,24 @@ describe('VectorRetrieverService', () => {
     expect(r.chunks[0]!.section).toBe('Điều 1');
     expect(r.embeddingTokens).toBe(5);
     expect(r.estimatedCost).toBe(0.001);
+  });
+
+  it('distance=ip (<#>): score phân biệt được, similarity dương -> KHÔNG kẹt ở 1.0', async () => {
+    // <#> = -inner_product; similarity 0.9 -> distance -0.9, similarity 0.2 -> -0.2
+    const { svc } = build({
+      distance: 'ip',
+      rows: [row('a', -0.9), row('b', -0.2)],
+    });
+    const r = await svc.retrieve({ query: 'q', topK: 5 });
+    expect(r.chunks[0]!.score).toBeCloseTo(0.95, 4); // (1 - (-0.9)) / 2
+    expect(r.chunks[1]!.score).toBeCloseTo(0.6, 4); // (1 - (-0.2)) / 2
+    expect(r.chunks[0]!.score).toBeGreaterThan(r.chunks[1]!.score);
+  });
+
+  it('distance=cosine: score = 1 - distance/2', async () => {
+    const { svc } = build({ rows: [row('a', 0.2)] });
+    const r = await svc.retrieve({ query: 'q', topK: 5 });
+    expect(r.chunks[0]!.score).toBeCloseTo(0.9, 4);
   });
 
   it('embedding provider chưa cấu hình -> trả rỗng, không query', async () => {

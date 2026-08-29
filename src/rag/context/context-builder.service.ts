@@ -4,6 +4,9 @@ import type { AppConfig } from '../../config/configuration';
 import type { GroundingContext, RetrievedChunk } from '../../common/types';
 import { TokenCounterService } from '../../ai/tokenizer/token-counter.service';
 
+/** Token ước tính cho separator `\n\n---\n\n` giữa hai chunk trong prompt. */
+const SEPARATOR_TOKENS = 5;
+
 /**
  * Dựng context cho generation (PROMPT §21). KHÔNG đưa raw retrieval thẳng vào
  * prompt:
@@ -38,7 +41,11 @@ export class ContextBuilderService {
     const kept: RetrievedChunk[] = [];
     let totalTokens = 0;
     for (const c of sorted) {
-      const t = this.tokens.count(this.render(c));
+      // Đếm sát với `renderContext` thực tế: có nhãn `[i] ` + separator
+      // `\n\n---\n\n` giữa các chunk (~SEPARATOR_TOKENS).
+      const t =
+        this.tokens.count(this.render(c, kept.length)) +
+        (kept.length > 0 ? SEPARATOR_TOKENS : 0);
       if (kept.length > 0 && totalTokens + t > maxTokens) continue;
       kept.push(c);
       totalTokens += t;

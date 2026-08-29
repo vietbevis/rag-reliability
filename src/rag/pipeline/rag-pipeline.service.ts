@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
-import { AppError } from '../../common/errors';
+import { AppError, EmbeddingError } from '../../common/errors';
 import type {
   Citation,
   RagStatus,
@@ -20,6 +20,16 @@ export interface RagQueryRequest {
   query: string;
   topK?: number;
   filters?: RetrievalFilters;
+}
+
+export interface RagQueryOptions {
+  /**
+   * `true` (biên API): sau khi ghi `RagQuery.error`, ném lại lỗi hạ tầng để
+   * `AllExceptionsFilter` trả HTTP đúng (502/503) — không để LB/monitor tưởng
+   * service khoẻ (PROMPT §54, §38). `false` (eval/programmatic): nuốt lỗi, trả
+   * `status: 'ERROR'` để caller ghi nhận từng case mà không vỡ cả run.
+   */
+  rethrow?: boolean;
 }
 
 export interface RagQueryResult {
@@ -83,7 +93,10 @@ export class RagPipelineService {
     private readonly generation: AnswerGenerationService,
   ) {}
 
-  async query(req: RagQueryRequest): Promise<RagQueryResult> {
+  async query(
+    req: RagQueryRequest,
+    opts: RagQueryOptions = {},
+  ): Promise<RagQueryResult> {
     const t0 = Date.now();
     const ragQuery = await this.prisma.ragQuery.create({
       data: { query: req.query },
@@ -107,6 +120,15 @@ export class RagPipelineService {
       usage.embeddingTokens += retrieval.usage.embeddingTokens;
       usage.estimatedCost += retrieval.usage.estimatedCost;
       trace.retrieval = retrieval.trace;
+
+      // Lỗi hạ tầng truy hồi (vd embed query fail) KHÔNG được biến thành
+      // "không đủ evidence" — ném để thành ERROR/502 (PROMPT §54).
+      if (retrieval.error) {
+        throw new EmbeddingError(
+          'UNKNOWN',
+          `Truy hồi thất bại (không phải do thiếu tài liệu): ${retrieval.error}`,
+        );
+      }
 
       const context = this.contextBuilder.build(retrieval.chunks);
       trace.context = {
@@ -198,6 +220,11 @@ export class RagPipelineService {
           latencyMs: Date.now() - t0,
         },
       });
+
+      // Biên API: ném lại để trả HTTP đúng (AppError.httpStatus). Đã ghi
+      // RagQuery.error ở trên nên vẫn audit được.
+      if (opts.rethrow) throw err;
+
       return {
         id: ragQuery.id,
         query: req.query,

@@ -9,6 +9,7 @@ import {
   Max,
   Min,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
 
 class RetrievalFiltersDto {
@@ -47,6 +48,8 @@ export class RagQueryDto {
   @ApiPropertyOptional({ type: RetrievalFiltersDto })
   @IsOptional()
   @IsObject()
+  @ValidateNested()
+  @Type(() => RetrievalFiltersDto)
   filters?: RetrievalFiltersDto;
 }
 

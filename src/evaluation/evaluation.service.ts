@@ -5,6 +5,7 @@ import type { AppConfig } from '../config/configuration';
 import type { HallucinationRootCause } from '../common/types';
 import { EvaluationRunStatus, Prisma } from '../generated/prisma/client';
 import { RagPipelineService } from '../rag/pipeline/rag-pipeline.service';
+import { RetrievalService } from '../rag/retrieval/retrieval.service';
 import { LlmService } from '../ai/llm/llm.service';
 import { DatasetLoaderService } from './datasets/dataset-loader.service';
 import { DatasetSeedService } from './datasets/dataset-seed.service';
@@ -70,6 +71,7 @@ export class EvaluationService {
     private readonly loader: DatasetLoaderService,
     private readonly seeder: DatasetSeedService,
     private readonly pipeline: RagPipelineService,
+    private readonly retrieval: RetrievalService,
     private readonly judge: AnswerJudgeService,
     private readonly llm: LlmService,
     private readonly config: ConfigService<AppConfig, true>,
@@ -174,14 +176,51 @@ export class EvaluationService {
       select: { id: true },
     });
 
-    const result = await this.pipeline.query({
-      query: c.question,
-      topK: ctx.topK,
-    });
+    // `retrieval` mode = CHỈ đo truy hồi, KHÔNG gọi LLM sinh câu trả lời
+    // (npm run evaluate:retrieval — nhanh, không tốn token).
+    const retrievalOnly = ctx.mode === 'retrieval';
+
+    let retrievedChunks: Array<{ documentId: string }>;
+    let status: AnswerStatus | null;
+    let answer: string | null;
+    let citations: Array<{ documentId: string }>;
+    let latencyMs: number;
+    let estimatedCost: number;
+    let model: string | null;
+    let errorNote: string | null;
+
+    if (retrievalOnly) {
+      const r = await this.retrieval.retrieve({
+        query: c.question,
+        topK: ctx.topK,
+        log: false,
+      });
+      retrievedChunks = r.chunks;
+      status = null;
+      answer = null;
+      citations = [];
+      latencyMs = r.latencyMs;
+      estimatedCost = r.usage.estimatedCost;
+      model = null;
+      errorNote = r.error ?? null;
+    } else {
+      const result = await this.pipeline.query({
+        query: c.question,
+        topK: ctx.topK,
+      });
+      retrievedChunks = result.retrieval.chunks;
+      status = result.status;
+      answer = result.answer;
+      citations = result.citations;
+      latencyMs = result.latencyMs;
+      estimatedCost = result.usage.estimatedCost;
+      model = result.model;
+      errorNote = result.error ?? null;
+    }
 
     // Retrieval: ánh xạ documentId đã truy hồi → source (đơn vị đánh giá của
     // golden set). Tài liệu chưa COMPLETED không nằm trong map -> bị bỏ.
-    const retrievedSources = result.retrieval.chunks
+    const retrievedSources = retrievedChunks
       .map((ch) => ctx.docIdToSource.get(ch.documentId))
       .filter((s): s is string => !!s);
 
@@ -198,44 +237,46 @@ export class EvaluationService {
       expected.length > 0 &&
       expected.every((s) => retrievedSources.includes(s));
 
-    const status = result.status;
-    const abstained = isAbstained(status);
-    const absCorrect = abstentionCorrect(c.answerable, status);
+    const abstained = status === null ? null : isAbstained(status);
+    const absCorrect =
+      status === null ? null : abstentionCorrect(c.answerable, status);
 
     let answerCorrectness: number | null = null;
     let citationAcc: number | null = null;
 
-    if (ctx.mode === 'full') {
-      const j = await this.judge.judge(
-        c.question,
-        c.expectedAnswer,
-        result.answer,
-      );
+    if (!retrievalOnly) {
+      const j = await this.judge.judge(c.question, c.expectedAnswer, answer);
       answerCorrectness = j?.score ?? null;
 
       const goldDocIds = expected
         .map((s) => ctx.sourceToDocId.get(s))
         .filter((id): id is string => !!id);
       citationAcc = citationAccuracy(
-        result.citations.map((ct) => ({ documentId: ct.documentId })),
+        citations.map((ct) => ({ documentId: ct.documentId })),
         goldDocIds,
       );
     }
 
-    const failureLayer = this.classifyFailure({
-      answerable: c.answerable,
-      retrievedAllExpected,
-      abstained,
-      status,
-      answerCorrectness,
-      citationAcc,
-    });
-    const passed = this.decidePass({
-      answerable: c.answerable,
-      absCorrect,
-      failureLayer,
-      answerCorrectness,
-    });
+    const failureLayer = retrievalOnly
+      ? expected.length > 0 && !retrievedAllExpected
+        ? 'RETRIEVAL_FAILURE'
+        : undefined
+      : this.classifyFailure({
+          answerable: c.answerable,
+          retrievedAllExpected,
+          abstained: abstained ?? false,
+          status: status as AnswerStatus,
+          answerCorrectness,
+          citationAcc,
+        });
+    const passed = retrievalOnly
+      ? !failureLayer
+      : this.decidePass({
+          answerable: c.answerable,
+          absCorrect: absCorrect ?? false,
+          failureLayer,
+          answerCorrectness,
+        });
 
     const metrics = {
       ...retrieval,
@@ -243,43 +284,36 @@ export class EvaluationService {
       abstentionCorrect: absCorrect,
       answerCorrectness,
       citationAccuracy: citationAcc,
-      latencyMs: result.latencyMs,
-      estimatedCost: result.usage.estimatedCost,
+      latencyMs,
+      estimatedCost,
     } as Prisma.InputJsonValue;
 
+    const row = {
+      passed,
+      actualAnswer: answer,
+      actualStatus: status,
+      metrics,
+      failureLayer: failureLayer ?? null,
+      notes: errorNote,
+    };
     await this.prisma.evaluationResult.upsert({
       where: { runId_caseId: { runId: ctx.runId, caseId: caseRow.id } },
-      create: {
-        runId: ctx.runId,
-        caseId: caseRow.id,
-        passed,
-        actualAnswer: result.answer,
-        actualStatus: status,
-        metrics,
-        failureLayer: failureLayer ?? null,
-        notes: result.error ?? null,
-      },
-      update: {
-        passed,
-        actualAnswer: result.answer,
-        actualStatus: status,
-        metrics,
-        failureLayer: failureLayer ?? null,
-        notes: result.error ?? null,
-      },
+      create: { runId: ctx.runId, caseId: caseRow.id, ...row },
+      update: row,
     });
 
     return {
       answerable: c.answerable,
+      hasExpectedDocs: expected.length > 0,
       status,
       retrieval,
       abstained,
       abstentionCorrect: absCorrect,
       answerCorrectness,
       citationAccuracy: citationAcc,
-      latencyMs: result.latencyMs,
-      estimatedCost: result.usage.estimatedCost,
-      model: result.model,
+      latencyMs,
+      estimatedCost,
+      model,
       failureLayer,
       passed,
     };
@@ -338,31 +372,53 @@ export class EvaluationService {
     cases: EvalCase[],
   ): Record<string, number | null> {
     const answerable = outcomes.filter((o) => o.answerable);
-    const caseOutcomes: CaseOutcome[] = outcomes.map((o) => ({
+    // Số liệu retrieval chỉ có nghĩa trên case CÓ tài liệu gold — case
+    // unanswerable (`expectedDocuments = []`) sẽ làm méo trung bình (recall→1,
+    // precision→0…) nên loại khỏi mẫu (giống cách làm với answerCorrectness).
+    const withGold = outcomes.filter((o) => o.hasExpectedDocs);
+    // Case có chạy generation (mode='full'): status khác null.
+    const generated = outcomes.filter(
+      (o): o is PerCase & { status: AnswerStatus } => o.status !== null,
+    );
+    const caseOutcomes: CaseOutcome[] = generated.map((o) => ({
       answerable: o.answerable,
       status: o.status,
       answerCorrectness: o.answerCorrectness,
     }));
 
+    const retrMean = (
+      pick: (r: PerCase['retrieval']) => number,
+    ): number | null =>
+      withGold.length ? mean(withGold.map((o) => pick(o.retrieval))) : null;
+
     return {
       cases: outcomes.length,
       datasetSize: cases.length,
       unanswerableCount: outcomes.length - answerable.length,
+      retrievalEvaluated: withGold.length,
       passRate: meanBool(outcomes.map((o) => o.passed)),
-      recallAt5: mean(outcomes.map((o) => o.retrieval.recallAtK)),
-      precisionAt5: mean(outcomes.map((o) => o.retrieval.precisionAtK)),
-      mrr: mean(outcomes.map((o) => o.retrieval.mrr)),
-      ndcgAt5: mean(outcomes.map((o) => o.retrieval.ndcgAtK)),
-      contextPrecision: mean(outcomes.map((o) => o.retrieval.contextPrecision)),
-      contextRecall: mean(outcomes.map((o) => o.retrieval.contextRecall)),
-      abstentionAccuracy: meanBool(outcomes.map((o) => o.abstentionCorrect)),
+      recallAt5: retrMean((r) => r.recallAtK),
+      precisionAt5: retrMean((r) => r.precisionAtK),
+      mrr: retrMean((r) => r.mrr),
+      ndcgAt5: retrMean((r) => r.ndcgAtK),
+      contextPrecision: retrMean((r) => r.contextPrecision),
+      contextRecall: retrMean((r) => r.contextRecall),
+      abstentionAccuracy: generated.length
+        ? meanBool(
+            generated
+              .map((o) => o.abstentionCorrect)
+              .filter((v): v is boolean => v !== null),
+          )
+        : null,
       answerCorrectness: meanIgnoringNull(
         answerable.map((o) => o.answerCorrectness),
       ),
       citationAccuracy: meanIgnoringNull(
         outcomes.map((o) => o.citationAccuracy),
       ),
-      hallucinationRateProxy: hallucinationRateProxy(caseOutcomes),
+      hallucinationRateProxy: generated.length
+        ? hallucinationRateProxy(caseOutcomes)
+        : null,
       avgLatencyMs: Math.round(mean(outcomes.map((o) => o.latencyMs)) || 0),
       totalCost: round(outcomes.reduce((s, o) => s + o.estimatedCost, 0)),
     };
@@ -371,7 +427,9 @@ export class EvaluationService {
 
 interface PerCase {
   answerable: boolean;
-  status: AnswerStatus;
+  hasExpectedDocs: boolean;
+  /** null ở mode='retrieval' (không gọi LLM sinh câu trả lời). */
+  status: AnswerStatus | null;
   retrieval: {
     recallAtK: number;
     precisionAtK: number;
@@ -380,8 +438,8 @@ interface PerCase {
     contextPrecision: number;
     contextRecall: number;
   };
-  abstained: boolean;
-  abstentionCorrect: boolean;
+  abstained: boolean | null;
+  abstentionCorrect: boolean | null;
   answerCorrectness: number | null;
   citationAccuracy: number | null;
   latencyMs: number;

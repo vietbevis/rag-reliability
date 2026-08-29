@@ -23,6 +23,12 @@ export interface RetrievalResponse {
   latencyMs: number;
   usage: { embeddingTokens: number; estimatedCost: number };
   trace: Record<string, unknown>;
+  /**
+   * Lỗi HẠ TẦNG khiến truy hồi không chạy được (embed query lỗi, Neo4j chết…)
+   * — KHÁC với "chạy xong nhưng không có kết quả". Caller PHẢI phân biệt: lỗi
+   * hạ tầng không được che thành `INSUFFICIENT_EVIDENCE` (PROMPT §54).
+   */
+  error?: string;
 }
 
 /**
@@ -54,6 +60,10 @@ export class RetrievalService {
       filters: req.filters,
     });
 
+    // P4 chỉ có vector → lỗi hạ tầng của nó = lỗi hạ tầng của cả retrieval.
+    // (P6: chỉ báo lỗi khi MỌI retriever fail; còn 1 nguồn sống thì fusion tiếp.)
+    const vectorError = result.trace.error;
+
     const response: RetrievalResponse = {
       query: req.query,
       strategy,
@@ -64,6 +74,7 @@ export class RetrievalService {
         estimatedCost: result.estimatedCost,
       },
       trace: { vector: result.trace },
+      error: typeof vectorError === 'string' ? vectorError : undefined,
     };
 
     if (req.log !== false) {

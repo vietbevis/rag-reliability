@@ -4,7 +4,11 @@ import type { RetrievedChunk } from '../../common/types';
 import { VectorRetrieverService } from './vector-retriever.service';
 import { RetrievalService } from './retrieval.service';
 
-function build(chunks: RetrievedChunk[], logThrows = false) {
+function build(
+  chunks: RetrievedChunk[],
+  logThrows = false,
+  vectorTrace: Record<string, unknown> = { model: 'm' },
+) {
   const create = logThrows
     ? jest.fn().mockRejectedValue(new Error('db down'))
     : jest.fn().mockResolvedValue({});
@@ -18,7 +22,7 @@ function build(chunks: RetrievedChunk[], logThrows = false) {
       latencyMs: 3,
       embeddingTokens: 7,
       estimatedCost: 0.002,
-      trace: { model: 'm' },
+      trace: vectorTrace,
     }),
   } as unknown as VectorRetrieverService;
 
@@ -76,5 +80,18 @@ describe('RetrievalService (PHASE 4 = vector only)', () => {
     await expect(svc.retrieve({ query: 'q' })).resolves.toMatchObject({
       chunks: [chunk('a')],
     });
+  });
+
+  it('lỗi hạ tầng của vector retriever (trace.error) -> response.error', async () => {
+    const { svc } = build([], false, { error: 'embed_query_failed' });
+    const r = await svc.retrieve({ query: 'q', log: false });
+    expect(r.error).toBe('embed_query_failed');
+    expect(r.chunks).toEqual([]);
+  });
+
+  it('retriever "skipped" (chưa cấu hình) KHÔNG phải error hạ tầng', async () => {
+    const { svc } = build([], false, { skipped: 'provider chưa cấu hình' });
+    const r = await svc.retrieve({ query: 'q', log: false });
+    expect(r.error).toBeUndefined();
   });
 });

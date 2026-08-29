@@ -53,6 +53,22 @@ describe('FakeLlmProvider', () => {
     expect(r.data.claims).toEqual([]);
   });
 
+  it('chatStructured: số có ràng buộc min không sinh giá trị vi phạm schema', async () => {
+    const schema = z.object({
+      score: z.number().min(0).max(1),
+      rank: z.number().int().min(1),
+      count: z.number().int().positive(),
+    });
+    const r = await svc.chatStructured(
+      [{ role: 'user', content: 'x' }],
+      schema,
+    );
+    expect(() => schema.parse(r.data)).not.toThrow();
+    expect(r.data.score).toBeGreaterThan(0.5); // field điểm số -> lạc quan
+    expect(r.data.rank).toBeGreaterThanOrEqual(1);
+    expect(r.data.count).toBeGreaterThanOrEqual(1);
+  });
+
   it('chatStructured: schema extraction -> NER thô entity + relationship', async () => {
     const schema = z.object({
       entities: z.array(

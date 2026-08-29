@@ -30,7 +30,11 @@ interface Row {
  * bằng cùng model đã dùng lúc ingest, tính khoảng cách theo `EMBEDDING_DISTANCE`
  * (index HNSW), lọc chỉ tài liệu `COMPLETED`.
  *
- * `score` chuẩn hoá về [0,1]: cosine `1 - distance/2`, l2/ip `1/(1+distance)`.
+ * `score` chuẩn hoá về [0,1] theo từng loại khoảng cách:
+ * - cosine (`<=>`, distance ∈ [0,2]): `1 - distance/2`
+ * - ip (`<#>`, negative inner product ∈ [-1,1] với vector đã normalize):
+ *   `(1 - distance) / 2` (distance = -similarity → similarity cao ⇒ score cao)
+ * - l2 (`<->`, distance ≥ 0): `1 / (1 + distance)`
  */
 @Injectable()
 export class VectorRetrieverService implements Retriever {
@@ -135,10 +139,18 @@ export class VectorRetrieverService implements Retriever {
   }
 
   private toScore(distance: number): number {
-    const s =
-      this.distanceKind === 'cosine'
-        ? 1 - distance / 2
-        : 1 / (1 + Math.max(distance, 0));
+    let s: number;
+    switch (this.distanceKind) {
+      case 'cosine':
+        s = 1 - distance / 2;
+        break;
+      case 'ip':
+        // `<#>` = -inner_product; vector đã normalize ⇒ distance ∈ [-1, 1].
+        s = (1 - distance) / 2;
+        break;
+      default: // 'l2'
+        s = 1 / (1 + Math.max(distance, 0));
+    }
     return Math.max(0, Math.min(1, Number(s.toFixed(6))));
   }
 }
