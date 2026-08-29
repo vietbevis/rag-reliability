@@ -68,6 +68,15 @@ export const envSchema = z
       .default('log'),
     SWAGGER_ENABLED: boolish(true),
 
+    // ---- Rate limiting (@nestjs/throttler) -------------------------------
+    // Bảo vệ endpoint nặng (/rag/query gọi nhiều LLM) khỏi flood & cạn quota.
+    RATE_LIMIT_ENABLED: boolish(true),
+    RATE_LIMIT_TTL_MS: numeric({ int: true, min: 1000, default: 60_000 }),
+    // Trần mặc định cho mọi route trong một cửa sổ TTL.
+    RATE_LIMIT_LIMIT: numeric({ int: true, min: 1, default: 120 }),
+    // Trần riêng, chặt hơn, cho các route RAG tốn kém (/rag/query, /rag/search).
+    RATE_LIMIT_RAG_LIMIT: numeric({ int: true, min: 1, default: 20 }),
+
     // ---- Database --------------------------------------------------------
     DATABASE_URL: z
       .string()
@@ -110,8 +119,13 @@ export const envSchema = z
       int: true,
       min: 1,
       max: 12288,
-      default: 1536,
+      default: 1024,
     }),
+    // Tiền tố bất đối xứng cho các model họ E5 / GTE / BGE-M3
+    // (intfloat/multilingual-e5-large yêu cầu "query: " và "passage: ").
+    // Để trống → tự suy ra theo tên model (chứa "e5") nếu không đặt thủ công.
+    EMBEDDING_QUERY_PREFIX: z.string().default(''),
+    EMBEDDING_PASSAGE_PREFIX: z.string().default(''),
     EMBEDDING_BATCH_SIZE: numeric({
       int: true,
       min: 1,
@@ -128,8 +142,21 @@ export const envSchema = z
     ANYDOC_OCR: z.enum(['reject', 'hosted']).default('reject'),
 
     // ---- Chunking (PHASE 2) ----------------------------------------------
-    // structure = Markdown-aware (từ anydoc); fixed = cửa sổ token cố định (baseline)
-    CHUNKING_STRATEGY: z.enum(['structure', 'fixed']).default('structure'),
+    // structure = Markdown-aware (từ anydoc); fixed = cửa sổ token cố định (baseline);
+    // semantic = cắt tại ranh giới ngữ nghĩa (khoảng cách embedding câu liền kề).
+    CHUNKING_STRATEGY: z
+      .enum(['structure', 'fixed', 'semantic'])
+      .default('structure'),
+    // semantic: phân vị (percentile) của khoảng cách embedding để coi là điểm cắt.
+    // Cao hơn = ít điểm cắt = chunk to hơn.
+    SEMANTIC_BREAKPOINT_PERCENTILE: numeric({
+      int: true,
+      min: 50,
+      max: 99,
+      default: 90,
+    }),
+    // semantic: số câu đệm mỗi bên khi tính embedding (giảm nhiễu câu đơn lẻ).
+    SEMANTIC_BUFFER_SIZE: numeric({ int: true, min: 0, max: 5, default: 1 }),
     CHUNK_MAX_TOKENS: numeric({ int: true, min: 64, max: 4000, default: 512 }),
     CHUNK_MIN_TOKENS: numeric({ int: true, min: 1, max: 2000, default: 64 }),
     CHUNK_OVERLAP_TOKENS: numeric({
@@ -180,6 +207,9 @@ export const envSchema = z
     // Bật/tắt tách claim + đối chiếu evidence + citation do backend quản lý.
     // TẮT = hành vi P4 (citations map thô theo usedContext, claims rỗng).
     RAG_CITATION_ENABLED: boolish(true),
+    // Gộp tách claim vào chính lời gọi generation (bỏ 1 lời gọi LLM/truy vấn —
+    // docs/audit/ARCHITECTURE_REVIEW.md §5.3). TẮT = luôn gọi ClaimExtractor riêng.
+    RAG_CONSOLIDATE_CLAIMS: boolish(true),
     // Tỉ lệ token nội dung của claim phải xuất hiện trong chunk để coi là được
     // chunk đó hỗ trợ (claim-recall). Deterministic, không gọi LLM.
     CITATION_MIN_OVERLAP: numeric({ min: 0, max: 1, default: 0.5 }),

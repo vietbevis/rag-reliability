@@ -7,6 +7,7 @@ import type {
   ChunkingStrategyName,
 } from './chunking.interface';
 import { FixedSizeChunkerService } from './fixed-size-chunker.service';
+import { SemanticChunkerService } from './semantic-chunker.service';
 import { StructureAwareChunkerService } from './structure-aware-chunker.service';
 
 /** Chọn chiến lược chunking theo `CHUNKING_STRATEGY` (hoặc override để benchmark). */
@@ -18,8 +19,9 @@ export class ChunkerFactoryService {
     private readonly config: ConfigService<AppConfig, true>,
     structure: StructureAwareChunkerService,
     fixed: FixedSizeChunkerService,
+    semantic: SemanticChunkerService,
   ) {
-    this.registry = { structure, fixed };
+    this.registry = { structure, fixed, semantic };
   }
 
   get defaultStrategyName(): ChunkingStrategyName {

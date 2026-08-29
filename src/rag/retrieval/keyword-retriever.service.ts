@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import type { RetrievedChunk } from '../../common/types';
+import { toKeywordQuery } from '../../common/utils';
 import {
   emptyResult,
   type Retriever,
@@ -26,6 +27,10 @@ interface Row {
  * Sử dụng cấu hình từ điển 'simple' và hàm `websearch_to_tsquery` để hỗ trợ
  * tìm kiếm chính xác các mã văn bản, số quyết định, tên riêng, thuật ngữ kỹ thuật.
  *
+ * Câu hỏi tự nhiên được chuẩn hoá qua `toKeywordQuery` (bỏ từ nghi vấn, nối
+ * bằng `or`) trước khi đưa vào tsquery — nếu không, một từ nghi vấn vắng mặt
+ * trong văn bản ("mấy", "bao nhiêu") sẽ khiến phép AND trả về 0 kết quả.
+ *
  * Điểm `ts_rank` không có trần trên cố định, được chuẩn hoá về [0,1] thông qua
  * hàm phi tuyến đơn điệu: `rank / (rank + 1)`. Hàm này đảm bảo rank cao hơn
  * luôn có score cao hơn, rank = 0 tương ứng score = 0, và score luôn thuộc [0, 1].
@@ -45,7 +50,12 @@ export class KeywordRetrieverService implements Retriever {
       return emptyResult({ reason: 'empty_tsquery' });
     }
 
-    const where = this.buildWhere(options);
+    // Câu hỏi tự nhiên ("... tối đa mấy học kỳ?") → chuỗi từ khoá nối bằng `or`,
+    // bỏ từ nghi vấn. Nếu sau khi lọc không còn token nghĩa (query toàn hư từ)
+    // thì fallback về query gốc để `websearch_to_tsquery` tự xử lý.
+    const tsInput = toKeywordQuery(options.query) || options.query;
+
+    const where = this.buildWhere(options, tsInput);
 
     let rows: Row[];
     try {
@@ -55,7 +65,7 @@ export class KeywordRetrieverService implements Retriever {
         SELECT c."id", c."documentId", c."content", c."heading", c."section",
                c."page", c."metadata",
                ts_rank(c."contentTsv",
-                       websearch_to_tsquery('simple', ${options.query})) AS rank
+                       websearch_to_tsquery('simple', ${tsInput})) AS rank
         FROM "DocumentChunk" c
         JOIN "Document" d ON d."id" = c."documentId"
         WHERE ${where}
@@ -99,9 +109,9 @@ export class KeywordRetrieverService implements Retriever {
     };
   }
 
-  private buildWhere(options: RetrieveOptions): Prisma.Sql {
+  private buildWhere(options: RetrieveOptions, tsInput: string): Prisma.Sql {
     const parts: Prisma.Sql[] = [
-      Prisma.sql`c."contentTsv" @@ websearch_to_tsquery('simple', ${options.query})`,
+      Prisma.sql`c."contentTsv" @@ websearch_to_tsquery('simple', ${tsInput})`,
       Prisma.sql`d."status" = 'COMPLETED'::"DocumentStatus"`,
     ];
     const f = options.filters;

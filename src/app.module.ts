@@ -8,6 +8,7 @@ import { DocumentsModule } from './documents/documents.module';
 import { EvaluationModule } from './evaluation/evaluation.module';
 import { GraphModule } from './graph/graph.module';
 import { HealthModule } from './health/health.module';
+import { RateLimitModule } from './common/rate-limit/rate-limit.module';
 import { RagModule } from './rag/rag.module';
 
 /**
@@ -23,6 +24,7 @@ import { RagModule } from './rag/rag.module';
 @Module({
   imports: [
     ConfigModule,
+    RateLimitModule,
     DatabaseModule,
     AiModule,
     GraphModule,

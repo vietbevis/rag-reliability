@@ -49,6 +49,8 @@ function build(
     cite?: boolean;
     faithfulness?: boolean;
     claims?: Array<{ id: string; text: string }>;
+    /** Claim do generation trả kèm (gộp call) — có thì pipeline bỏ ClaimExtractor. */
+    genClaims?: Array<{ id: string; text: string }>;
   } = {},
 ) {
   const ragQueryCreate = jest
@@ -117,6 +119,7 @@ function build(
           status: opts.genResult?.status ?? 'GROUNDED',
           citedIndexes: opts.genResult?.citedIndexes ?? [1],
           conflictNote: opts.genResult?.conflictNote,
+          claims: opts.genClaims ?? [],
           groundingRatio: 0.9,
           downgraded: false,
           regenerated: false,
@@ -133,10 +136,17 @@ function build(
   } as unknown as AnswerGenerationService;
 
   const extractMock = jest.fn().mockResolvedValue({
-    claims: opts.claims ?? [{ id: 'c1', text: opts.genResult?.answer ?? 'Câu trả lời.' }],
+    claims: opts.claims ?? [
+      { id: 'c1', text: opts.genResult?.answer ?? 'Câu trả lời.' },
+    ],
     provider: 'fake',
     model: 'fake-llm-v1',
-    usage: { inputTokens: 5, outputTokens: 3, totalTokens: 8, estimatedCost: 0 },
+    usage: {
+      inputTokens: 5,
+      outputTokens: 3,
+      totalTokens: 8,
+      estimatedCost: 0,
+    },
     latencyMs: 1,
     method: 'llm',
   });
@@ -383,8 +393,14 @@ describe('RagPipelineService (PHASE 9 citation)', () => {
         citedIndexes: [1],
       },
       claims: [
-        { id: 'c1', text: 'Sinh viên được bảo lưu tối đa hai học kỳ liên tiếp.' },
-        { id: 'c2', text: 'Phải nộp đơn xin bảo lưu trước ít nhất mười lăm ngày.' },
+        {
+          id: 'c1',
+          text: 'Sinh viên được bảo lưu tối đa hai học kỳ liên tiếp.',
+        },
+        {
+          id: 'c2',
+          text: 'Phải nộp đơn xin bảo lưu trước ít nhất mười lăm ngày.',
+        },
       ],
     });
     const r = await svc.query({ query: 'q' });
@@ -401,9 +417,41 @@ describe('RagPipelineService (PHASE 9 citation)', () => {
     ).toBe(2);
   });
 
+  it('gộp call: generation trả kèm claims → KHÔNG gọi ClaimExtractor riêng', async () => {
+    const { svc, extractMock } = build({
+      cite: true,
+      retrievedChunks: [supportChunk('k1')],
+      genResult: {
+        answer:
+          'Sinh viên được bảo lưu tối đa hai học kỳ liên tiếp và phải nộp đơn ' +
+          'trước ít nhất mười lăm ngày.',
+        status: 'GROUNDED',
+        citedIndexes: [1],
+      },
+      genClaims: [
+        {
+          id: 'c1',
+          text: 'Sinh viên được bảo lưu tối đa hai học kỳ liên tiếp.',
+        },
+        { id: 'c2', text: 'Phải nộp đơn trước ít nhất mười lăm ngày.' },
+      ],
+    });
+    const r = await svc.query({ query: 'q' });
+
+    expect(extractMock).not.toHaveBeenCalled();
+    expect(r.claims).toHaveLength(2);
+    expect(
+      (r.trace.citation as { extractionMethod: string }).extractionMethod,
+    ).toBe('consolidated');
+  });
+
   it('cite=false (mặc định spec) → baseline: claims rỗng, citation map thô', async () => {
     const { svc, extractMock } = build({
-      genResult: { answer: 'Câu trả lời.', status: 'GROUNDED', citedIndexes: [1] },
+      genResult: {
+        answer: 'Câu trả lời.',
+        status: 'GROUNDED',
+        citedIndexes: [1],
+      },
     });
     const r = await svc.query({ query: 'q' });
     expect(extractMock).not.toHaveBeenCalled();
@@ -431,7 +479,11 @@ describe('RagPipelineService (PHASE 9 citation)', () => {
     const { svc } = build({
       cite: true,
       retrievedChunks: [supportChunk('k1')],
-      genResult: { answer: 'Một khẳng định.', status: 'GROUNDED', citedIndexes: [1] },
+      genResult: {
+        answer: 'Một khẳng định.',
+        status: 'GROUNDED',
+        citedIndexes: [1],
+      },
       claims: [
         { id: 'c1', text: 'Trường có phân hiệu tại Singapore từ năm 2030.' },
       ],
@@ -446,7 +498,11 @@ describe('RagPipelineService (PHASE 9 citation)', () => {
     const { svc } = build({
       cite: true,
       retrievedChunks: [supportChunk('k1')],
-      genResult: { answer: 'Sinh viên bảo lưu hai học kỳ.', status: 'GROUNDED', citedIndexes: [1] },
+      genResult: {
+        answer: 'Sinh viên bảo lưu hai học kỳ.',
+        status: 'GROUNDED',
+        citedIndexes: [1],
+      },
       claims: [{ id: 'c1', text: 'Sinh viên bảo lưu hai học kỳ liên tiếp.' }],
     });
     const r = await svc.query({ query: 'q' });
@@ -502,15 +558,15 @@ describe('RagPipelineService (PHASE 10 faithfulness)', () => {
     const { svc } = build({
       cite: true,
       faithfulness: true,
-      retrievedChunks: [supportChunk('k1', 'Sinh viên được phép bảo lưu tối đa 2 học kỳ.')],
+      retrievedChunks: [
+        supportChunk('k1', 'Sinh viên được phép bảo lưu tối đa 2 học kỳ.'),
+      ],
       genResult: {
         answer: 'Sinh viên được bảo lưu 3 học kỳ.',
         status: 'GROUNDED',
         citedIndexes: [1],
       },
-      claims: [
-        { id: 'c1', text: 'Sinh viên được bảo lưu 3 học kỳ.' },
-      ],
+      claims: [{ id: 'c1', text: 'Sinh viên được bảo lưu 3 học kỳ.' }],
     });
 
     const r = await svc.query({ query: 'q' });

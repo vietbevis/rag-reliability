@@ -14,6 +14,12 @@ export interface AppConfig {
     swaggerEnabled: boolean;
     isProduction: boolean;
   };
+  rateLimit: {
+    enabled: boolean;
+    ttlMs: number;
+    limit: number;
+    ragLimit: number;
+  };
   database: {
     url: string;
   };
@@ -32,6 +38,8 @@ export interface AppConfig {
     dimension: number;
     batchSize: number;
     distance: Env['EMBEDDING_DISTANCE'];
+    queryPrefix: string;
+    passagePrefix: string;
     openai: { apiKey?: string; baseUrl?: string; model: string };
     gemini: { apiKey?: string; model: string };
     custom: { baseUrl?: string; apiKey?: string; model?: string };
@@ -46,6 +54,8 @@ export interface AppConfig {
     maxTokens: number;
     minTokens: number;
     overlapTokens: number;
+    semanticBreakpointPercentile: number;
+    semanticBufferSize: number;
   };
   rag: {
     qualityThreshold: number;
@@ -64,6 +74,7 @@ export interface AppConfig {
   };
   citation: {
     enabled: boolean;
+    consolidateClaims: boolean;
     minOverlap: number;
     maxPerClaim: number;
     relationshipCitations: boolean;
@@ -137,6 +148,12 @@ export function loadConfiguration(): AppConfig {
       swaggerEnabled: env.SWAGGER_ENABLED,
       isProduction: env.NODE_ENV === 'production',
     },
+    rateLimit: {
+      enabled: env.RATE_LIMIT_ENABLED,
+      ttlMs: env.RATE_LIMIT_TTL_MS,
+      limit: env.RATE_LIMIT_LIMIT,
+      ragLimit: env.RATE_LIMIT_RAG_LIMIT,
+    },
     database: {
       url: env.DATABASE_URL,
     },
@@ -166,6 +183,8 @@ export function loadConfiguration(): AppConfig {
       dimension: env.EMBEDDING_DIMENSION,
       batchSize: env.EMBEDDING_BATCH_SIZE,
       distance: env.EMBEDDING_DISTANCE,
+      queryPrefix: env.EMBEDDING_QUERY_PREFIX,
+      passagePrefix: env.EMBEDDING_PASSAGE_PREFIX,
       openai: {
         apiKey: env.OPENAI_API_KEY,
         baseUrl: env.OPENAI_BASE_URL,
@@ -191,6 +210,8 @@ export function loadConfiguration(): AppConfig {
       maxTokens: env.CHUNK_MAX_TOKENS,
       minTokens: env.CHUNK_MIN_TOKENS,
       overlapTokens: env.CHUNK_OVERLAP_TOKENS,
+      semanticBreakpointPercentile: env.SEMANTIC_BREAKPOINT_PERCENTILE,
+      semanticBufferSize: env.SEMANTIC_BUFFER_SIZE,
     },
     rag: {
       qualityThreshold: env.QUALITY_THRESHOLD,
@@ -209,6 +230,7 @@ export function loadConfiguration(): AppConfig {
     },
     citation: {
       enabled: env.RAG_CITATION_ENABLED,
+      consolidateClaims: env.RAG_CONSOLIDATE_CLAIMS,
       minOverlap: env.CITATION_MIN_OVERLAP,
       maxPerClaim: env.CITATION_MAX_PER_CLAIM,
       relationshipCitations: env.CITATION_RELATIONSHIP_ENABLED,

@@ -9,8 +9,10 @@ import {
   Query,
 } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { PrismaService } from '../database/prisma.service';
 import { EmbeddingError } from '../common/errors';
+import { RagStatus } from '../generated/prisma/client';
 import { RetrievalService } from './retrieval/retrieval.service';
 import { RagPipelineService } from './pipeline/rag-pipeline.service';
 import { RagQueryDto, RagSearchDto } from './dto/rag-query.dto';
@@ -26,6 +28,7 @@ export class RagController {
 
   @Post('search')
   @HttpCode(200)
+  @Throttle({ rag: {} })
   @ApiOperation({
     summary: 'Chỉ truy hồi, KHÔNG gọi LLM — debug retrieval (PROMPT §40)',
   })
@@ -62,6 +65,7 @@ export class RagController {
 
   @Post('query')
   @HttpCode(200)
+  @Throttle({ rag: {} })
   @ApiOperation({
     summary:
       'Truy vấn RAG đầy đủ: retrieve → context → validate → generate (PROMPT §41)',
@@ -84,15 +88,19 @@ export class RagController {
 
   @Get('queries')
   @ApiOperation({
-    summary: 'Liệt kê lịch sử truy vấn RAG phục vụ audit và monitoring (PROMPT §38)',
+    summary:
+      'Liệt kê lịch sử truy vấn RAG phục vụ audit và monitoring (PROMPT §38)',
   })
   async listQueries(
     @Query('take') take?: number,
     @Query('status') status?: string,
   ) {
     const limit = Math.min(take ? Number(take) : 50, 100);
+    // Chỉ chấp nhận status là giá trị enum hợp lệ (tránh ném lỗi Prisma từ input tuỳ ý).
+    const statusFilter =
+      status && status in RagStatus ? (status as RagStatus) : undefined;
     const queries = await this.prisma.ragQuery.findMany({
-      where: status ? { status: status as any } : undefined,
+      where: statusFilter ? { status: statusFilter } : undefined,
       orderBy: { createdAt: 'desc' },
       take: limit,
       select: {
@@ -128,7 +136,8 @@ export class RagController {
 
   @Get('queries/:id/trace')
   @ApiOperation({
-    summary: 'Xem chi tiết trace timeline và telemetry từng chặng của truy vấn (PROMPT §38)',
+    summary:
+      'Xem chi tiết trace timeline và telemetry từng chặng của truy vấn (PROMPT §38)',
   })
   async getQueryTrace(@Param('id') id: string) {
     const q = await this.prisma.ragQuery.findUnique({

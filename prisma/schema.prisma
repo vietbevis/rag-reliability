@@ -119,6 +119,8 @@ model Embedding {
   provider   String
   model      String
   dimensions Int
+  /// vector(1024) — intfloat/multilingual-e5-large. Đổi số chiều = migration
+  /// mới + TRUNCATE + re-embed (xem migration phase14_embedding_e5_1024).
   embedding  Unsupported("vector")?
   createdAt  DateTime               @default(now())
 
@@ -240,6 +242,8 @@ model Citation {
   createdAt  DateTime       @default(now())
 
   @@index([ragQueryId])
+  @@index([documentId])
+  @@index([chunkId])
 }
 
 // ---------------------------------------------------------------------------

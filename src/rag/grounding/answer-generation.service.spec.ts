@@ -89,6 +89,37 @@ describe('AnswerGenerationService', () => {
     expect(a.answer).toBe(b.answer);
     expect(a.downgraded).toBe(false);
     expect(a.regenerated).toBe(false);
+    // Gộp call: generation trả kèm claim nguyên tử, backend cấp id c1..cn.
+    expect(a.claims.length).toBeGreaterThan(0);
+    expect(a.claims[0]!.id).toBe('c1');
+    expect(a.claims).toEqual(b.claims);
+  });
+
+  it('gộp call: claims từ LLM được khử trùng + cấp id; abstention → claims rỗng', async () => {
+    const { llm } = llmReturning({
+      answer: 'Sinh viên được bảo lưu hai học kỳ.',
+      status: 'GROUNDED',
+      usedContext: [1],
+      groundedInContext: true,
+      claims: [
+        { text: 'Sinh viên được bảo lưu hai học kỳ' },
+        { text: 'Sinh viên  được   bảo lưu hai học kỳ' },
+        { text: 'Đơn nộp trước 15 ngày' },
+      ],
+    });
+    const svc = build({ llm });
+    const r = await svc.generate('hỏi', context(['ngữ cảnh bất kỳ để đủ dài']));
+    expect(r.claims.map((c) => c.id)).toEqual(['c1', 'c2']);
+    expect(r.claims[1]!.text).toBe('Đơn nộp trước 15 ngày');
+
+    const { llm: llm2 } = llmReturning({
+      answer: 'Không tìm thấy thông tin trong tài liệu.',
+      status: 'INSUFFICIENT_EVIDENCE',
+      usedContext: [],
+      claims: [{ text: 'rác' }],
+    });
+    const r2 = await build({ llm: llm2 }).generate('hỏi', context(['x']));
+    expect(r2.claims).toEqual([]);
   });
 
   it('answer là abstention trá hình nhưng status GROUNDED → hạ về INSUFFICIENT_EVIDENCE (cả non-strict)', async () => {

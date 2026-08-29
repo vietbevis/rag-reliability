@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { z } from 'zod';
 import type { AppConfig } from '../../config/configuration';
 import type {
+  Claim,
   GroundingContext,
   RagStatus,
   TokenUsage,
@@ -28,6 +29,12 @@ export interface GeneratedAnswerResult {
   citedIndexes: number[];
   /** Ghi chú khi status = CONFLICTING_EVIDENCE. */
   conflictNote?: string;
+  /**
+   * Claim nguyên tử của answer do CHÍNH lời gọi generation trả về (gộp call —
+   * docs/audit/ARCHITECTURE_REVIEW.md §5.3). Backend cấp id `c1..cn`. Rỗng khi
+   * abstention hoặc model không trả claim (pipeline sẽ fallback ClaimExtractor).
+   */
+  claims: Claim[];
   /** Tỉ lệ token nội dung của answer xuất hiện trong context (proxy §23). */
   groundingRatio: number;
   /** Status cuối khác status LLM (bị hậu kiểm hạ xuống). */
@@ -53,6 +60,11 @@ const GROUNDED_SCHEMA = z.object({
   groundedInContext: z.boolean().default(true),
   /** Khi CONFLICTING_EVIDENCE: mô tả ngắn hai nguồn mâu thuẫn. */
   conflictNote: z.string().default(''),
+  /** answer tách thành các khẳng định nguyên tử (gộp call claim-extraction). */
+  claims: z
+    .array(z.object({ text: z.string() }))
+    .max(40)
+    .default([]),
 });
 
 const REGEN_INSTRUCTION =
@@ -147,10 +159,23 @@ export class AnswerGenerationService {
       .filter((i) => i >= 1 && i <= nContext)
       .sort((a, b) => a - b);
 
+    // Chỉ giữ claim khi status là câu trả lời thực (không phải abstention) —
+    // nhất quán với ClaimExtractor (từ chối → 0 claim).
+    const answerable =
+      resolved.status === 'GROUNDED' ||
+      resolved.status === 'PARTIALLY_GROUNDED' ||
+      resolved.status === 'CONFLICTING_EVIDENCE';
+    const claims: Claim[] = answerable
+      ? dedupeClaimTexts(
+          (data.claims ?? []).map((c) => c.text.trim()).filter(Boolean),
+        ).map((text, i) => ({ id: `c${i + 1}`, text }))
+      : [];
+
     return {
       answer: data.answer.trim(),
       status: resolved.status,
       citedIndexes,
+      claims,
       conflictNote:
         resolved.status === 'CONFLICTING_EVIDENCE'
           ? data.conflictNote.trim() || undefined
@@ -191,6 +216,19 @@ export class AnswerGenerationService {
   }
 }
 
+/** Khử trùng claim theo dạng chuẩn hoá (giữ thứ tự xuất hiện). */
+function dedupeClaimTexts(texts: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const t of texts) {
+    const key = t.normalize('NFC').toLowerCase().replace(/\s+/g, ' ');
+    if (key.length === 0 || seen.has(key)) continue;
+    seen.add(key);
+    out.push(t);
+  }
+  return out;
+}
+
 const SYSTEM_PROMPT = `Bạn trả lời câu hỏi CHỈ dựa trên NGỮ CẢNH được cung cấp.
 
 Quy tắc bắt buộc:
@@ -206,6 +244,10 @@ Quy tắc bắt buộc:
 6. "usedContext" chỉ liệt kê số [i] bạn thực sự dùng — không tạo trích dẫn giả.
 7. "groundedInContext" = true CHỈ khi mọi câu trong answer đều có căn cứ trực
    tiếp, nguyên văn trong các mục đã trích; ngược lại đặt false.
+8. "claims" = tách CHÍNH answer của bạn thành các khẳng định nguyên tử, mỗi phần
+   tử là MỘT sự kiện độc lập tự kiểm chứng được, giữ nguyên số liệu/tên riêng/mốc
+   thời gian. KHÔNG thêm thông tin ngoài answer. Nếu status = INSUFFICIENT_EVIDENCE
+   → "claims" rỗng.
 
 Trả JSON: { "answer", "status", "usedContext": [1,2], "groundedInContext": bool,
-"conflictNote": "" }`;
+"conflictNote": "", "claims": [{ "text": "..." }] }`;

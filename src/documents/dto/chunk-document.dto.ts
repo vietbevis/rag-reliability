@@ -3,11 +3,11 @@ import { IsIn, IsOptional } from 'class-validator';
 
 export class ChunkDocumentDto {
   @ApiPropertyOptional({
-    enum: ['structure', 'fixed'],
+    enum: ['structure', 'fixed', 'semantic'],
     description:
       'Ghi đè chiến lược chunking (mặc định lấy từ CHUNKING_STRATEGY)',
   })
   @IsOptional()
-  @IsIn(['structure', 'fixed'])
-  strategy?: 'structure' | 'fixed';
+  @IsIn(['structure', 'fixed', 'semantic'])
+  strategy?: 'structure' | 'fixed' | 'semantic';
 }

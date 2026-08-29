@@ -45,6 +45,25 @@ describe('contradiction-detector', () => {
       const res = detectClaimChunkContradiction(claim, chunk);
       expect(res.contradicts).toBe(false);
     });
+
+    // Hồi quy [P0]: chunk chứa CẢ điều cho phép lẫn điều cấm (gộp nhiều điều
+    // khoản) không được coi là mâu thuẫn với claim khẳng định.
+    it('chunk chứa cả "được phép" lẫn "không được" -> không mâu thuẫn với claim khẳng định', () => {
+      const claim =
+        'Sinh viên được phép bảo lưu kết quả học tập tối đa hai học kỳ liên tiếp';
+      const chunk =
+        'Sinh viên được phép bảo lưu kết quả học tập tối đa hai học kỳ. Trong thời gian bảo lưu, sinh viên không được đăng ký học phần và không được dự thi.';
+      const res = detectClaimChunkContradiction(claim, chunk);
+      expect(res.contradicts).toBe(false);
+    });
+
+    // "không được phép X" không được tính nhầm thành khẳng định vì chứa "được phép".
+    it('phân biệt "không được phép" với "được phép"', () => {
+      const claim = 'Sinh viên không được phép chuyển ngành trong năm đầu';
+      const chunk = 'Sinh viên được phép chuyển ngành trong năm đầu tiên.';
+      const res = detectClaimChunkContradiction(claim, chunk);
+      expect(res.contradicts).toBe(true);
+    });
   });
 
   describe('detectContextMutualContradiction', () => {
@@ -75,7 +94,8 @@ describe('contradiction-detector', () => {
         },
         {
           chunkId: 'chk-2',
-          content: 'Sinh viên phải tích lũy tối thiểu 120 tín chỉ để tốt nghiệp.',
+          content:
+            'Sinh viên phải tích lũy tối thiểu 120 tín chỉ để tốt nghiệp.',
         },
       ];
       const res = detectContextMutualContradiction(chunks);

@@ -178,7 +178,7 @@ describe('ChunkEmbeddingService', () => {
     );
     expect(mocks.embedBatch).toHaveBeenCalledWith(
       ['chunk không', 'chunk một'],
-      undefined,
+      { provider: undefined, inputType: 'passage' },
     );
 
     expect(r).toMatchObject({
@@ -212,7 +212,10 @@ describe('ChunkEmbeddingService', () => {
   it('providerOverride được truyền xuống embedBatch và ghi vào provider', async () => {
     const { svc, mocks } = build();
     const r = await svc.embedDocument('doc-1', 'openai' as never);
-    expect(mocks.embedBatch).toHaveBeenCalledWith(expect.any(Array), 'openai');
+    expect(mocks.embedBatch).toHaveBeenCalledWith(expect.any(Array), {
+      provider: 'openai',
+      inputType: 'passage',
+    });
     expect(r.provider).toBe('openai');
   });
 });

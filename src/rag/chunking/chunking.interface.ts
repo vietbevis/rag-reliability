@@ -4,12 +4,14 @@
  * - `structure`: bám cấu trúc Markdown (heading -> section -> block), giữ
  *   nguyên semantic unit khi có thể.
  * - `fixed`: cửa sổ token cố định + overlap (baseline để benchmark).
+ * - `semantic`: cắt tại ranh giới ngữ nghĩa — khoảng cách embedding giữa các câu
+ *   liền kề vượt phân vị ngưỡng (`SEMANTIC_BREAKPOINT_PERCENTILE`).
  *
  * RAG core chỉ phụ thuộc interface này; đổi chiến lược bằng env
  * `CHUNKING_STRATEGY`, không sửa code.
  */
 
-export type ChunkingStrategyName = 'structure' | 'fixed';
+export type ChunkingStrategyName = 'structure' | 'fixed' | 'semantic';
 
 export interface ChunkingInput {
   /** Markdown từ anydoc, nếu có (chunker structure ưu tiên dùng). */

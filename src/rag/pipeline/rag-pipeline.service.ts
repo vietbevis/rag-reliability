@@ -104,6 +104,7 @@ export class RagPipelineService {
   private readonly rerankCfg: AppConfig['rerank'];
   private readonly citationCfg: AppConfig['citation'];
   private readonly faithfulnessCfg: AppConfig['faithfulness'];
+  private readonly consolidateClaims: boolean;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -121,6 +122,7 @@ export class RagPipelineService {
     this.rerankCfg = config.get('rerank', { infer: true });
     this.citationCfg = config.get('citation', { infer: true });
     this.faithfulnessCfg = config.get('faithfulness', { infer: true });
+    this.consolidateClaims = this.citationCfg.consolidateClaims;
   }
 
   async query(
@@ -261,6 +263,7 @@ export class RagPipelineService {
               gen.answer,
               gen.citedIndexes,
               context.chunks,
+              gen.claims,
             );
             citations = cite.citations;
             claims = cite.claims;
@@ -319,16 +322,16 @@ export class RagPipelineService {
                 faithExec.result.rootCause === 'CONFLICTING_CONTEXT'
               ) {
                 status = 'CONFLICTING_EVIDENCE';
-              } else if (
-                !faithExec.result.grounded &&
-                status === 'GROUNDED'
-              ) {
+              } else if (!faithExec.result.grounded && status === 'GROUNDED') {
                 status = 'PARTIALLY_GROUNDED';
               }
             }
           } else {
             // Baseline P4: map thô usedContext → chunk, không tách claim.
-            citations = this.baselineCitations(context.chunks, gen.citedIndexes);
+            citations = this.baselineCitations(
+              context.chunks,
+              gen.citedIndexes,
+            );
           }
         }
       }
@@ -435,6 +438,7 @@ export class RagPipelineService {
     answer: string,
     citedIndexes: number[],
     chunks: RetrievedChunk[],
+    generationClaims: Claim[] = [],
   ): Promise<{
     citations: Citation[];
     claims: VerifiedClaim[];
@@ -443,7 +447,22 @@ export class RagPipelineService {
     usage: { inputTokens: number; outputTokens: number; estimatedCost: number };
     trace: Record<string, unknown>;
   }> {
-    const extraction = await this.claimExtractor.extract(answer);
+    // Gộp call (docs/audit/ARCHITECTURE_REVIEW.md §5.3): nếu generation đã trả
+    // claim thì bỏ hẳn 1 lời gọi LLM claim-extraction. Fallback về
+    // ClaimExtractorService khi tắt cờ hoặc generation không trả claim nào.
+    const extraction =
+      this.consolidateClaims && generationClaims.length > 0
+        ? {
+            claims: generationClaims,
+            usage: {
+              inputTokens: 0,
+              outputTokens: 0,
+              totalTokens: 0,
+              estimatedCost: 0,
+            },
+            method: 'consolidated' as const,
+          }
+        : await this.claimExtractor.extract(answer);
     const usedChunkIds = citedIndexes
       .map((i) => chunks[i - 1]?.chunkId)
       .filter((id): id is string => !!id);
@@ -453,7 +472,11 @@ export class RagPipelineService {
     });
     const evByClaim = new Map(evidence.map((e) => [e.claimId, e]));
 
-    const built = await this.citation.build(extraction.claims, evidence, chunks);
+    const built = await this.citation.build(
+      extraction.claims,
+      evidence,
+      chunks,
+    );
 
     const claims: VerifiedClaim[] = extraction.claims.map((c) => {
       const e = evByClaim.get(c.id);
