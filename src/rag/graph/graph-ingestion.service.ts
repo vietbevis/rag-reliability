@@ -106,31 +106,24 @@ export class GraphIngestionService {
     const model = this.llm.activeModel;
     const promptVersion = this.extractCfg.promptVersion;
     const perChunkCalls = 1 + this.extractCfg.gleanings;
-    const maxChunks = Math.max(
-      1,
-      Math.floor(this.extractCfg.maxLlmCallsPerDoc / perChunkCalls),
-    );
+    const callBudget = this.extractCfg.maxLlmCallsPerDoc;
 
     const allChunks = await this.prisma.documentChunk.findMany({
       where: { documentId },
       orderBy: { sequence: 'asc' },
       select: { id: true, content: true },
     });
-    const chunks = allChunks.slice(0, maxChunks);
-    if (allChunks.length > maxChunks) {
-      this.logger.warn(
-        `Document ${documentId} có ${allChunks.length} chunk > trần ${maxChunks} (GRAPH_EXTRACT_MAX_LLM_CALLS_PER_DOC) — chỉ dựng graph cho ${maxChunks} chunk đầu`,
-      );
-    }
 
     let cacheHits = 0;
     let llmCalls = 0;
     let inputTokens = 0;
     let outputTokens = 0;
     let estimatedCost = 0;
+    let budgetHitAt = -1;
     const extractions: ChunkExtractionInput[] = [];
 
-    for (const ck of chunks) {
+    for (let i = 0; i < allChunks.length; i++) {
+      const ck = allChunks[i]!;
       const hash = this.cache.hash(ck.content);
       const cached = await this.cache.get(hash, model, promptVersion);
       if (cached) {
@@ -143,6 +136,13 @@ export class GraphIngestionService {
           relationships: cached.relationships,
         });
         continue;
+      }
+
+      // Trần LLM tính theo lời gọi THẬT — cache hit không tốn budget. Dừng khi
+      // lời gọi kế tiếp có thể vượt trần.
+      if (llmCalls + perChunkCalls > callBudget) {
+        budgetHitAt = i;
+        break;
       }
 
       const ext = await this.extractor.extract(ck.content);
@@ -163,13 +163,21 @@ export class GraphIngestionService {
       });
     }
 
+    if (budgetHitAt >= 0) {
+      this.logger.warn(
+        `Document ${documentId}: đạt trần GRAPH_EXTRACT_MAX_LLM_CALLS_PER_DOC (${callBudget}) ` +
+          `ở chunk ${budgetHitAt}/${allChunks.length} — ${allChunks.length - budgetHitAt} chunk sau chưa dựng graph (chạy lại sau khi cache đầy)`,
+      );
+    }
+
     const graph = resolveGraph(documentId, extractions);
     await this.writer.replaceDocument(graph);
 
     const metrics = {
       entityCount: graph.entities.length,
       relationshipCount: graph.relationships.length,
-      chunkCount: chunks.length,
+      chunkCount: extractions.length,
+      chunkCountTotal: allChunks.length,
       llmCalls,
       cacheHits,
       inputTokens,
@@ -197,7 +205,7 @@ export class GraphIngestionService {
 
     this.logger.log(
       `Graph ${documentId}: ${metrics.entityCount} entity, ${metrics.relationshipCount} quan hệ ` +
-        `(${chunks.length} chunk, ${llmCalls} LLM call, ${cacheHits} cache hit, $${metrics.estimatedCost})`,
+        `(${extractions.length}/${allChunks.length} chunk, ${llmCalls} LLM call, ${cacheHits} cache hit, $${metrics.estimatedCost})`,
     );
     return { documentId, skipped: false, metrics };
   }

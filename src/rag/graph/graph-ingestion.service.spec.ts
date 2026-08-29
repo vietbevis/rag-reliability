@@ -127,10 +127,10 @@ describe('GraphIngestionService', () => {
     expect(extractor).not.toHaveBeenCalled();
   });
 
-  it('trần maxLlmCallsPerDoc giới hạn số chunk xử lý', async () => {
+  it('trần maxLlmCallsPerDoc giới hạn số LỜI GỌI LLM (không phải số chunk)', async () => {
     const { svc, extractor } = build({
       gleanings: 0,
-      maxCalls: 1,
+      maxCalls: 2,
       chunks: [
         { id: 'c1', content: 'A B' },
         { id: 'c2', content: 'C D' },
@@ -138,7 +138,28 @@ describe('GraphIngestionService', () => {
       ],
     });
     await svc.ingest('d1');
-    expect(extractor).toHaveBeenCalledTimes(1); // floor(1 / (1+0)) = 1
+    expect(extractor).toHaveBeenCalledTimes(2); // budget 2, mỗi chunk 1 call
+  });
+
+  it('cache hit KHÔNG tốn budget → re-ingest full-cache xử lý MỌI chunk', async () => {
+    const { svc, extractor } = build({
+      gleanings: 0,
+      maxCalls: 1, // budget rất nhỏ
+      cached: {
+        entities: [{ name: 'X', type: 'ORG', description: '' }],
+        relationships: [],
+        inputTokens: 1,
+        outputTokens: 1,
+      },
+      chunks: [
+        { id: 'c1', content: 'A' },
+        { id: 'c2', content: 'B' },
+        { id: 'c3', content: 'C' },
+      ],
+    });
+    const r = await svc.ingest('d1');
+    expect(extractor).not.toHaveBeenCalled();
+    expect(r.metrics?.chunkCount).toBe(3); // cả 3 chunk đều vào graph
   });
 
   it('lỗi khi extract (auto) → không ném, trả reason, ghi job FAILED', async () => {

@@ -33,12 +33,20 @@ export function resolveGraph(
     string,
     ResolvedEntity & { descParts: Set<string> }
   >();
-  const nameToKey = new Map<string, string>(); // norm(name) -> key (để nối quan hệ)
+  const relationships = new Map<
+    string,
+    ResolvedRelationship & { descParts: Set<string> }
+  >();
 
   const entityKey = (name: string, type: string): string =>
     sha256(`${norm(name)}|${norm(type)}`);
 
   for (const ck of chunks) {
+    // Map cục bộ của CHUNK: quan hệ trong chunk này chỉ nối entity của chính nó
+    // (post-validate của extractor đảm bảo). Tránh va chạm khi 2 chunk có entity
+    // trùng tên khác loại (vd "Apple" ORG vs PRODUCT).
+    const localNameToKey = new Map<string, string>();
+
     for (const e of ck.entities) {
       const key = entityKey(e.name, e.type);
       let cur = entities.get(key);
@@ -55,20 +63,12 @@ export function resolveGraph(
       }
       if (!cur.chunkIds.includes(ck.chunkId)) cur.chunkIds.push(ck.chunkId);
       if (e.description.trim()) cur.descParts.add(e.description.trim());
-      // Ưu tiên tên xuất hiện nhiều nhất giữ nguyên; ở đây giữ tên đầu tiên.
-      nameToKey.set(norm(e.name), key);
+      localNameToKey.set(norm(e.name), key);
     }
-  }
 
-  const relationships = new Map<
-    string,
-    ResolvedRelationship & { descParts: Set<string> }
-  >();
-
-  for (const ck of chunks) {
     for (const r of ck.relationships) {
-      const srcKey = nameToKey.get(norm(r.source));
-      const tgtKey = nameToKey.get(norm(r.target));
+      const srcKey = localNameToKey.get(norm(r.source));
+      const tgtKey = localNameToKey.get(norm(r.target));
       if (!srcKey || !tgtKey || srcKey === tgtKey) continue;
 
       const [a, b] = [srcKey, tgtKey].sort();

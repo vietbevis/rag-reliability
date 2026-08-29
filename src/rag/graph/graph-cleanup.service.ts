@@ -46,11 +46,12 @@ export class GraphCleanupService {
     const ckIds = ckRows.records[0]?.get('ckIds') ?? [];
 
     // 1. RELATED: bỏ documentId + chunkId của tài liệu; xoá cạnh nếu cạn.
+    // `weight` tính từ biểu thức lọc inline (không đọc r.chunkIds "cũ").
     const rel = await tx.run(
       `MATCH ()-[r:RELATED]->() WHERE $d IN r.documentIds
        SET r.documentIds = [x IN r.documentIds WHERE x <> $d],
-           r.chunkIds = [x IN coalesce(r.chunkIds, []) WHERE NOT x IN $ckIds]
-       SET r.weight = size(r.chunkIds)
+           r.chunkIds = [x IN coalesce(r.chunkIds, []) WHERE NOT x IN $ckIds],
+           r.weight = size([x IN coalesce(r.chunkIds, []) WHERE NOT x IN $ckIds])
        WITH r WHERE size(r.documentIds) = 0 OR size(r.chunkIds) = 0
        DELETE r`,
       { d: documentId, ckIds },
@@ -107,6 +108,13 @@ export class GraphCleanupService {
       );
       tally(chunk.summary.counters.updates());
 
+      // Danh sách chunkId còn sống (sau khi đã xoá chunk mồ côi ở trên) —
+      // để lọc r.chunkIds của cạnh RELATED chia sẻ nhiều tài liệu.
+      const liveChunks = await tx.run<{ ids: string[] }>(
+        `MATCH (c:Chunk) RETURN collect(c.id) AS ids`,
+      );
+      const validChunkIds = liveChunks.records[0]?.get('ids') ?? [];
+
       await tx.run(
         `MATCH (e:Entity)
          SET e.documentIds = [x IN coalesce(e.documentIds, []) WHERE x IN $valid]`,
@@ -114,10 +122,12 @@ export class GraphCleanupService {
       );
       const rel = await tx.run(
         `MATCH ()-[r:RELATED]->()
-         SET r.documentIds = [x IN coalesce(r.documentIds, []) WHERE x IN $valid]
-         WITH r WHERE size(r.documentIds) = 0
+         SET r.documentIds = [x IN coalesce(r.documentIds, []) WHERE x IN $valid],
+             r.chunkIds = [x IN coalesce(r.chunkIds, []) WHERE x IN $validChunkIds],
+             r.weight = size([x IN coalesce(r.chunkIds, []) WHERE x IN $validChunkIds])
+         WITH r WHERE size(r.documentIds) = 0 OR size(r.chunkIds) = 0
          DELETE r`,
-        { valid },
+        { valid, validChunkIds },
       );
       tally(rel.summary.counters.updates());
 

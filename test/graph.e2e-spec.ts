@@ -121,6 +121,43 @@ Sinh viên phải tích luỹ đủ tín chỉ. Phòng Đào Tạo phối hợp 
     expect(remaining[0]?.n ?? 0).toBe(0);
   });
 
+  it('entity chia sẻ giữa 2 tài liệu sống sót khi xoá 1; reconcile không xoá nhầm', async () => {
+    const shared = `Phòng Đào Tạo phối hợp Khoa Công Nghệ Thông Tin quản lý sinh viên.`;
+    const a = await request(app.getHttpServer())
+      .post('/documents')
+      .send({ title: 'A', source: 'e2e-graph-a', text: `# A\n\n${shared}` });
+    const b = await request(app.getHttpServer())
+      .post('/documents')
+      .send({ title: 'B', source: 'e2e-graph-b', text: `# B\n\n${shared}` });
+    created.push(a.body.document.id, b.body.document.id);
+
+    // xoá A
+    await request(app.getHttpServer()).delete(
+      `/documents/${a.body.document.id}`,
+    );
+    created.splice(created.indexOf(a.body.document.id), 1);
+
+    // entity chỉ còn documentIds = [B]
+    const ents = await neo4j.read<{ name: string; docs: string[] }>(
+      `MATCH (e:Entity) WHERE $b IN e.documentIds
+       RETURN e.name AS name, e.documentIds AS docs`,
+      { b: b.body.document.id },
+    );
+    expect(ents.length).toBeGreaterThan(0);
+    for (const e of ents) {
+      expect(e.docs).toEqual([b.body.document.id]);
+    }
+
+    // reconcile với cả 2 doc "hợp lệ" (A đã xoá thật) → không xoá gì của B
+    const rec = await request(app.getHttpServer()).post('/graph/reconcile');
+    expect(rec.status).toBe(200);
+    const after = await neo4j.read<{ n: number }>(
+      `MATCH (e:Entity) WHERE $b IN e.documentIds RETURN count(e) AS n`,
+      { b: b.body.document.id },
+    );
+    expect(after[0]!.n).toBe(ents.length);
+  }, 60_000);
+
   it('POST /graph/reconcile — không xoá gì khi graph đã nhất quán', async () => {
     const res = await request(app.getHttpServer()).post('/graph/reconcile');
     expect(res.status).toBe(200);
