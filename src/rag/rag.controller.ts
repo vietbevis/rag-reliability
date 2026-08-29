@@ -23,6 +23,7 @@ export class RagController {
       query: dto.query,
       topK: dto.topK,
       filters: dto.filters,
+      strategy: dto.strategy,
     });
     if (res.error) {
       // Lỗi hạ tầng truy hồi → 502, không trả 200 với 0 kết quả (PROMPT §54).
@@ -56,7 +57,12 @@ export class RagController {
   })
   query(@Body() dto: RagQueryDto) {
     return this.pipeline.query(
-      { query: dto.query, topK: dto.topK, filters: dto.filters },
+      {
+        query: dto.query,
+        topK: dto.topK,
+        filters: dto.filters,
+        strategy: dto.strategy,
+      },
       { rethrow: true },
     );
   }

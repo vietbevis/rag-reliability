@@ -108,6 +108,24 @@ Sinh viên phải tích luỹ đủ tín chỉ. Phòng Đào Tạo phối hợp 
     expect(after.body.relationshipCount).toBe(before.body.relationshipCount);
   }, 60_000);
 
+  it('POST /rag/search strategy=graph — traversal từ entity trong query', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/rag/search')
+      .send({
+        query: 'Phòng Đào Tạo phối hợp với đơn vị nào?',
+        strategy: 'graph',
+        filters: { documentIds: [created[0]] },
+      });
+    expect(res.status).toBe(200);
+    expect(res.body.strategy).toBe('graph');
+    // fake NER + traversal → có thể ra chunk hoặc rỗng; chỉ assert plumbing
+    for (const r of res.body.results) {
+      expect(r.source).toBe('graph');
+      expect(r.score).toBeGreaterThanOrEqual(0);
+      expect(r.score).toBeLessThanOrEqual(1);
+    }
+  });
+
   it('DELETE /documents/:id — dọn sạch graph của tài liệu', async () => {
     const id = created.pop()!;
     const del = await request(app.getHttpServer()).delete(`/documents/${id}`);
@@ -131,31 +149,45 @@ Sinh viên phải tích luỹ đủ tín chỉ. Phòng Đào Tạo phối hợp 
       .send({ title: 'B', source: 'e2e-graph-b', text: `# B\n\n${shared}` });
     created.push(a.body.document.id, b.body.document.id);
 
-    // xoá A
-    await request(app.getHttpServer()).delete(
-      `/documents/${a.body.document.id}`,
-    );
-    created.splice(created.indexOf(a.body.document.id), 1);
+    const aId = a.body.document.id;
+    const bId = b.body.document.id;
 
-    // entity chỉ còn documentIds = [B]
-    const ents = await neo4j.read<{ name: string; docs: string[] }>(
-      `MATCH (e:Entity) WHERE $b IN e.documentIds
-       RETURN e.name AS name, e.documentIds AS docs`,
-      { b: b.body.document.id },
+    // entity chia sẻ phải có cả 2 doc lúc này
+    const shared0 = await neo4j.read<{ n: number }>(
+      `MATCH (e:Entity) WHERE $a IN e.documentIds AND $b IN e.documentIds RETURN count(e) AS n`,
+      { a: aId, b: bId },
     );
-    expect(ents.length).toBeGreaterThan(0);
-    for (const e of ents) {
-      expect(e.docs).toEqual([b.body.document.id]);
-    }
+    expect(shared0[0]!.n).toBeGreaterThan(0);
 
-    // reconcile với cả 2 doc "hợp lệ" (A đã xoá thật) → không xoá gì của B
+    // xoá A → KHÔNG còn entity/cạnh nào tham chiếu A; entity chia sẻ vẫn còn (thuộc B)
+    await request(app.getHttpServer()).delete(`/documents/${aId}`);
+    created.splice(created.indexOf(aId), 1);
+
+    const stillA = await neo4j.read<{ n: number }>(
+      `MATCH (e:Entity) WHERE $a IN e.documentIds RETURN count(e) AS n`,
+      { a: aId },
+    );
+    expect(stillA[0]!.n).toBe(0);
+    const relA = await neo4j.read<{ n: number }>(
+      `MATCH ()-[r:RELATED]->() WHERE $a IN r.documentIds RETURN count(r) AS n`,
+      { a: aId },
+    );
+    expect(relA[0]!.n).toBe(0);
+    const stillShared = await neo4j.read<{ n: number }>(
+      `MATCH (e:Entity) WHERE $b IN e.documentIds RETURN count(e) AS n`,
+      { b: bId },
+    );
+    expect(stillShared[0]!.n).toBeGreaterThan(0);
+
+    // reconcile với danh sách doc hợp lệ hiện tại → không xoá gì của B
+    const before = stillShared[0]!.n;
     const rec = await request(app.getHttpServer()).post('/graph/reconcile');
     expect(rec.status).toBe(200);
-    const after = await neo4j.read<{ n: number }>(
+    const afterRec = await neo4j.read<{ n: number }>(
       `MATCH (e:Entity) WHERE $b IN e.documentIds RETURN count(e) AS n`,
-      { b: b.body.document.id },
+      { b: bId },
     );
-    expect(after[0]!.n).toBe(ents.length);
+    expect(afterRec[0]!.n).toBe(before);
   }, 60_000);
 
   it('POST /graph/reconcile — không xoá gì khi graph đã nhất quán', async () => {

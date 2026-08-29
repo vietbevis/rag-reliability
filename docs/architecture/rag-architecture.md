@@ -32,7 +32,7 @@ Faithfulness tăng A→B, latency +C ms, cost +D%".
 | 3     | Embedding đa provider (batch) + pgvector + HNSW index + API                                                 | ✅ Hoàn thành |
 | 4     | Baseline RAG: vector retrieval → context → validate → generate + evaluation harness + golden dataset + baseline metrics | ✅ Hoàn thành |
 | 5     | **Graph RAG — construction**: entity + relationship extraction (LLM + gleaning) → Neo4j; cache theo hash; ingestion stage `GRAPH`; cleanup/reconcile idempotent; API | ✅ Hoàn thành |
-| 6     | Retrieval nâng cao: metadata filter · keyword · **graph traversal (local)** · hybrid · fusion               | ⏳            |
+| 6     | Retrieval nâng cao: metadata filter · keyword (PG full-text) · **graph traversal (local, 3-tier entity linking, degree-cap, circuit-breaker)** · hybrid · fusion (RRF/weighted) · `strategy` per-request | ✅ Hoàn thành |
 | 7     | Reranking + benchmark before/after                                                                          | ⏳            |
 | 8     | Grounded generation + abstention                                                                            | ⏳            |
 | 9     | Citation: claim → evidence → chunk/**entity/relationship** → document                                       | ⏳            |
@@ -51,7 +51,7 @@ src/
 ├── rag/ingestion/   # normalize · clean · dedup · quality · orchestrator
 ├── rag/chunking/    # structure-aware | fixed · chunk quality · factory
 ├── rag/embedding/   # orchestrator (chunk→pgvector) + kiểm tra vector schema
-├── rag/retrieval/   # (P4) Retriever interface · VectorRetriever (pgvector) · RetrievalService orchestrator
+├── rag/retrieval/   # Retriever interface · VectorRetriever (P4) · KeywordRetriever (P6, PG full-text) · GraphRetriever + GraphEntityLinker (P6) · fusion.ts (RRF/weighted, thuần) · RetrievalService (dispatch strategy + fusion)
 ├── rag/context/     # (P4) ContextBuilder (dedup·sort·token budget) · ContextValidator (abstain gate §22)
 ├── rag/grounding/   # (P4) AnswerGeneration (structured output + schema.parse §50); claim/faithfulness ở P8-10
 ├── rag/pipeline/    # (P4) RagPipelineService: retrieve→context→validate→generate→persist RagQuery
@@ -103,18 +103,20 @@ flowchart TD
 
 ## 5. Pipeline truy vấn RAG (`POST /rag/query`)
 
-Đường xanh (`PHASE 4` — đã hiện thực): vector search → context builder →
-context validation → grounded generation → citation map thô → response.
-Đường xám (P6-10): query analyzer, keyword search, fusion, reranker, claim
-extraction, evidence matching, contradiction, faithfulness check.
+Đã hiện thực (P4 vector · P6 keyword/graph/hybrid/fusion): retrieval theo
+`strategy` → (hybrid) fusion → context builder → context validation → grounded
+generation → citation map thô → response.
+Đường xám (P7-10): reranker, claim extraction, evidence matching, contradiction,
+faithfulness check. Query analyzer: hoãn (client chọn `strategy` trực tiếp).
 
 ```mermaid
 flowchart TD
-  QRY[Query] --> AN["(P6) Query analyzer: exact | semantic | filtered | multi-concept"]
-  AN --> VEC["VECTOR SEARCH (P4)"]
-  AN --> KW["(P6) Keyword search - full-text"]
-  AN --> GR["(P6) Graph traversal (local)"]
-  VEC --> FUS["(P6) Fusion: RRF / weighted"]
+  QRY[Query + strategy] --> DISP{"RetrievalService: strategy?"}
+  DISP -->|vector| VEC["VECTOR SEARCH (P4): pgvector"]
+  DISP -->|keyword| KW["KEYWORD (P6): PG full-text 'simple' + ts_rank"]
+  DISP -->|graph| GR["GRAPH (P6): entity linking 3-tier → traversal 1..maxHops"]
+  DISP -->|hybrid| VEC & KW & GR
+  VEC --> FUS["FUSION (P6): RRF | weighted (chỉ khi >1 nguồn)"]
   KW --> FUS
   GR --> FUS
   FUS --> RR["(P7) Reranker: top 20 -> top 5 (co fallback)"]
@@ -131,9 +133,11 @@ flowchart TD
   CIT --> RESP["Response: answer, status, citations, claims, retrieval, faithfulness, provider, model, usage"]
 ```
 
-> PHASE 4 bỏ qua query analyzer / keyword / graph / fusion / reranker (đi thẳng
-> `VEC → CB`) và trả `claims: []`, `faithfulness: null`. Xem `docs/rag/retrieval.md`
-> và `docs/rag/grounding.md`.
+> `strategy` mặc định = `RETRIEVAL_STRATEGY` (env), ghi đè bằng field `strategy`
+> trong body `POST /rag/query|search`. `hybrid` chạy 3 nguồn SONG SONG; nguồn nào
+> lỗi hạ tầng thì fusion vẫn tiếp với nguồn còn lại, chỉ báo `error` toàn cục khi
+> MỌI nguồn fail (PROMPT §54). Reranker/claim/faithfulness vẫn ở P7-10 (`claims:
+> []`, `faithfulness: null`). Xem `docs/rag/retrieval.md`.
 
 ## 6. Failure handling (PROMPT §54)
 
@@ -143,8 +147,11 @@ flowchart TD
 | Quality gate      | `REJECTED`                                                                                                                                                     |
 | Embedding         | provider chưa cấu hình → bỏ qua (dừng `CHUNKING`); số chiều lệch → `INGESTION_PRECONDITION`; API lỗi → retry giới hạn rồi ném (giữ `EMBEDDING`, re-embed được) |
 | Graph (P5)        | `GRAPH_RAG_ENABLED=false` → bỏ qua; Neo4j chết / extraction lỗi → ghi `IngestionJob(GRAPH, FAILED)`, giữ doc ở `GRAPHING` (chạy lại `POST /:id/graph`), request KHÔNG 500. Explicit endpoint ném lỗi rõ ràng. |
-| Vector search     | lỗi hạ tầng (embed query fail) → HTTP 502 (`RetrievalService.error`), KHÔNG che thành `INSUFFICIENT_EVIDENCE`; fallback keyword ở P6                              |
-| Reranker          | fallback ranking (giữ thứ tự fusion)                                                                                                                           |
+| Vector retriever  | lỗi hạ tầng (embed query fail) → `trace.error`; nếu là nguồn duy nhất → HTTP 502, KHÔNG che thành `INSUFFICIENT_EVIDENCE`; trong `hybrid` fusion vẫn chạy với keyword/graph |
+| Keyword retriever | `websearch_to_tsquery` rỗng → `trace.reason`, 0 kết quả (không lỗi); lỗi DB → `trace.error`                                                                     |
+| Graph retriever   | graph tắt / seed rỗng → `trace.reason`, 0 kết quả; Neo4j chết → `trace.error` + circuit-breaker (3 lỗi liên tiếp → bỏ qua 30s); không bao giờ ném (hợp đồng `Retriever`) |
+| Fusion            | chỉ 1 nguồn có kết quả → pass-through (không đổi score/source); mọi nguồn rỗng → `chunks: []`                                                                    |
+| Reranker (P7)     | fallback ranking (giữ thứ tự fusion)                                                                                                                           |
 | LLM               | phân loại lỗi (`RATE_LIMIT`, `OVERLOADED`, `SAFETY_BLOCK`…), retry lỗi tạm thời, (tương lai) fallback provider                                                 |
 | Faithfulness fail | regenerate hoặc abstain                                                                                                                                        |
 

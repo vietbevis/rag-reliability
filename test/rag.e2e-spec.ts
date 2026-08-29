@@ -81,6 +81,55 @@ Trong thời gian bảo lưu, sinh viên không được hưởng các chế đ�
     expect(r0.content).toContain('bảo lưu');
   });
 
+  it('POST /rag/search strategy=keyword — full-text, khớp từ khoá "bảo lưu"', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/rag/search')
+      .send({
+        query: 'bảo lưu học kỳ',
+        strategy: 'keyword',
+        filters: { documentIds: [created[0]] },
+      });
+    expect(res.status).toBe(200);
+    expect(res.body.strategy).toBe('keyword');
+    expect(res.body.count).toBeGreaterThan(0);
+    expect(res.body.results[0].source).toBe('keyword');
+    expect(res.body.results[0].content).toContain('bảo lưu');
+  });
+
+  it('POST /rag/search strategy=hybrid — fusion vector + keyword (+ graph skip)', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/rag/search')
+      .send({
+        query: 'thủ tục xin bảo lưu nộp cho ai',
+        strategy: 'hybrid',
+        filters: { documentIds: [created[0]] },
+      });
+    expect(res.status).toBe(200);
+    expect(res.body.strategy).toBe('hybrid');
+    expect(res.body.count).toBeGreaterThan(0);
+    for (const r of res.body.results) {
+      expect(r.score).toBeGreaterThanOrEqual(0);
+      expect(r.score).toBeLessThanOrEqual(1);
+      expect(['vector', 'keyword', 'graph', 'hybrid']).toContain(r.source);
+    }
+  });
+
+  it('POST /rag/query strategy=hybrid — persist RetrievalLog strategy=hybrid', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/rag/query')
+      .send({
+        query: '[e2e] Đơn xin bảo lưu nộp trước bao nhiêu ngày?',
+        strategy: 'hybrid',
+        filters: { documentIds: [created[0]] },
+      });
+    expect(res.status).toBe(200);
+    const rq = await prisma.ragQuery.findUnique({
+      where: { id: res.body.id },
+      include: { retrievalLogs: true },
+    });
+    expect(rq?.retrievalLogs[0]?.strategy).toBe('hybrid');
+  });
+
   it('POST /rag/query — luồng đầy đủ, persist RagQuery + RetrievalLog', async () => {
     const res = await request(app.getHttpServer())
       .post('/rag/query')

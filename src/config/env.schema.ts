@@ -200,6 +200,36 @@ export const envSchema = z
     // Đổi prompt extraction ⇒ tăng số này ⇒ cache extraction cũ tự vô hiệu.
     GRAPH_PROMPT_VERSION: z.string().trim().default('1'),
 
+    // ---- Retrieval nâng cao (PHASE 6) -----------------------------------
+    // Chiến lược mặc định khi client không chỉ định (POST /rag/query|search).
+    RETRIEVAL_STRATEGY: z
+      .enum(['vector', 'keyword', 'graph', 'hybrid'])
+      .default('vector'),
+    // Graph traversal (local) — graph-rag.md §4.
+    GRAPH_MAX_HOPS: numeric({ int: true, min: 1, max: 4, default: 2 }),
+    GRAPH_MAX_ENTITY_DEGREE: numeric({
+      int: true,
+      min: 10,
+      max: 5000,
+      default: 200,
+    }),
+    GRAPH_RETRIEVAL_TOP_K: numeric({
+      int: true,
+      min: 1,
+      max: 100,
+      default: 10,
+    }),
+    // Tầng 3 entity linking: rút thực thể từ query bằng LLM khi tầng 1/2 rỗng.
+    GRAPH_LINK_USE_LLM: boolish(true),
+    // Trọng số fusion (weighted) — chuẩn hoá nội bộ, chỉ tỉ lệ quan trọng.
+    FUSION_WEIGHT_VECTOR: numeric({ min: 0, max: 10, default: 1.0 }),
+    FUSION_WEIGHT_KEYWORD: numeric({ min: 0, max: 10, default: 0.7 }),
+    FUSION_WEIGHT_GRAPH: numeric({ min: 0, max: 10, default: 0.8 }),
+    // Hằng số k của Reciprocal Rank Fusion (RRF).
+    FUSION_RRF_K: numeric({ int: true, min: 1, max: 200, default: 60 }),
+    // 'rrf' (bền, không cần score cùng thang) | 'weighted' (dùng score chuẩn hoá).
+    FUSION_METHOD: z.enum(['rrf', 'weighted']).default('rrf'),
+
     // ---- Ngưỡng độ tin cậy ------------------------------------------
     FAITHFULNESS_THRESHOLD: numeric({ min: 0, max: 1, default: 0.8 }),
     HALLUCINATION_THRESHOLD: numeric({ min: 0, max: 1, default: 0.1 }),

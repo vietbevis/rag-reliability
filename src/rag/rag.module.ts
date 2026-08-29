@@ -13,6 +13,9 @@ import { DocumentNormalizerService } from './ingestion/document-normalizer.servi
 import { DocumentQualityService } from './ingestion/document-quality.service';
 import { IngestionService } from './ingestion/ingestion.service';
 import { VectorRetrieverService } from './retrieval/vector-retriever.service';
+import { KeywordRetrieverService } from './retrieval/keyword-retriever.service';
+import { GraphEntityLinkerService } from './retrieval/graph-entity-linker.service';
+import { GraphRetrieverService } from './retrieval/graph-retriever.service';
 import { RetrievalService } from './retrieval/retrieval.service';
 import { ContextBuilderService } from './context/context-builder.service';
 import { ContextValidatorService } from './context/context-validator.service';
@@ -45,6 +48,9 @@ import { RagController } from './rag.controller';
     VectorSchemaService,
     ChunkEmbeddingService,
     VectorRetrieverService,
+    KeywordRetrieverService,
+    GraphEntityLinkerService,
+    GraphRetrieverService,
     RetrievalService,
     ContextBuilderService,
     ContextValidatorService,

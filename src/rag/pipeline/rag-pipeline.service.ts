@@ -20,6 +20,7 @@ export interface RagQueryRequest {
   query: string;
   topK?: number;
   filters?: RetrievalFilters;
+  strategy?: 'vector' | 'keyword' | 'graph' | 'hybrid';
 }
 
 export interface RagQueryOptions {
@@ -115,6 +116,7 @@ export class RagPipelineService {
         query: req.query,
         topK: req.topK,
         filters: req.filters,
+        strategy: req.strategy,
         ragQueryId: ragQuery.id,
       });
       usage.embeddingTokens += retrieval.usage.embeddingTokens;

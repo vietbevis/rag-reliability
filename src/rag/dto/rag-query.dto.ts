@@ -2,6 +2,7 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsIn,
   IsInt,
   IsObject,
   IsOptional,
@@ -11,6 +12,13 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
+
+export const RETRIEVAL_STRATEGIES = [
+  'vector',
+  'keyword',
+  'graph',
+  'hybrid',
+] as const;
 
 class RetrievalFiltersDto {
   @ApiPropertyOptional({ type: [String] })
@@ -51,6 +59,15 @@ export class RagQueryDto {
   @ValidateNested()
   @Type(() => RetrievalFiltersDto)
   filters?: RetrievalFiltersDto;
+
+  @ApiPropertyOptional({
+    enum: RETRIEVAL_STRATEGIES,
+    description:
+      'Ghi đè RETRIEVAL_STRATEGY. hybrid = vector + keyword + graph rồi fusion.',
+  })
+  @IsOptional()
+  @IsIn(RETRIEVAL_STRATEGIES)
+  strategy?: (typeof RETRIEVAL_STRATEGIES)[number];
 }
 
 export class RagSearchDto extends RagQueryDto {}

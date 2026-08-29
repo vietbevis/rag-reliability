@@ -77,6 +77,22 @@ export interface AppConfig {
       entityTypes: string[];
       promptVersion: string;
     };
+    /** Traversal + entity linking cho GraphRetriever (PHASE 6). */
+    retrieval: {
+      maxHops: number;
+      maxEntityDegree: number;
+      topK: number;
+      linkUseLlm: boolean;
+    };
+  };
+  /** Hợp nhất kết quả nhiều retriever (PHASE 6). */
+  retrieval: {
+    strategy: 'vector' | 'keyword' | 'graph' | 'hybrid';
+    fusion: {
+      method: 'rrf' | 'weighted';
+      rrfK: number;
+      weights: { vector: number; keyword: number; graph: number };
+    };
   };
 }
 
@@ -179,6 +195,24 @@ export function loadConfiguration(): AppConfig {
         maxLlmCallsPerDoc: env.GRAPH_EXTRACT_MAX_LLM_CALLS_PER_DOC,
         entityTypes: env.GRAPH_ENTITY_TYPES,
         promptVersion: env.GRAPH_PROMPT_VERSION,
+      },
+      retrieval: {
+        maxHops: env.GRAPH_MAX_HOPS,
+        maxEntityDegree: env.GRAPH_MAX_ENTITY_DEGREE,
+        topK: env.GRAPH_RETRIEVAL_TOP_K,
+        linkUseLlm: env.GRAPH_LINK_USE_LLM,
+      },
+    },
+    retrieval: {
+      strategy: env.RETRIEVAL_STRATEGY,
+      fusion: {
+        method: env.FUSION_METHOD,
+        rrfK: env.FUSION_RRF_K,
+        weights: {
+          vector: env.FUSION_WEIGHT_VECTOR,
+          keyword: env.FUSION_WEIGHT_KEYWORD,
+          graph: env.FUSION_WEIGHT_GRAPH,
+        },
       },
     },
   };
