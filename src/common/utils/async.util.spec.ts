@@ -8,14 +8,33 @@ describe('async.util', () => {
   });
 
   it('withTimeout trả về giá trị khi kịp hạn', async () => {
-    await expect(withTimeout(Promise.resolve('ok'), 50)).resolves.toBe('ok');
+    await expect(withTimeout(() => Promise.resolve('ok'), 50)).resolves.toBe(
+      'ok',
+    );
   });
 
   it('withTimeout ném TimeoutError khi quá hạn', async () => {
-    const slow = sleep(50).then(() => 'late');
-    await expect(withTimeout(slow, 10, 'probe')).rejects.toBeInstanceOf(
-      TimeoutError,
-    );
+    await expect(
+      withTimeout(() => sleep(50).then(() => 'late'), 10, 'probe'),
+    ).rejects.toBeInstanceOf(TimeoutError);
+  });
+
+  it('withTimeout abort signal khi quá hạn (huỷ tác vụ đang chạy)', async () => {
+    let aborted = false;
+    await expect(
+      withTimeout(
+        (signal) =>
+          new Promise<never>((_, reject) => {
+            signal.addEventListener('abort', () => {
+              aborted = true;
+              reject(new Error('aborted by caller'));
+            });
+          }),
+        10,
+        'probe',
+      ),
+    ).rejects.toBeInstanceOf(TimeoutError);
+    expect(aborted).toBe(true);
   });
 
   it('chunkArray chia đúng kích thước lô', () => {

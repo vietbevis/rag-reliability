@@ -9,6 +9,10 @@ import { PrismaService } from '../src/database/prisma.service';
  * E2E PHASE 1-3: upload -> ingest -> chunk -> embedding (pgvector) -> CRUD.
  * Cần PostgreSQL + pgvector + migration đã áp. Setup ép EMBEDDING_PROVIDER=fake
  * (tất định) để chạy được tới COMPLETED mà không cần API key.
+ *
+ * PHASE 1 (queue): `jest-e2e.setup` đặt `QUEUE_ENABLED=false` → POST /documents
+ * chạy pipeline INLINE và trả 202 khi đã xong (body.document là trạng thái cuối,
+ * body.jobId = null). Chi tiết từng bước lấy qua GET /:id, /:id/jobs, /:id/chunks.
  */
 describe('Documents pipeline (e2e) — PHASE 1-3', () => {
   let app: INestApplication;
@@ -41,50 +45,74 @@ describe('Documents pipeline (e2e) — PHASE 1-3', () => {
       `Điều ${i + 1}. Sinh viên phải hoàn thành học phần theo kế hoạch của nhà trường.`,
   ).join('\n\n')}\n`;
 
-  it('POST /documents (text) -> ingest + chunk + embedding, status COMPLETED', async () => {
+  /** Upload text, kỳ vọng 202, trả về id + body (đã chạy inline nên là cuối). */
+  async function upload(body: Record<string, unknown>): Promise<{
+    id: string;
+    document: Record<string, unknown>;
+    status: string;
+    jobId: string | null;
+  }> {
     const res = await request(app.getHttpServer())
       .post('/documents')
-      .send({ title: 'Quy chế', source: 'test', text: goodMarkdown });
-    expect(res.status).toBe(201);
+      .send(body);
+    expect(res.status).toBe(202);
     created.push(res.body.document.id);
+    return {
+      id: res.body.document.id,
+      document: res.body.document,
+      status: res.body.status,
+      jobId: res.body.jobId,
+    };
+  }
 
-    expect(res.body.ingestion.status).toBe('VALIDATING');
-    expect(res.body.document.status).toBe('COMPLETED'); // đã đi hết pipeline
-    expect(res.body.document.parserUsed).toBe('PLAINTEXT');
-    expect(res.body.document.qualityScore).toBeGreaterThan(0.7);
-    expect(res.body.document.checksum).toHaveLength(64);
-    expect(res.body.chunking.chunkCount).toBeGreaterThan(0);
-    expect(res.body.chunking.strategy).toBe('structure');
+  const jobStages = async (id: string): Promise<string[]> => {
+    const res = await request(app.getHttpServer()).get(`/documents/${id}/jobs`);
+    expect(res.status).toBe(200);
+    return res.body.map((j: { stage: string }) => j.stage);
+  };
 
-    expect(res.body.embedding).toBeDefined();
-    expect(res.body.embedding.skipped).toBe(false);
-    expect(res.body.embedding.provider).toBe('fake');
-    expect(res.body.embedding.model).toBe('fake-deterministic-v1');
-    expect(res.body.embedding.dimensions).toBe(1536);
-    expect(res.body.embedding.embeddedChunks).toBe(
-      res.body.chunking.chunkCount,
+  it('POST /documents (text) -> 202, pipeline inline chạy tới COMPLETED', async () => {
+    const { id, document, status, jobId } = await upload({
+      title: 'Quy chế',
+      source: 'test',
+      text: goodMarkdown,
+    });
+
+    expect(status).toBe('COMPLETED');
+    expect(jobId).toBeNull(); // QUEUE_ENABLED=false
+    expect(document.status).toBe('COMPLETED');
+    expect(document.parserUsed).toBe('PLAINTEXT');
+    expect(document.qualityScore as number).toBeGreaterThan(0.7);
+    expect(document.checksum as string).toHaveLength(64);
+
+    // Các bước lấy qua endpoint chuyên biệt (không còn lồng trong response upload).
+    const chunks = await request(app.getHttpServer()).get(
+      `/documents/${id}/chunks`,
     );
-    expect(res.body.embedding.usage.inputTokens).toBeGreaterThan(0);
+    expect(chunks.body.total).toBeGreaterThan(0);
+    expect(chunks.body.items[0].metadata.strategy).toBe('structure');
 
-    expect(
-      res.body.ingestion.stages.map((s: { stage: string }) => s.stage),
-    ).toEqual(
-      expect.arrayContaining([
-        'PARSE',
-        'NORMALIZE',
-        'CLEAN',
-        'DEDUPLICATE',
-        'QUALITY',
-      ]),
+    const emb = await request(app.getHttpServer()).get(
+      `/documents/${id}/embeddings`,
+    );
+    expect(emb.body.total).toBe(chunks.body.total);
+    expect(emb.body.byModel[0]).toEqual(
+      expect.objectContaining({ provider: 'fake', dimensions: 1024 }),
+    );
+
+    expect(await jobStages(id)).toEqual(
+      expect.arrayContaining(['PARSE', 'NORMALIZE', 'CLEAN', 'QUALITY', 'CHUNK', 'EMBED']),
     );
   });
 
-  it('GET /documents/:id trả về document đã cleaned', async () => {
+  it('GET /documents/:id trả về document đã cleaned + jobState', async () => {
     const id = created[0];
     const res = await request(app.getHttpServer()).get(`/documents/${id}`);
     expect(res.status).toBe(200);
     expect(res.body.cleanedText).toContain('Quy chế đào tạo');
     expect(Array.isArray(res.body.transformations)).toBe(true);
+    // queue tắt → không có job BullMQ.
+    expect(res.body.jobState).toBeNull();
   });
 
   it('GET /documents/:id/jobs liệt kê stage CHUNK và EMBED', async () => {
@@ -124,7 +152,7 @@ describe('Documents pipeline (e2e) — PHASE 1-3', () => {
       expect.objectContaining({
         provider: 'fake',
         model: 'fake-deterministic-v1',
-        dimensions: 1536,
+        dimensions: 1024,
         count: res.body.total,
       }),
     ]);
@@ -150,7 +178,7 @@ describe('Documents pipeline (e2e) — PHASE 1-3', () => {
       WHERE c."documentId" = ${id}
       LIMIT 1
     `;
-    expect(Number(rows[0]?.d)).toBe(1536);
+    expect(Number(rows[0]?.d)).toBe(1024);
   });
 
   it('truy vấn khoảng cách cosine: chunk gần nhất với chính nó có dist ≈ 0', async () => {
@@ -179,46 +207,47 @@ describe('Documents pipeline (e2e) — PHASE 1-3', () => {
   });
 
   it('upload trùng bytes -> REJECTED là exact-duplicate', async () => {
-    const res = await request(app.getHttpServer())
-      .post('/documents')
-      .send({ title: 'Quy chế (lần 2)', source: 'test', text: goodMarkdown });
-    expect(res.status).toBe(201);
-    created.push(res.body.document.id);
-    expect(res.body.document.status).toBe('REJECTED');
-    expect(res.body.ingestion.rejectedReason).toMatch(/[Tt]rùng lặp/);
-    expect(res.body.document.duplicateOfId).toBe(created[0]);
-    expect(res.body.embedding).toBeNull();
+    const { id, document } = await upload({
+      title: 'Quy chế (lần 2)',
+      source: 'test',
+      text: goodMarkdown,
+    });
+    expect(document.status).toBe('REJECTED');
+    expect(document.duplicateOfId).toBe(created[0]);
+
+    const doc = await request(app.getHttpServer()).get(`/documents/${id}`);
+    expect(doc.body.rejectedReason).toMatch(/[Tt]rùng lặp/);
+    const embChunks = await prisma.embedding.count({
+      where: { chunk: { documentId: id } },
+    });
+    expect(embChunks).toBe(0);
   });
 
   it('tài liệu quá ngắn -> REJECTED do chất lượng', async () => {
-    const res = await request(app.getHttpServer())
-      .post('/documents')
-      .send({ title: 'Ngắn', source: 'test', text: 'Chỉ một câu ngắn.' });
-    expect(res.status).toBe(201);
-    created.push(res.body.document.id);
-    expect(res.body.document.status).toBe('REJECTED');
+    const { document } = await upload({
+      title: 'Ngắn',
+      source: 'test',
+      text: 'Chỉ một câu ngắn.',
+    });
+    expect(document.status).toBe('REJECTED');
     expect(
-      res.body.document.qualityReport.issues.map(
-        (i: { type: string }) => i.type,
+      (document.qualityReport as { issues: Array<{ type: string }> }).issues.map(
+        (i) => i.type,
       ),
     ).toContain('TOO_SHORT');
   });
 
   it('POST /documents/:id/chunk?strategy=fixed re-chunk (đưa doc về CHUNKING, xoá embedding cũ)', async () => {
-    const up = await request(app.getHttpServer())
-      .post('/documents')
-      .send({
-        title: 'Doc để re-chunk',
-        source: 'test',
-        text: `# Tài liệu benchmark\n\n${Array.from(
-          { length: 25 },
-          (_, i) =>
-            `Đoạn ${i}. Nội dung khác nhau về nhiều chủ đề trong quy chế đào tạo của trường.`,
-        ).join('\n\n')}`,
-      });
-    const id = up.body.document.id;
-    created.push(id);
-    expect(up.body.document.status).toBe('COMPLETED');
+    const { id, document } = await upload({
+      title: 'Doc để re-chunk',
+      source: 'test',
+      text: `# Tài liệu benchmark\n\n${Array.from(
+        { length: 25 },
+        (_, i) =>
+          `Đoạn ${i}. Nội dung khác nhau về nhiều chủ đề trong quy chế đào tạo của trường.`,
+      ).join('\n\n')}`,
+    });
+    expect(document.status).toBe('COMPLETED');
 
     const res = await request(app.getHttpServer())
       .post(`/documents/${id}/chunk`)
@@ -233,7 +262,6 @@ describe('Documents pipeline (e2e) — PHASE 1-3', () => {
     expect(chunks.body.items[0].metadata.strategy).toBe('fixed');
     expect(chunks.body.items[0].heading).toBeNull();
 
-    // re-chunk xoá chunk cũ -> embedding cũ cũng bị xoá (cascade)
     const embCount = await prisma.embedding.count({
       where: { chunk: { documentId: id } },
     });
@@ -243,17 +271,27 @@ describe('Documents pipeline (e2e) — PHASE 1-3', () => {
     expect(doc.body.status).toBe('CHUNKING');
   });
 
+  it('POST /documents/:id/ingest -> 202, chạy lại pipeline inline', async () => {
+    const id = created[0];
+    const res = await request(app.getHttpServer())
+      .post(`/documents/${id}/ingest`)
+      .send();
+    expect(res.status).toBe(202);
+    expect(res.body).toEqual(
+      expect.objectContaining({ jobId: null, ranInline: true }),
+    );
+  });
+
   it('MIME không hỗ trợ -> FAILED với lý do rõ ràng', async () => {
-    const res = await request(app.getHttpServer()).post('/documents').send({
+    const { id, document } = await upload({
       title: 'binary',
       source: 'test',
       mimeType: 'application/x-tar',
       text: 'khong-phai-tar-that',
     });
-    expect(res.status).toBe(201);
-    created.push(res.body.document.id);
-    expect(res.body.document.status).toBe('FAILED');
-    expect(res.body.ingestion.rejectedReason).toMatch(/UNSUPPORTED_MIME|Parse/);
+    expect(document.status).toBe('FAILED');
+    const doc = await request(app.getHttpServer()).get(`/documents/${id}`);
+    expect(doc.body.rejectedReason).toMatch(/UNSUPPORTED_MIME|Parse/);
   });
 
   it('POST /documents rỗng -> 400', async () => {

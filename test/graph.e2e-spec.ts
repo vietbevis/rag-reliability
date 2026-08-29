@@ -74,11 +74,14 @@ Sinh viên phải tích luỹ đủ tín chỉ. Phòng Đào Tạo phối hợp 
       source: 'e2e-graph-qc',
       text: corpus,
     });
-    expect(res.status).toBe(201);
-    expect(res.body.document.status).toBe('COMPLETED');
-    expect(res.body.graph.skipped).toBe(false);
-    expect(res.body.graph.metrics.entityCount).toBeGreaterThan(0);
+    expect(res.status).toBe(202);
+    expect(res.body.document.status).toBe('COMPLETED'); // QUEUE_ENABLED=false → inline
     created.push(res.body.document.id);
+
+    const graph = await request(app.getHttpServer()).get(
+      `/documents/${res.body.document.id}/graph`,
+    );
+    expect(graph.body.entityCount).toBeGreaterThan(0);
   }, 60_000);
 
   it('GET /documents/:id/graph — tóm tắt entity/quan hệ', async () => {
@@ -98,9 +101,21 @@ Sinh viên phải tích luỹ đủ tín chỉ. Phòng Đào Tạo phối hợp 
     const rerun = await request(app.getHttpServer()).post(
       `/documents/${created[0]}/graph`,
     );
-    expect(rerun.status).toBe(200);
-    expect(rerun.body.metrics.cacheHits).toBeGreaterThan(0);
-    expect(rerun.body.metrics.llmCalls).toBe(0);
+    expect(rerun.status).toBe(202);
+    expect(rerun.body.ranInline).toBe(true); // QUEUE_ENABLED=false
+
+    // Metrics của lần chạy GRAPH mới nhất lấy từ IngestionJob.
+    const lastGraphJob = await prisma.ingestionJob.findFirst({
+      where: { documentId: created[0], stage: 'GRAPH' },
+      orderBy: { createdAt: 'desc' },
+    });
+    const metrics = lastGraphJob?.metrics as {
+      cacheHits: number;
+      llmCalls: number;
+    };
+    expect(metrics.cacheHits).toBeGreaterThan(0);
+    expect(metrics.llmCalls).toBe(0);
+
     const after = await request(app.getHttpServer()).get(
       `/documents/${created[0]}/graph`,
     );

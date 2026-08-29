@@ -4,6 +4,7 @@ import { SkipThrottle } from '@nestjs/throttler';
 import { HealthCheck, HealthCheckService } from '@nestjs/terminus';
 import { Neo4jHealthIndicator } from '../graph/neo4j.health';
 import { DatabaseHealthIndicator } from './database.health';
+import { RedisHealthIndicator } from './redis.health';
 
 @ApiTags('health')
 @Controller('health')
@@ -13,6 +14,7 @@ export class HealthController {
     private readonly health: HealthCheckService,
     private readonly db: DatabaseHealthIndicator,
     private readonly neo4j: Neo4jHealthIndicator,
+    private readonly redis: RedisHealthIndicator,
   ) {}
 
   @Get()
@@ -22,6 +24,7 @@ export class HealthController {
       () => this.db.pingCheck('database'),
       () => this.db.pgvectorCheck('pgvector'),
       () => this.neo4j.check('neo4j'),
+      () => this.redis.check('redis'),
     ]);
   }
 

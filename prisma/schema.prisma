@@ -23,6 +23,8 @@ datasource db {
 
 enum DocumentStatus {
   UPLOADED
+  // Đã nhận file, job xử lý đã đẩy vào queue, chờ worker nhận (PHASE 1 — queue).
+  QUEUED
   PARSING
   CLEANING
   VALIDATING

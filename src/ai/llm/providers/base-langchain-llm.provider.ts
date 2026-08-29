@@ -65,7 +65,7 @@ export abstract class BaseLangChainLlmProvider implements LLMProvider {
     const started = Date.now();
 
     const { value: response } = await withRetry(
-      () => model.invoke(lcMessages),
+      (signal) => model.invoke(lcMessages, { signal }),
       this.retryOpts(options.traceLabel ?? 'llm.chat', options),
     ).catch((err) => {
       throw this.wrap(err, 'chat');
@@ -129,7 +129,7 @@ export abstract class BaseLangChainLlmProvider implements LLMProvider {
     );
 
     const { value } = await withRetry(
-      () => structured.invoke(lcMessages),
+      (signal) => structured.invoke(lcMessages, { signal }),
       this.retryOpts(options.traceLabel ?? 'llm.structured', options),
     ).catch((err) => {
       throw this.wrap(err, 'chatStructured');

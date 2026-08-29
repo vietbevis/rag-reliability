@@ -84,13 +84,13 @@ export interface RetryOptions {
  * (và lần thử cuối cùng) sẽ ném lại. Không bao giờ lặp vô hạn (PROMPT §52).
  */
 export async function withRetry<T>(
-  fn: () => Promise<T>,
+  fn: (signal: AbortSignal) => Promise<T>,
   opts: RetryOptions,
 ): Promise<{ value: T; attempts: number }> {
   let lastErr: unknown;
   for (let attempt = 1; attempt <= opts.maxRetries + 1; attempt++) {
     try {
-      const value = await withTimeout(fn(), opts.timeoutMs, opts.label);
+      const value = await withTimeout(fn, opts.timeoutMs, opts.label);
       return { value, attempts: attempt };
     } catch (err) {
       lastErr = err;

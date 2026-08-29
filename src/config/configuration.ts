@@ -23,6 +23,13 @@ export interface AppConfig {
   database: {
     url: string;
   };
+  queue: {
+    enabled: boolean;
+    concurrency: number;
+    jobAttempts: number;
+    jobBackoffMs: number;
+    redis: { host: string; port: number; password?: string; db: number };
+  };
   llm: {
     provider: Env['LLM_PROVIDER'];
     timeoutMs: number;
@@ -156,6 +163,18 @@ export function loadConfiguration(): AppConfig {
     },
     database: {
       url: env.DATABASE_URL,
+    },
+    queue: {
+      enabled: env.QUEUE_ENABLED,
+      concurrency: env.QUEUE_CONCURRENCY,
+      jobAttempts: env.QUEUE_JOB_ATTEMPTS,
+      jobBackoffMs: env.QUEUE_JOB_BACKOFF_MS,
+      redis: {
+        host: env.REDIS_HOST,
+        port: env.REDIS_PORT,
+        password: env.REDIS_PASSWORD,
+        db: env.REDIS_DB,
+      },
     },
     llm: {
       provider: env.LLM_PROVIDER,

@@ -1,3 +1,6 @@
+// Nạp .env vào process.env TRƯỚC khi import AppModule — QueueModule.register()
+// đọc QUEUE_ENABLED ngay lúc dựng cây module (sớm hơn ConfigModule).
+import 'dotenv/config';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';

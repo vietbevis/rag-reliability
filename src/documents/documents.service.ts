@@ -5,12 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
-import { AppError } from '../common/errors';
 import { sha256 } from '../common/utils';
-import {
-  IngestionService,
-  type IngestionResult,
-} from '../rag/ingestion/ingestion.service';
 import {
   ChunkingService,
   type ChunkingResult,
@@ -27,13 +22,17 @@ import {
   GraphQueryService,
   type GraphDocSummary,
 } from '../rag/graph/graph-query.service';
-import type { GraphIngestionResult } from '../rag/graph/graph.types';
 import {
   DocumentStatus,
   type Document,
   type DocumentChunk,
   type Prisma,
 } from '../generated/prisma/client';
+import {
+  DocumentQueueService,
+  type EnqueueResult,
+  type JobStateView,
+} from './pipeline/document-queue.service';
 import type { CreateDocumentDto } from './dto/create-document.dto';
 import type { ListChunksDto } from './dto/list-chunks.dto';
 import type { ListDocumentsDto } from './dto/list-documents.dto';
@@ -58,57 +57,23 @@ export class DocumentsService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly ingestion: IngestionService,
     private readonly chunking: ChunkingService,
     private readonly embedding: ChunkEmbeddingService,
     private readonly graphIngestion: GraphIngestionService,
     private readonly graphCleanup: GraphCleanupService,
     private readonly graphQuery: GraphQueryService,
+    private readonly queue: DocumentQueueService,
   ) {}
 
   /**
-   * Graph construction trong pipeline tự động (giống {@link autoEmbed}). Lỗi
-   * Neo4j / extraction KHÔNG làm hỏng request — tài liệu + chunk + embedding đã
-   * lưu vẫn hợp lệ; document giữ ở `GRAPHING`, chạy lại qua `POST /:id/graph`.
-   * Trả `null` khi Graph RAG tắt.
-   */
-  private async autoGraph(id: string): Promise<GraphIngestionResult | null> {
-    if (!this.graphIngestion.enabled) return null;
-    return this.graphIngestion.ingest(id);
-  }
-
-  /**
-   * Chạy embedding trong pipeline tự động (upload). Lỗi provider (rate limit,
-   * API down) KHÔNG làm hỏng cả request — document + chunk đã lưu vẫn hợp lệ.
-   * Trả về `{ error }`, document giữ ở `EMBEDDING` để chạy lại qua
-   * `POST /documents/:id/embed` (endpoint đó vẫn ném lỗi rõ ràng).
-   */
-  private async autoEmbed(id: string): Promise<EmbeddingRunResult> {
-    try {
-      return await this.embedding.embedDocument(id);
-    } catch (err) {
-      const reason =
-        err instanceof AppError
-          ? `${err.code}: ${err.message}`
-          : ((err as Error)?.message ?? 'unknown');
-      this.logger.warn(
-        `Auto-embed ${id} thất bại (document + chunk vẫn hợp lệ): ${reason}`,
-      );
-      return { documentId: id, skipped: false, error: reason };
-    }
-  }
-
-  /**
-   * Tạo document từ file/text, lưu bytes gốc, rồi chạy toàn bộ pipeline có sẵn
-   * đồng bộ: ingest → (đạt) chunk → (có provider) embedding. Provider embedding
-   * chưa cấu hình thì bỏ qua bước embedding (document dừng ở CHUNKING).
+   * Tạo document từ file/text, lưu bytes gốc, rồi ĐẨY việc xử lý vào queue
+   * (`ingest → chunk → embed → graph`). Trả về ngay `status: QUEUED` + `jobId`
+   * khi QUEUE_ENABLED; khi tắt thì chạy inline và trả về status cuối.
    */
   async create(input: CreateDocumentInput): Promise<{
     document: DocumentView;
-    ingestion: IngestionResult;
-    chunking: ChunkingResult | null;
-    embedding: EmbeddingRunResult | null;
-    graph: GraphIngestionResult | null;
+    status: DocumentStatus;
+    jobId: string | null;
   }> {
     const { dto, file } = input;
 
@@ -152,50 +117,36 @@ export class DocumentsService {
       },
     });
 
-    const ingestion = await this.ingestion.ingest(created.id);
-    const chunking =
-      ingestion.status === DocumentStatus.VALIDATING
-        ? await this.chunking.chunk(created.id)
-        : null;
-    const embedding =
-      chunking && chunking.chunkCount > 0
-        ? await this.autoEmbed(created.id)
-        : null;
-    const graph = embeddingCompleted(embedding)
-      ? await this.autoGraph(created.id)
-      : null;
-
+    const enqueued = await this.queue.enqueue(created.id, 'upload');
     const document = await this.prisma.document.findUniqueOrThrow({
       where: { id: created.id },
       omit: OMIT_RAW_CONTENT,
     });
-    return { document, ingestion, chunking, embedding, graph };
+    return { document, status: enqueued.status, jobId: enqueued.jobId };
   }
 
-  async reingest(id: string): Promise<{
-    ingestion: IngestionResult;
-    chunking: ChunkingResult | null;
-    embedding: EmbeddingRunResult | null;
-    graph: GraphIngestionResult | null;
-  }> {
+  /** Chạy lại toàn bộ pipeline (ingest → chunk → embed → graph) qua queue. */
+  async reingest(id: string): Promise<EnqueueResult> {
     await this.getOrThrow(id);
-    const ingestion = await this.ingestion.ingest(id);
-    const chunking =
-      ingestion.status === DocumentStatus.VALIDATING
-        ? await this.chunking.chunk(id)
-        : null;
-    const embedding =
-      chunking && chunking.chunkCount > 0 ? await this.autoEmbed(id) : null;
-    const graph = embeddingCompleted(embedding)
-      ? await this.autoGraph(id)
-      : null;
-    return { ingestion, chunking, embedding, graph };
+    return this.queue.enqueue(id, 'reingest');
   }
 
-  /** Chạy / chạy lại graph construction — ném lỗi rõ ràng (khác nhánh auto). */
-  async graph(id: string): Promise<GraphIngestionResult> {
-    await this.getOrThrow(id);
-    return this.graphIngestion.ingest(id, { throwOnError: true });
+  /**
+   * Chạy / chạy lại graph construction. Đẩy job vào queue (worker chạy
+   * `GraphIngestionService`); trả về ngay. Precheck status để lỗi "chưa embedding"
+   * trả 4xx ngay thay vì để job thử-lại 3 lần.
+   */
+  async graph(id: string): Promise<EnqueueResult> {
+    const doc = await this.getOrThrow(id);
+    if (
+      doc.status !== DocumentStatus.COMPLETED &&
+      doc.status !== DocumentStatus.GRAPHING
+    ) {
+      throw new BadRequestException(
+        `Document ở trạng thái ${doc.status}; phải embedding xong (COMPLETED/GRAPHING) trước khi dựng graph`,
+      );
+    }
+    return this.queue.enqueue(id, 'graph');
   }
 
   async graphSummary(id: string): Promise<GraphDocSummary> {
@@ -277,13 +228,15 @@ export class DocumentsService {
     return { total, items };
   }
 
-  async findOne(id: string): Promise<DocumentView> {
+  async findOne(
+    id: string,
+  ): Promise<DocumentView & { jobState: JobStateView | null }> {
     const doc = await this.prisma.document.findUnique({
       where: { id },
       omit: OMIT_RAW_CONTENT,
     });
     if (!doc) throw new NotFoundException(`Document ${id} không tồn tại`);
-    return doc;
+    return { ...doc, jobState: await this.queue.jobState(id) };
   }
 
   async findMany(query: ListDocumentsDto): Promise<{
@@ -350,11 +303,6 @@ export class DocumentsService {
     if (!doc) throw new NotFoundException(`Document ${id} không tồn tại`);
     return doc;
   }
-}
-
-/** Embedding đã chạy xong (không bỏ qua, không lỗi) → tài liệu đã COMPLETED. */
-function embeddingCompleted(e: EmbeddingRunResult | null): boolean {
-  return !!e && !e.skipped && !e.error;
 }
 
 function isTextMime(mime: string): boolean {

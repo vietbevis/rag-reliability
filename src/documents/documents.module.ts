@@ -4,14 +4,21 @@ import { RagModule } from '../rag/rag.module';
 import { DocumentsController } from './documents.controller';
 import { DocumentsService } from './documents.service';
 import { ParsersModule } from './parsers/parsers.module';
+import { DocumentQueueModule } from './pipeline/document-queue.module';
 
 /**
  * Upload / CRUD tài liệu. Ingestion pipeline nằm ở {@link RagModule}; module
- * này chỉ nhận file, lưu bytes gốc, và gọi ingestion. PHASE 5: sau embedding,
- * nếu bật Graph RAG thì gọi `GraphIngestionService` (RagGraphModule).
+ * này nhận file, lưu bytes gốc, rồi đẩy việc xử lý cho `DocumentQueueModule`
+ * (BullMQ worker khi QUEUE_ENABLED, inline khi tắt). PHASE 5: pipeline có thêm
+ * bước GRAPHING khi bật Graph RAG.
  */
 @Module({
-  imports: [ParsersModule, RagModule, RagGraphModule],
+  imports: [
+    ParsersModule,
+    RagModule,
+    RagGraphModule,
+    DocumentQueueModule.register(),
+  ],
   controllers: [DocumentsController],
   providers: [DocumentsService],
   exports: [DocumentsService],

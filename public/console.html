@@ -443,6 +443,38 @@
         }
       }
 
+      // Sau khi upload (queue trả 202 + QUEUED), poll GET /documents/:id tới
+      // khi COMPLETED/FAILED/REJECTED và ghi tiến trình vào panel kết quả.
+      async function pollDoc(id, out) {
+        if (!id || !out) return;
+        const line = el(
+          'div',
+          {
+            class:
+              'flex items-center gap-2 bg-line/40 px-2.5 py-1 text-[11px] dark:bg-line-dark/40',
+          },
+          el('span', { class: 'font-mono' }, 'poll ' + id.slice(0, 8)),
+          el('span', { class: 'font-mono font-semibold' }, '…'),
+        );
+        out.append(line);
+        const stateEl = line.lastChild;
+        const DONE = ['COMPLETED', 'FAILED', 'REJECTED'];
+        for (let i = 0; i < 60; i++) {
+          const r = await api('GET', '/documents/' + encodeURIComponent(id));
+          if (r.status >= 400) {
+            stateEl.textContent = 'lỗi ' + r.status;
+            return;
+          }
+          const st = r.data.status;
+          const js = r.data.jobState;
+          stateEl.textContent =
+            st + (js ? ' (' + js.state + ' #' + js.attemptsMade + ')' : '');
+          if (DONE.includes(st)) return;
+          await new Promise((res) => setTimeout(res, 2000));
+        }
+        stateEl.textContent += ' — hết thời gian chờ poll';
+      }
+
       async function ping() {
         const dot = $('#pingDot'),
           txt = $('#pingText'),
@@ -1045,7 +1077,7 @@
                 : JSON.stringify(r.data, null, 2),
             ),
           );
-          if (o.after) o.after(r, ctx);
+          if (o.after) o.after(r, ctx, out);
           btn.disabled = false;
         });
         box.append(btn, out);
@@ -1130,7 +1162,7 @@
               title: 'Ingest văn bản (markdown)',
               method: 'POST',
               path: '/documents',
-              hint: 'PARSE→CLEAN→DEDUP→QUALITY→CHUNK→EMBED. Lưu id vào "gần nhất".',
+              hint: 'Trả 202 + QUEUED ngay; worker chạy PARSE→…→CHUNK→EMBED→GRAPH nền. Console tự poll trạng thái. Lưu id vào "gần nhất".',
               fields: [
                 {
                   name: 'title',
@@ -1151,8 +1183,11 @@
                 path: '/documents',
                 body: { title: c.title, source: c.source, text: c.text },
               }),
-              after: (r) => {
-                if (r.data?.document?.id) LS.lastDoc = r.data.document.id;
+              after: (r, _ctx, out) => {
+                if (r.data?.document?.id) {
+                  LS.lastDoc = r.data.document.id;
+                  pollDoc(r.data.document.id, out);
+                }
               },
             },
             {
@@ -1171,8 +1206,11 @@
                 if (c.source) fd.append('source', c.source);
                 return { path: '/documents', form: fd };
               },
-              after: (r) => {
-                if (r.data?.document?.id) LS.lastDoc = r.data.document.id;
+              after: (r, _ctx, out) => {
+                if (r.data?.document?.id) {
+                  LS.lastDoc = r.data.document.id;
+                  pollDoc(r.data.document.id, out);
+                }
               },
             },
             {
@@ -1185,9 +1223,11 @@
                   type: 'select',
                   options: [
                     '',
+                    'QUEUED',
                     'COMPLETED',
                     'CHUNKING',
                     'EMBEDDING',
+                    'GRAPHING',
                     'REJECTED',
                     'FAILED',
                   ],

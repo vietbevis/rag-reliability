@@ -313,6 +313,28 @@ export const envSchema = z
       .default('auto'),
     RAG_REGENERATE_ON_UNFAITHFUL: boolish(true),
 
+    // ---- Queue xử lý tài liệu (PHASE 1 — BullMQ + Redis) ----------------
+    // BẬT (mặc định): POST /documents trả 202 ngay, worker BullMQ chạy pipeline
+    // ingest→chunk→embed→graph nền. TẮT: chạy inline đồng bộ trong request
+    // (dùng cho test/CI/máy không có Redis).
+    QUEUE_ENABLED: boolish(true),
+    REDIS_HOST: z.string().trim().default('127.0.0.1'),
+    REDIS_PORT: numeric({ int: true, min: 1, max: 65535, default: 6379 }),
+    REDIS_PASSWORD: z.string().trim().optional(),
+    REDIS_DB: numeric({ int: true, min: 0, max: 15, default: 0 }),
+    // Số job document chạy song song trên worker. Giữ = 1 để không nghẽn LLM
+    // local (Ollama phục vụ tuần tự).
+    QUEUE_CONCURRENCY: numeric({ int: true, min: 1, max: 32, default: 1 }),
+    // Số lần thử lại một job document khi lỗi (tổng số lần chạy = attempts).
+    QUEUE_JOB_ATTEMPTS: numeric({ int: true, min: 1, max: 10, default: 3 }),
+    // Trễ nền tảng cho backoff mũ giữa các lần thử lại job.
+    QUEUE_JOB_BACKOFF_MS: numeric({
+      int: true,
+      min: 100,
+      max: 600000,
+      default: 5000,
+    }),
+
     // ---- An toàn khi gọi AI API ---------------------------------------
     LLM_TIMEOUT_MS: numeric({
       int: true,

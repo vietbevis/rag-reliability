@@ -29,13 +29,15 @@ export class DocumentsController {
   constructor(private readonly documents: DocumentsService) {}
 
   @Post()
+  @HttpCode(202)
   @UseInterceptors(
     FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD_BYTES } }),
   )
   @ApiConsumes('multipart/form-data', 'application/json')
   @ApiOperation({
     summary:
-      'Upload + ingest tài liệu (file multipart hoặc JSON text) — PROMPT §39',
+      'Upload tài liệu (file multipart hoặc JSON text). Trả 202 + jobId; ' +
+      'xử lý (ingest→chunk→embed→graph) chạy nền — theo dõi qua GET /documents/:id',
   })
   create(
     @Body() dto: CreateDocumentDto,
@@ -87,9 +89,10 @@ export class DocumentsController {
   }
 
   @Post(':id/ingest')
-  @HttpCode(200)
+  @HttpCode(202)
   @ApiOperation({
-    summary: 'Chạy lại pipeline (ingest → chunk → embedding) — PROMPT §39',
+    summary:
+      'Đẩy job chạy lại toàn bộ pipeline (ingest → chunk → embed → graph) — trả 202',
   })
   reingest(@Param('id') id: string) {
     return this.documents.reingest(id);
@@ -115,10 +118,10 @@ export class DocumentsController {
   }
 
   @Post(':id/graph')
-  @HttpCode(200)
+  @HttpCode(202)
   @ApiOperation({
     summary:
-      'Chạy / chạy lại Graph RAG construction (trích entity+quan hệ → Neo4j) — PHASE 5',
+      'Đẩy job dựng / dựng lại Graph RAG (trích entity+quan hệ → Neo4j) — PHASE 5, trả 202',
   })
   graph(@Param('id') id: string) {
     return this.documents.graph(id);

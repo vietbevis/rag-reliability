@@ -88,4 +88,17 @@ describe('withRetry', () => {
       withRetry(fn, { ...opts, timeoutMs: 5, maxRetries: 0 }),
     ).rejects.toBeInstanceOf(TimeoutError);
   });
+
+  it('abort signal của lần thử khi lần đó quá hạn (không để request mồ côi)', async () => {
+    const signals: AbortSignal[] = [];
+    const fn = (signal: AbortSignal) => {
+      signals.push(signal);
+      return new Promise((r) => setTimeout(() => r('late'), 100));
+    };
+    await expect(
+      withRetry(fn, { ...opts, timeoutMs: 5, baseDelayMs: 1 }),
+    ).rejects.toBeInstanceOf(TimeoutError);
+    expect(signals).toHaveLength(3);
+    expect(signals.every((s) => s.aborted)).toBe(true);
+  });
 });

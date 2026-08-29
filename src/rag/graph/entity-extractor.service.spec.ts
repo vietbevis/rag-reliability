@@ -74,4 +74,23 @@ describe('EntityExtractorService (fake LLM)', () => {
     expect(r.entities).toEqual([]);
     expect(r.relationships).toEqual([]);
   });
+
+  it('output LLM không hợp schema → bỏ qua chunk (không ném)', async () => {
+    const svc = build({ gleanings: 0 });
+    const zodErr = Object.assign(new Error('too_big'), { name: 'ZodError' });
+    (svc as unknown as { llm: unknown }).llm = {
+      chatStructured: jest.fn().mockRejectedValue(zodErr),
+    };
+    const r = await svc.extract('Bách Khoa và Phòng Đào Tạo.');
+    expect(r).toMatchObject({ entities: [], relationships: [], llmCalls: 1 });
+  });
+
+  it('lỗi hạ tầng (timeout) vẫn ném để retry', async () => {
+    const svc = build({ gleanings: 0 });
+    const netErr = Object.assign(new Error('timed out'), { code: 'TIMEOUT' });
+    (svc as unknown as { llm: unknown }).llm = {
+      chatStructured: jest.fn().mockRejectedValue(netErr),
+    };
+    await expect(svc.extract('Bách Khoa.')).rejects.toThrow('timed out');
+  });
 });

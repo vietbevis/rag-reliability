@@ -83,10 +83,26 @@ export class EntityExtractorService {
     messages: ChatMessage[],
     sourceText: string,
   ): Promise<GraphExtractionOutput & { usage: LlmCallUsage }> {
-    const res = await this.llm.chatStructured(messages, graphExtractionSchema, {
-      temperature: 0,
-      traceLabel: 'graph.extract',
-    });
+    let res;
+    try {
+      res = await this.llm.chatStructured(messages, graphExtractionSchema, {
+        temperature: 0,
+        traceLabel: 'graph.extract',
+      });
+    } catch (err) {
+      // Output của model local không parse được schema (JSON méo) → coi chunk này
+      // KHÔNG trích được gì, KHÔNG làm hỏng cả job graph. Lỗi hạ tầng (timeout,
+      // network, rate limit) vẫn ném để retry.
+      if (!isSchemaValidationError(err)) throw err;
+      this.logger.warn(
+        `graph.extract: output không hợp schema — bỏ qua chunk. ${truncate(err)}`,
+      );
+      return {
+        entities: [],
+        relationships: [],
+        usage: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
+      };
+    }
     return {
       ...this.postValidate(res.data, sourceText),
       usage: {
@@ -239,4 +255,20 @@ function norm(s: string): string {
 function clampStrength(n: number): number {
   if (!Number.isFinite(n)) return 5;
   return Math.min(10, Math.max(1, Math.round(n)));
+}
+
+/** Lỗi do output LLM không khớp Zod schema (khác lỗi hạ tầng — timeout/network). */
+function isSchemaValidationError(err: unknown): boolean {
+  const e = err as { name?: string; code?: string; cause?: { name?: string } };
+  return (
+    e?.name === 'ZodError' ||
+    e?.cause?.name === 'ZodError' ||
+    e?.code === 'BAD_REQUEST' ||
+    e?.code === 'UNKNOWN'
+  );
+}
+
+function truncate(err: unknown): string {
+  const m = err instanceof Error ? err.message : String(err);
+  return m.length > 200 ? m.slice(0, 200) + '…' : m;
 }

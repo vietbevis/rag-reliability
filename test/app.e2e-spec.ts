@@ -36,6 +36,8 @@ describe('RAG Reliability Service (e2e) — PHASE 0', () => {
     expect(res.body.info).toHaveProperty('database');
     expect(res.body.info.database.status).toBe('up');
     expect(res.body.info).toHaveProperty('pgvector');
+    // QUEUE_ENABLED=false ở e2e → redis indicator vẫn "up" (queue disabled).
+    expect(res.body.info.redis.status).toBe('up');
   });
 
   it('GET /health/live → 200', async () => {
@@ -55,7 +57,7 @@ describe('RAG Reliability Service (e2e) — PHASE 0', () => {
     expect(
       res.body.embedding.providers.map((p: { provider: string }) => p.provider),
     ).toContain('fake');
-    expect(res.body.embedding.dimension).toBe(1536);
+    expect(res.body.embedding.dimension).toBe(1024); // E5 1024d (migration phase14)
     expect(['openai', 'gemini', 'anthropic', 'custom', 'fake']).toContain(
       res.body.llm.active,
     );

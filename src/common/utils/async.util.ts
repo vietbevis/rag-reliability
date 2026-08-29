@@ -11,16 +11,34 @@ export class TimeoutError extends Error {
   }
 }
 
+/**
+ * Chạy `task` với hạn `ms`. Khi hết hạn: ném `TimeoutError` VÀ abort
+ * `AbortSignal` truyền cho `task` để huỷ luôn công việc đang chạy (vd request
+ * HTTP tới LLM) — nếu không, tác vụ "mồ côi" vẫn chạy nền và các lần retry sẽ
+ * chồng request lên nhau (PROMPT §52).
+ */
 export function withTimeout<T>(
-  promise: Promise<T>,
+  task: (signal: AbortSignal) => Promise<T>,
   ms: number,
   label?: string,
 ): Promise<T> {
+  const controller = new AbortController();
   let timer: NodeJS.Timeout;
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new TimeoutError(ms, label)), ms);
+    timer = setTimeout(() => {
+      controller.abort(new TimeoutError(ms, label));
+      reject(new TimeoutError(ms, label));
+    }, ms);
   });
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+  const work = Promise.resolve(task(controller.signal)).catch(
+    (err: unknown) => {
+      // Khi chính timeout đã abort, lỗi huỷ (AbortError) của `task` không được
+      // thắng cuộc đua — để nhánh `timeout` ném `TimeoutError` một cách tất định.
+      if (controller.signal.aborted) return new Promise<never>(() => {});
+      throw err;
+    },
+  );
+  return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
 }
 
 /** Chia `items` thành các lát liên tiếp, mỗi lát tối đa `size` phần tử. */
