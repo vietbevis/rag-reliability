@@ -12,7 +12,10 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PrismaService } from '../database/prisma.service';
 import { EvaluationService } from './evaluation.service';
 import { BenchmarkService } from './benchmark.service';
-import { BenchmarkRerankDto, RunEvaluationDto } from './dto/run-evaluation.dto';
+import {
+  BenchmarkVariantDto,
+  RunEvaluationDto,
+} from './dto/run-evaluation.dto';
 
 @ApiTags('evaluation')
 @Controller('evaluation')
@@ -37,6 +40,7 @@ export class EvaluationController {
       isBaseline: dto.isBaseline,
       topK: dto.topK,
       rerank: dto.rerank,
+      strict: dto.strict,
     });
   }
 
@@ -44,10 +48,23 @@ export class EvaluationController {
   @HttpCode(200)
   @ApiOperation({
     summary:
-      'Chạy dataset 2 lần (rerank off → on), trả metrics before/after + delta (PROMPT §36)',
+      'Chạy dataset 2 lần (rerank off → on), trả metrics before/after + delta (§36)',
   })
-  benchmarkRerank(@Body() dto: BenchmarkRerankDto) {
+  benchmarkRerank(@Body() dto: BenchmarkVariantDto) {
     return this.evaluation.benchmarkRerank({
+      datasetName: dto.datasetName,
+      topK: dto.topK,
+    });
+  }
+
+  @Post('benchmark-grounding')
+  @HttpCode(200)
+  @ApiOperation({
+    summary:
+      'Chạy dataset 2 lần (strict grounding off → on), trả before/after + delta (§36)',
+  })
+  benchmarkGrounding(@Body() dto: BenchmarkVariantDto) {
+    return this.evaluation.benchmarkGrounding({
       datasetName: dto.datasetName,
       topK: dto.topK,
     });

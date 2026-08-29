@@ -182,6 +182,26 @@ Trong thời gian bảo lưu, sinh viên không được hưởng các chế đ�
     expect(rq?.retrievalLogs[0]?.strategy).toBe('vector');
   });
 
+  it('POST /rag/query strict=true — trace.generation có groundingRatio + downgraded', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/rag/query')
+      .send({
+        query: '[e2e] Sinh viên được bảo lưu tối đa mấy học kỳ?',
+        strict: true,
+        filters: { documentIds: [created[0]] },
+      });
+    expect(res.status).toBe(200);
+    expect(res.body.trace.validation.strict).toBe(true);
+    expect(res.body.trace.generation).toHaveProperty('groundingRatio');
+    expect(res.body.trace.generation).toHaveProperty('downgraded');
+    expect([
+      'GROUNDED',
+      'PARTIALLY_GROUNDED',
+      'INSUFFICIENT_EVIDENCE',
+      'CONFLICTING_EVIDENCE',
+    ]).toContain(res.body.status);
+  });
+
   it('POST /rag/query với filter documentIds không khớp -> INSUFFICIENT_EVIDENCE, không gọi LLM', async () => {
     const res = await request(app.getHttpServer())
       .post('/rag/query')

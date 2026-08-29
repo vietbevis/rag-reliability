@@ -157,10 +157,24 @@ export const envSchema = z
       default: 4000,
     }),
     // Ngưỡng điểm relevance của chunk tốt nhất để KHÔNG abstain (PROMPT §22).
-    // Mặc định 0 ở baseline (chỉ abstain khi 0 chunk) — PHASE 7 siết lại.
+    // Mặc định 0 ở baseline (chỉ abstain khi 0 chunk).
     RAG_MIN_RELEVANCE: numeric({ min: 0, max: 1, default: 0 }),
     RAG_MIN_CHUNKS: numeric({ int: true, min: 0, max: 50, default: 1 }),
     RAG_TEMPERATURE: numeric({ min: 0, max: 2, default: 0 }),
+
+    // ---- Grounded generation + abstention (PHASE 8) --------------------
+    // Master toggle. TẮT = hành vi baseline P4 (giữ hallucination đo được §35).
+    // BẬT = ContextValidator siết ngưỡng + hậu kiểm answer↔context, hạ status
+    // / sinh lại khi câu trả lời không bám ngữ cảnh.
+    RAG_STRICT_GROUNDING: boolish(false),
+    // Khi strict: abstain nếu điểm relevance cao nhất < ngưỡng này.
+    RAG_ABSTAIN_MIN_RELEVANCE: numeric({ min: 0, max: 1, default: 0.15 }),
+    // Khi strict: tỉ lệ token nội dung của answer xuất hiện trong context thấp
+    // hơn ngưỡng → hạ status (GROUNDED→PARTIALLY) và/hoặc sinh lại.
+    RAG_MIN_GROUNDING_RATIO: numeric({ min: 0, max: 1, default: 0.4 }),
+    // Khi strict + câu trả lời đầu bị đánh dấu không bám ngữ cảnh: sinh lại 1 lần
+    // với chỉ dẫn cứng hơn.
+    RAG_REGENERATE_ON_UNGROUNDED: boolish(true),
 
     // ---- Graph RAG (PHASE 5 — construction) ------------------------------
     // Công tắc tính năng. Khi bật: NEO4J_URI + NEO4J_PASSWORD bắt buộc, pipeline

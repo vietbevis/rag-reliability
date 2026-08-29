@@ -116,7 +116,12 @@ export function fakeValueForSchema(
     case 'number':
       return fakeNumber(fieldName, def);
     case 'boolean':
-      return false;
+      // Field kiểu "xác nhận tích cực" → true để pipeline fake không bị hạ status.
+      return (
+        fieldName === 'groundedInContext' ||
+        fieldName === 'grounded' ||
+        fieldName === 'supported'
+      );
     case 'literal':
       return (def.values as unknown[])[0];
     case 'enum': {

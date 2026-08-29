@@ -26,6 +26,8 @@ export interface RagQueryRequest {
   strategy?: 'vector' | 'keyword' | 'graph' | 'hybrid';
   /** Ghi đè `RERANK_ENABLED` cho request này (benchmark before/after). */
   rerank?: boolean;
+  /** Ghi đè `RAG_STRICT_GROUNDING` cho request này (benchmark before/after). */
+  strict?: boolean;
 }
 
 export interface RagQueryOptions {
@@ -183,7 +185,7 @@ export class RagPipelineService {
         totalTokens: context.totalTokens,
       };
 
-      const validation = this.contextValidator.validate(context);
+      const validation = this.contextValidator.validate(context, req.strict);
       trace.validation = validation;
 
       let status: RagStatus | 'ERROR';
@@ -196,9 +198,13 @@ export class RagPipelineService {
         status = 'INSUFFICIENT_EVIDENCE';
         answer = ABSTAIN_ANSWER;
       } else {
-        const gen = await this.generation.generate(req.query, context);
+        const gen = await this.generation.generate(req.query, context, {
+          strict: req.strict,
+        });
         status = gen.status;
-        answer = gen.answer;
+        // Hậu kiểm hạ về INSUFFICIENT_EVIDENCE → dùng câu abstain chuẩn.
+        answer =
+          status === 'INSUFFICIENT_EVIDENCE' ? ABSTAIN_ANSWER : gen.answer;
         provider = gen.provider;
         model = gen.model;
         usage.inputTokens += gen.usage.inputTokens;
@@ -207,8 +213,15 @@ export class RagPipelineService {
         trace.generation = {
           latencyMs: gen.latencyMs,
           citedIndexes: gen.citedIndexes,
+          groundingRatio: gen.groundingRatio,
+          downgraded: gen.downgraded,
+          regenerated: gen.regenerated,
+          conflictNote: gen.conflictNote,
         };
-        citations = this.baselineCitations(context.chunks, gen.citedIndexes);
+        citations =
+          status === 'INSUFFICIENT_EVIDENCE'
+            ? []
+            : this.baselineCitations(context.chunks, gen.citedIndexes);
       }
 
       const latencyMs = Date.now() - t0;

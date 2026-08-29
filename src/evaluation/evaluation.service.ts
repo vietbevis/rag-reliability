@@ -40,6 +40,19 @@ export interface RunEvaluationOptions {
   topK?: number;
   /** Ghi đè `RERANK_ENABLED` cho run này (benchmark before/after — §36). */
   rerank?: boolean;
+  /** Ghi đè `RAG_STRICT_GROUNDING` cho run này (§36). */
+  strict?: boolean;
+}
+
+export interface BenchmarkComparison {
+  before: EvaluationRunSummary;
+  after: EvaluationRunSummary;
+  deltas: Array<{
+    metric: string;
+    before: number | null;
+    after: number | null;
+    delta: number | null;
+  }>;
 }
 
 export interface EvaluationRunSummary {
@@ -108,6 +121,8 @@ export class EvaluationService {
           rerank:
             opts.rerank ?? this.config.get('rerank', { infer: true }).enabled,
           rerankProvider: this.config.get('rerank', { infer: true }).provider,
+          strict:
+            opts.strict ?? this.config.get('grounding', { infer: true }).strict,
         },
         provider: this.llm.activeProvider,
       },
@@ -123,6 +138,7 @@ export class EvaluationService {
             mode,
             topK,
             rerank: opts.rerank,
+            strict: opts.strict,
             sourceToDocId: seed.sourceToDocId,
             docIdToSource,
           }),
@@ -165,31 +181,29 @@ export class EvaluationService {
   }
 
   /**
-   * Benchmark rerank before/after (PROMPT §36-37): chạy cùng dataset 2 lần —
-   * `rerank: false` rồi `rerank: true` — rồi so số liệu. Chứng minh rerank có
-   * cải thiện đủ để bù cost/latency hay không.
+   * Benchmark một biến thể before/after (PROMPT §36-37): chạy cùng dataset 2 lần
+   * (`mode: 'full'`), lần đầu tắt biến thể, lần sau bật — rồi so số liệu. Chứng
+   * minh cải tiến có đủ bù cost/latency hay không.
    */
-  async benchmarkRerank(opts: { datasetName: string; topK?: number }): Promise<{
-    before: EvaluationRunSummary;
-    after: EvaluationRunSummary;
-    deltas: Array<{
-      metric: string;
-      before: number | null;
-      after: number | null;
-      delta: number | null;
-    }>;
-  }> {
+  private async benchmarkVariant(
+    datasetName: string,
+    topK: number | undefined,
+    key: string,
+    build: (on: boolean) => Partial<RunEvaluationOptions>,
+  ): Promise<BenchmarkComparison> {
     const before = await this.run({
-      ...opts,
-      mode: 'full', // rerank chỉ có tác dụng trong pipeline generation
-      rerank: false,
-      label: `${opts.datasetName}-rerank-off-${stamp()}`,
+      datasetName,
+      topK,
+      mode: 'full',
+      ...build(false),
+      label: `${datasetName}-${key}-off-${stamp()}`,
     });
     const after = await this.run({
-      ...opts,
+      datasetName,
+      topK,
       mode: 'full',
-      rerank: true,
-      label: `${opts.datasetName}-rerank-on-${stamp()}`,
+      ...build(true),
+      label: `${datasetName}-${key}-on-${stamp()}`,
     });
 
     const keys = [
@@ -211,6 +225,33 @@ export class EvaluationService {
     return { before, after, deltas };
   }
 
+  benchmarkRerank(opts: {
+    datasetName: string;
+    topK?: number;
+  }): Promise<BenchmarkComparison> {
+    return this.benchmarkVariant(
+      opts.datasetName,
+      opts.topK,
+      'rerank',
+      (on) => ({
+        rerank: on,
+      }),
+    );
+  }
+
+  /** Benchmark grounded generation nghiêm ngặt (PHASE 8) before/after. */
+  benchmarkGrounding(opts: {
+    datasetName: string;
+    topK?: number;
+  }): Promise<BenchmarkComparison> {
+    return this.benchmarkVariant(
+      opts.datasetName,
+      opts.topK,
+      'strict',
+      (on) => ({ strict: on }),
+    );
+  }
+
   // --- một case --------------------------------------------------------
 
   private async evaluateCase(
@@ -221,6 +262,7 @@ export class EvaluationService {
       mode: EvalMode;
       topK: number;
       rerank?: boolean;
+      strict?: boolean;
       sourceToDocId: Map<string, string>;
       docIdToSource: Map<string, string>;
     },
@@ -262,6 +304,7 @@ export class EvaluationService {
         query: c.question,
         topK: ctx.topK,
         rerank: ctx.rerank,
+        strict: ctx.strict,
       });
       retrievedChunks = result.retrieval.chunks;
       status = result.status;

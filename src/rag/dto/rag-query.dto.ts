@@ -79,6 +79,15 @@ export class RagQueryDto {
   @ToBoolean()
   @IsBoolean()
   rerank?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Ghi đè RAG_STRICT_GROUNDING — hậu kiểm answer↔context, abstain nghiêm hơn.',
+  })
+  @IsOptional()
+  @ToBoolean()
+  @IsBoolean()
+  strict?: boolean;
 }
 
 export class RagSearchDto extends RagQueryDto {}

@@ -14,8 +14,11 @@ function ctx(scores: number[]): GroundingContext {
   return { chunks, totalTokens: chunks.length, sources: [] };
 }
 
-function make(rag: Partial<{ minChunks: number; minRelevance: number }> = {}) {
-  return new ContextValidatorService(mockConfigService({ rag }));
+function make(
+  rag: Partial<{ minChunks: number; minRelevance: number }> = {},
+  grounding: Partial<{ strict: boolean; abstainMinRelevance: number }> = {},
+) {
+  return new ContextValidatorService(mockConfigService({ rag, grounding }));
 }
 
 describe('ContextValidatorService', () => {
@@ -41,5 +44,23 @@ describe('ContextValidatorService', () => {
   it('trả topScore của chunk đầu', () => {
     expect(make().validate(ctx([0.77, 0.2])).topScore).toBe(0.77);
     expect(make().validate(ctx([])).topScore).toBeNull();
+  });
+
+  it('strict: abstain khi topScore < RAG_ABSTAIN_MIN_RELEVANCE (không đụng baseline)', () => {
+    const v = make({}, { abstainMinRelevance: 0.15 });
+    // non-strict vẫn proceed (baseline minRelevance 0)
+    expect(v.validate(ctx([0.1]), false).proceed).toBe(true);
+    // strict → abstain
+    const r = v.validate(ctx([0.1]), true);
+    expect(r.proceed).toBe(false);
+    expect(r.strict).toBe(true);
+    expect(r.reason).toContain('strict');
+    // strict + điểm đủ cao → proceed
+    expect(v.validate(ctx([0.5]), true).proceed).toBe(true);
+  });
+
+  it('strict lấy từ RAG_STRICT_GROUNDING khi không truyền tham số', () => {
+    const v = make({}, { strict: true, abstainMinRelevance: 0.15 });
+    expect(v.validate(ctx([0.1])).proceed).toBe(false);
   });
 });

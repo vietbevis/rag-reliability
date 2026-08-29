@@ -103,6 +103,22 @@ describe('Evaluation harness (e2e) — PHASE 4', () => {
     expect(res.status).toBeGreaterThanOrEqual(400);
   });
 
+  it('POST /evaluation/benchmark-grounding — 2 run (strict off/on), config.strict đúng', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/evaluation/benchmark-grounding')
+      .send({ datasetName: 'e2e-mini' });
+    expect(res.status).toBe(200);
+    expect(res.body.before.runId).not.toBe(res.body.after.runId);
+    const b = await prisma.evaluationRun.findUnique({
+      where: { id: res.body.before.runId },
+    });
+    const a = await prisma.evaluationRun.findUnique({
+      where: { id: res.body.after.runId },
+    });
+    expect((b?.config as { strict?: boolean }).strict).toBe(false);
+    expect((a?.config as { strict?: boolean }).strict).toBe(true);
+  }, 90_000);
+
   it('POST /evaluation/benchmark-rerank — chạy 2 run (off/on), trả deltas', async () => {
     const res = await request(app.getHttpServer())
       .post('/evaluation/benchmark-rerank')

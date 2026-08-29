@@ -56,6 +56,12 @@ export interface AppConfig {
     minChunks: number;
     temperature: number;
   };
+  grounding: {
+    strict: boolean;
+    abstainMinRelevance: number;
+    minGroundingRatio: number;
+    regenerateOnUngrounded: boolean;
+  };
   rerank: {
     enabled: boolean;
     provider: 'none' | 'fake' | 'llm';
@@ -181,6 +187,12 @@ export function loadConfiguration(): AppConfig {
       minRelevance: env.RAG_MIN_RELEVANCE,
       minChunks: env.RAG_MIN_CHUNKS,
       temperature: env.RAG_TEMPERATURE,
+    },
+    grounding: {
+      strict: env.RAG_STRICT_GROUNDING,
+      abstainMinRelevance: env.RAG_ABSTAIN_MIN_RELEVANCE,
+      minGroundingRatio: env.RAG_MIN_GROUNDING_RATIO,
+      regenerateOnUngrounded: env.RAG_REGENERATE_ON_UNGROUNDED,
     },
     rerank: {
       enabled: env.RERANK_ENABLED,

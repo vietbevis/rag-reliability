@@ -55,13 +55,21 @@ export class RunEvaluationDto {
   @ToBoolean()
   @IsBoolean()
   rerank?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Ghi đè RAG_STRICT_GROUNDING cho run này (§36)',
+  })
+  @IsOptional()
+  @ToBoolean()
+  @IsBoolean()
+  strict?: boolean;
 }
 
 /**
- * Body cho `POST /evaluation/benchmark-rerank`. LUÔN chạy `mode: 'full'` — rerank
- * chỉ tác động trong pipeline generation, `mode: 'retrieval'` sẽ cho deltas = 0.
+ * Body cho `POST /evaluation/benchmark-rerank` và `.../benchmark-grounding`.
+ * LUÔN chạy `mode: 'full'` — biến thể chỉ tác động ở pipeline generation.
  */
-export class BenchmarkRerankDto {
+export class BenchmarkVariantDto {
   @ApiProperty({ description: 'Tên dataset' })
   @IsString()
   @MinLength(1)

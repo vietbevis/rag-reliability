@@ -34,7 +34,7 @@ Faithfulness tăng A→B, latency +C ms, cost +D%".
 | 5     | **Graph RAG — construction**: entity + relationship extraction (LLM + gleaning) → Neo4j; cache theo hash; ingestion stage `GRAPH`; cleanup/reconcile idempotent; API | ✅ Hoàn thành |
 | 6     | Retrieval nâng cao: metadata filter · keyword (PG full-text) · **graph traversal (local, 3-tier entity linking, degree-cap, circuit-breaker)** · hybrid · fusion (RRF/weighted) · `strategy` per-request | ✅ Hoàn thành |
 | 7     | Reranking: noop/fake/LLM-listwise provider + fallback identity (§54) + `POST /evaluation/benchmark-rerank` (before/after) | ✅ Hoàn thành |
-| 8     | Grounded generation + abstention                                                                            | ⏳            |
+| 8     | Grounded generation + abstention: prompt siết + hậu kiểm answer↔context (hàm thuần) + CONFLICTING_EVIDENCE + regenerate-once + `RAG_STRICT_GROUNDING` + `POST /evaluation/benchmark-grounding` | ✅ Hoàn thành |
 | 9     | Citation: claim → evidence → chunk/**entity/relationship** → document                                       | ⏳            |
 | 10    | Faithfulness: claim extraction, evidence matching, contradiction                                            | ⏳            |
 | 11    | Evaluation framework: golden dataset, metrics, experiments                                                  | ⏳            |
@@ -52,8 +52,8 @@ src/
 ├── rag/chunking/    # structure-aware | fixed · chunk quality · factory
 ├── rag/embedding/   # orchestrator (chunk→pgvector) + kiểm tra vector schema
 ├── rag/retrieval/   # Retriever interface · VectorRetriever (P4) · KeywordRetriever (P6, PG full-text) · GraphRetriever + GraphEntityLinker (P6) · fusion.ts (RRF/weighted, thuần) · RetrievalService (dispatch strategy + fusion)
-├── rag/context/     # (P4) ContextBuilder (dedup·sort·token budget) · ContextValidator (abstain gate §22)
-├── rag/grounding/   # (P4) AnswerGeneration (structured output + schema.parse §50); claim/faithfulness ở P8-10
+├── rag/context/     # ContextBuilder (dedup·sort·token budget) · ContextValidator (abstain gate §22, strict P8)
+├── rag/grounding/   # AnswerGeneration (structured output §50 · P8 hậu kiểm) · grounding-checks.ts (thuần); claim/faithfulness ở P9-10
 ├── rag/pipeline/    # (P4) RagPipelineService: retrieve→context→validate→generate→persist RagQuery
 ├── rag/graph/       # (P5) EntityExtractor (LLM+gleaning) · entity-resolution (thuần) · GraphWrite (UNWIND MERGE) · GraphCleanup (removeDoc/reconcile) · GraphExtractionCache · GraphIngestion (orchestrator) · GraphController (/graph/reconcile); graph traversal ở P6
 ├── graph/           # (P5) Neo4jService (driver pool, read/write/writeTx) · Neo4jSchemaService (constraint/index) · Neo4jHealthIndicator · graph.module (@Global)
@@ -106,8 +106,8 @@ flowchart TD
 Đã hiện thực (P4 vector · P6 keyword/graph/hybrid/fusion · P7 rerank): retrieval
 theo `strategy` → (hybrid) fusion → (RERANK_ENABLED) rerank → context builder →
 context validation → grounded generation → citation map thô → response.
-Đường xám (P8-10): claim extraction, evidence matching, contradiction,
-faithfulness check. Query analyzer: hoãn (client chọn `strategy` trực tiếp).
+Đường xám (P9-10): claim extraction, evidence matching, contradiction,
+claim-level faithfulness. Query analyzer: hoãn (client chọn `strategy` trực tiếp).
 
 ```mermaid
 flowchart TD
@@ -123,7 +123,7 @@ flowchart TD
   RR --> CB["CONTEXT BUILDER (P4): dedup, sort, token budget"]
   CB --> CV{"CONTEXT VALIDATION (P4): du evidence?"}
   CV -->|khong| ABS["INSUFFICIENT_EVIDENCE (khong goi LLM) — P4"]
-  CV -->|co| GEN["GROUNDED GENERATION (P4): structured JSON + schema.parse"]
+  CV -->|co| GEN["GROUNDED GEN (P4 schema.parse · P8 hậu kiểm answer↔context + regenerate-once)"]
   GEN --> CE["(P8) Claim extraction"]
   CE --> EM["(P9) Evidence matching: claim -> chunk"]
   EM --> CD{"(P9) Contradiction?"}
@@ -153,7 +153,8 @@ flowchart TD
 | Fusion            | chỉ 1 nguồn có kết quả → pass-through (không đổi score/source); mọi nguồn rỗng → `chunks: []`                                                                    |
 | Reranker (P7)     | provider ném / trả rỗng / schema.parse rỗng → `RerankerService` fallback **identity** (giữ thứ tự fusion), `trace.rerank.fellBack = true`, query vẫn chạy |
 | LLM               | phân loại lỗi (`RATE_LIMIT`, `OVERLOADED`, `SAFETY_BLOCK`…), retry lỗi tạm thời, (tương lai) fallback provider                                                 |
-| Faithfulness fail | regenerate hoặc abstain                                                                                                                                        |
+| Grounding P8      | answer là abstention trá hình / `usedContext` rỗng → hạ `INSUFFICIENT_EVIDENCE`; [strict] lexical grounding thấp → hạ status + sinh lại 1 lần (`RAG_REGENERATE_ON_UNGROUNDED`) |
+| Faithfulness P10  | regenerate hoặc abstain                                                                                                                                        |
 
 Không stage nào được che giấu lỗi.
 
