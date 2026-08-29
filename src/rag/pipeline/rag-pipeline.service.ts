@@ -17,6 +17,7 @@ import {
 } from '../../generated/prisma/client';
 import { ConfigService } from '@nestjs/config';
 import type { AppConfig } from '../../config/configuration';
+import { sanitizeTrace } from '../../common/observability/trace-sanitizer.util';
 import { RerankerService } from '../../ai/reranking/reranker.service';
 import { RetrievalService } from '../retrieval/retrieval.service';
 import { ContextBuilderService } from '../context/context-builder.service';
@@ -333,6 +334,9 @@ export class RagPipelineService {
       }
 
       const latencyMs = Date.now() - t0;
+      trace.totalLatencyMs = latencyMs;
+      const cleanTrace = sanitizeTrace(trace);
+
       await this.prisma.ragQuery.update({
         where: { id: ragQuery.id },
         data: {
@@ -342,7 +346,7 @@ export class RagPipelineService {
           model,
           usage,
           faithfulness: faithfulnessResult?.score ?? null,
-          trace: trace as Prisma.InputJsonValue,
+          trace: cleanTrace as Prisma.InputJsonValue,
           claims: claims as unknown as Prisma.InputJsonValue,
           latencyMs,
         },
@@ -377,7 +381,7 @@ export class RagPipelineService {
         model,
         usage,
         latencyMs,
-        trace,
+        trace: cleanTrace,
       };
     } catch (err) {
       const reason =
@@ -385,11 +389,12 @@ export class RagPipelineService {
           ? `${err.code}: ${err.message}`
           : ((err as Error)?.message ?? 'unknown');
       this.logger.error(`RAG query ${ragQuery.id} lỗi: ${reason}`);
+      const cleanErrorTrace = sanitizeTrace(trace);
       await this.prisma.ragQuery.update({
         where: { id: ragQuery.id },
         data: {
           error: reason,
-          trace: trace as Prisma.InputJsonValue,
+          trace: cleanErrorTrace as Prisma.InputJsonValue,
           latencyMs: Date.now() - t0,
         },
       });
@@ -417,7 +422,7 @@ export class RagPipelineService {
         usage,
         latencyMs: Date.now() - t0,
         error: reason,
-        trace,
+        trace: cleanErrorTrace,
       };
     }
   }

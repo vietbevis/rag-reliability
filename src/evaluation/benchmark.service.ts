@@ -8,6 +8,12 @@ export const REGRESSION_THRESHOLDS = {
   recallDropAbs: 0.05,
   /** hallucination rate tăng quá 3 điểm phần trăm so với baseline. */
   hallucinationRiseAbs: 0.03,
+  /** faithfulness tụt quá 5 điểm phần trăm so với baseline. */
+  faithfulnessDropAbs: 0.05,
+  /** context precision tụt quá 5 điểm phần trăm so với baseline. */
+  contextPrecisionDropAbs: 0.05,
+  /** latency tăng quá 50% so với baseline. */
+  latencyMultiplier: 1.5,
 } as const;
 
 export interface MetricDelta {
@@ -33,6 +39,36 @@ export interface BenchmarkComparison {
 @Injectable()
 export class BenchmarkService {
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Đặt một EvaluationRun làm baseline chính thức của dataset.
+   */
+  async setBaseline(runId: string): Promise<{ runId: string; datasetId: string; isBaseline: boolean }> {
+    const run = await this.prisma.evaluationRun.findUnique({
+      where: { id: runId },
+    });
+    if (!run) {
+      throw new NotFoundException(`EvaluationRun ${runId} không tồn tại`);
+    }
+
+    // Huỷ cờ baseline của các run cũ cùng dataset
+    await this.prisma.evaluationRun.updateMany({
+      where: { datasetId: run.datasetId, isBaseline: true },
+      data: { isBaseline: false },
+    });
+
+    // Bật baseline cho run được chỉ định
+    await this.prisma.evaluationRun.update({
+      where: { id: runId },
+      data: { isBaseline: true },
+    });
+
+    return {
+      runId,
+      datasetId: run.datasetId,
+      isBaseline: true,
+    };
+  }
 
   async compareToBaseline(runId: string): Promise<BenchmarkComparison> {
     const run = await this.prisma.evaluationRun.findUnique({
@@ -70,6 +106,7 @@ export class BenchmarkService {
 
     const reasons: string[] = [];
     if (baseline) {
+      // 1. Kiểm tra Recall@5
       const recall = deltas.find((d) => d.metric === 'recallAt5');
       if (
         recall?.delta !== null &&
@@ -80,6 +117,8 @@ export class BenchmarkService {
           `recallAt5 giảm ${(-recall.delta).toFixed(4)} (> ngưỡng ${REGRESSION_THRESHOLDS.recallDropAbs})`,
         );
       }
+
+      // 2. Kiểm tra Hallucination Rate
       const halluc = deltas.find((d) => d.metric === 'hallucinationRateProxy');
       if (
         halluc?.delta !== null &&
@@ -88,6 +127,42 @@ export class BenchmarkService {
       ) {
         reasons.push(
           `hallucinationRateProxy tăng ${halluc.delta.toFixed(4)} (> ngưỡng ${REGRESSION_THRESHOLDS.hallucinationRiseAbs})`,
+        );
+      }
+
+      // 3. Kiểm tra Faithfulness
+      const faith = deltas.find((d) => d.metric === 'faithfulness');
+      if (
+        faith?.delta !== null &&
+        faith?.delta !== undefined &&
+        faith.delta < -REGRESSION_THRESHOLDS.faithfulnessDropAbs
+      ) {
+        reasons.push(
+          `faithfulness giảm ${(-faith.delta).toFixed(4)} (> ngưỡng ${REGRESSION_THRESHOLDS.faithfulnessDropAbs})`,
+        );
+      }
+
+      // 4. Kiểm tra Context Precision
+      const ctxPrec = deltas.find((d) => d.metric === 'contextPrecision');
+      if (
+        ctxPrec?.delta !== null &&
+        ctxPrec?.delta !== undefined &&
+        ctxPrec.delta < -REGRESSION_THRESHOLDS.contextPrecisionDropAbs
+      ) {
+        reasons.push(
+          `contextPrecision giảm ${(-ctxPrec.delta).toFixed(4)} (> ngưỡng ${REGRESSION_THRESHOLDS.contextPrecisionDropAbs})`,
+        );
+      }
+
+      // 5. Kiểm tra Latency Spike (> 1.5x)
+      const lat = deltas.find((d) => d.metric === 'avgLatencyMs');
+      if (
+        lat?.baseline &&
+        lat?.current &&
+        lat.current > lat.baseline * REGRESSION_THRESHOLDS.latencyMultiplier
+      ) {
+        reasons.push(
+          `avgLatencyMs tăng từ ${lat.baseline}ms lên ${lat.current}ms (> ${(REGRESSION_THRESHOLDS.latencyMultiplier * 100).toFixed(0)}% baseline)`,
         );
       }
     }

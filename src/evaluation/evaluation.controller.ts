@@ -194,4 +194,13 @@ export class EvaluationController {
   compare(@Param('id') id: string) {
     return this.benchmark.compareToBaseline(id);
   }
+
+  @Post('runs/:id/set-baseline')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Chốt một run làm baseline chính thức cho dataset tương ứng (PROMPT §35)',
+  })
+  setBaseline(@Param('id') id: string) {
+    return this.benchmark.setBaseline(id);
+  }
 }

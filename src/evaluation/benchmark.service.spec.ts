@@ -104,4 +104,49 @@ describe('BenchmarkService', () => {
     expect(cmp.regressed).toBe(false);
     expect(cmp.reasons).toEqual([]);
   });
+
+  it('faithfulness giảm quá 5% -> regressed', async () => {
+    const base: FakeRun = {
+      ...baseRun,
+      metrics: { recallAt5: 0.8, faithfulness: 0.95 },
+    };
+    const cur: FakeRun = {
+      ...baseRun,
+      id: 'cur',
+      isBaseline: false,
+      metrics: { recallAt5: 0.8, faithfulness: 0.85 },
+      createdAt: new Date('2026-02-01'),
+    };
+    const svc = new BenchmarkService(makePrisma([base, cur]));
+    const cmp = await svc.compareToBaseline('cur');
+    expect(cmp.regressed).toBe(true);
+    expect(cmp.reasons.join(' ')).toMatch(/faithfulness/);
+  });
+
+  it('setBaseline: cập nhật isBaseline=true cho run mục tiêu và gỡ baseline cũ', async () => {
+    const updateManyMock = jest.fn().mockResolvedValue({ count: 1 });
+    const updateMock = jest.fn().mockResolvedValue({ id: 'r2', isBaseline: true });
+    const findUniqueMock = jest.fn().mockResolvedValue({ id: 'r2', datasetId: 'd1' });
+
+    const prisma = {
+      evaluationRun: {
+        findUnique: findUniqueMock,
+        updateMany: updateManyMock,
+        update: updateMock,
+      },
+    } as unknown as PrismaService;
+
+    const svc = new BenchmarkService(prisma);
+    const res = await svc.setBaseline('r2');
+
+    expect(res.isBaseline).toBe(true);
+    expect(updateManyMock).toHaveBeenCalledWith({
+      where: { datasetId: 'd1', isBaseline: true },
+      data: { isBaseline: false },
+    });
+    expect(updateMock).toHaveBeenCalledWith({
+      where: { id: 'r2' },
+      data: { isBaseline: true },
+    });
+  });
 });
