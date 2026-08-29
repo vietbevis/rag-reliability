@@ -99,3 +99,30 @@ export class BenchmarkVariantDto {
   @Max(200)
   topK?: number;
 }
+
+/** Body cho `POST /evaluation/experiments/run` (PROMPT §36). */
+export class RunExperimentDto {
+  @ApiProperty({
+    description:
+      'Mã experiment (ví dụ: exp-001, exp-002, exp-003, exp-004, exp-005, exp-007)',
+    example: 'exp-003',
+  })
+  @IsString()
+  @MinLength(1)
+  experimentId!: string;
+
+  @ApiPropertyOptional({
+    description: 'Tên dataset (nếu không truyền sẽ dùng default của experiment)',
+  })
+  @IsOptional()
+  @IsString()
+  datasetName?: string;
+
+  @ApiPropertyOptional({ minimum: 1, maximum: 200 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  topK?: number;
+}

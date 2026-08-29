@@ -12,9 +12,11 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PrismaService } from '../database/prisma.service';
 import { EvaluationService } from './evaluation.service';
 import { BenchmarkService } from './benchmark.service';
+import { ExperimentRunnerService } from './experiments/experiment-runner.service';
 import {
   BenchmarkVariantDto,
   RunEvaluationDto,
+  RunExperimentDto,
 } from './dto/run-evaluation.dto';
 
 @ApiTags('evaluation')
@@ -23,6 +25,7 @@ export class EvaluationController {
   constructor(
     private readonly evaluation: EvaluationService,
     private readonly benchmark: BenchmarkService,
+    private readonly experimentRunner: ExperimentRunnerService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -93,6 +96,28 @@ export class EvaluationController {
   })
   benchmarkFaithfulness(@Body() dto: BenchmarkVariantDto) {
     return this.evaluation.benchmarkFaithfulness({
+      datasetName: dto.datasetName,
+      topK: dto.topK,
+    });
+  }
+
+  @Get('experiments')
+  @ApiOperation({
+    summary:
+      'Danh sách các experiment chuẩn trong RAG Reliability suite (PROMPT §36)',
+  })
+  listExperiments() {
+    return this.experimentRunner.listExperiments();
+  }
+
+  @Post('experiments/run')
+  @HttpCode(200)
+  @ApiOperation({
+    summary:
+      'Chạy một thực nghiệm chuẩn (exp-001 ... exp-007), so sánh before/after + delta (PROMPT §36)',
+  })
+  runExperiment(@Body() dto: RunExperimentDto) {
+    return this.experimentRunner.runExperiment(dto.experimentId, {
       datasetName: dto.datasetName,
       topK: dto.topK,
     });

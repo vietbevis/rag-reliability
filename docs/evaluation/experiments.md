@@ -17,21 +17,42 @@
 | 007 | Vector vs Graph vs Hybrid       | Graph traversal thắng ở multi-hop (§32 Type B); hybrid tổng hợp tốt nhất  | retrieval strategy + `GRAPH_RAG_ENABLED`  | Recall@5 & Context Recall theo `type`, cost extraction, latency | 6/13 |
 | 008 | Data cleaning on/off            | Làm sạch tăng Recall (bớt nhiễu vào embedding)                            | tắt cleaner pipeline                      | Recall@5, Context Precision                                  | 11    |
 
-## Quy trình một experiment
+## Quy trình và Cách thức chạy Experiment (PHASE 11)
 
-1. `npm run evaluate -- --baseline` một lần để chốt baseline (nếu chưa có cho
-   dataset đó).
-2. Đổi **đúng một** biến (env hoặc flag).
-3. `npm run evaluate -- answerable --label=exp-002-hybrid`.
-4. `POST /evaluation/runs/:id/compare` hoặc đọc CLI output → bảng delta.
-5. Ghi kết luận vào `docs/experiments/` (một file / experiment) theo mẫu:
-   _config · dataset version · metrics before/after · latency · token · cost ·
-   provider + model · kết luận_.
+### 1. Qua REST API
+- `GET /evaluation/experiments`: Liệt kê các experiment chuẩn được hỗ trợ.
+- `POST /evaluation/experiments/run`: Chạy một thực nghiệm tự động (trả về kết quả before, after và bảng deltas):
+  ```json
+  {
+    "experimentId": "exp-003",
+    "datasetName": "answerable",
+    "topK": 5
+  }
+  ```
 
-## Golden dataset
+### 2. Qua CLI Terminal
+- Liệt kê các experiment:
+  ```bash
+  npm run evaluate:experiment -- --list
+  ```
+- Chạy một experiment cụ thể:
+  ```bash
+  npm run evaluate:experiment -- exp-003
+  npm run evaluate:experiment -- exp-005 --dataset=answerable
+  ```
+- Chạy toàn bộ experiment suite:
+  ```bash
+  npm run evaluate:experiment -- --all
+  ```
 
-`evaluation/datasets/`: `answerable.jsonl` · `unanswerable.jsonl` ·
-`adversarial.jsonl` · `multi-hop.jsonl`. Loại case (PROMPT §32):
-`DIRECT_RETRIEVAL` · `MULTI_HOP` · `UNANSWERABLE` · `ADVERSARIAL` ·
-`CONFLICTING_SOURCES` · `EXACT_IDENTIFIER` · `SEMANTIC_QUERY`. Mỗi case mang
-`corpus` (tài liệu cần ingest) để dataset tự đủ, tái tạo được.
+## Golden dataset (PROMPT §31, §32)
+
+Thư mục `evaluation/datasets/`:
+- `answerable.jsonl`: Câu hỏi có câu trả lời trực tiếp hoặc diễn đạt tương đương.
+- `unanswerable.jsonl`: Câu hỏi ngoài phạm vi tri thức (kiểm tra abstention).
+- `adversarial.jsonl`: Câu hỏi bẫy, cố ý thúc ép mô hình sinh hallucination.
+- `multi-hop.jsonl`: Câu hỏi đòi hỏi tổng hợp thông tin từ nhiều tài liệu/thực thể.
+- `conflicting.jsonl`: Câu hỏi có tài liệu mâu thuẫn trực tiếp (kiểm tra `CONFLICTING_EVIDENCE`).
+
+Bao gồm trọn vẹn 7 loại case: `DIRECT_RETRIEVAL` (Type A), `MULTI_HOP` (Type B), `UNANSWERABLE` (Type C), `ADVERSARIAL` (Type D), `CONFLICTING_SOURCES` (Type E), `EXACT_IDENTIFIER` (Type F), `SEMANTIC_QUERY` (Type G).
+

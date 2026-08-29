@@ -37,7 +37,7 @@ Faithfulness tăng A→B, latency +C ms, cost +D%".
 | 8     | Grounded generation + abstention: prompt siết + hậu kiểm answer↔context (hàm thuần) + CONFLICTING_EVIDENCE + regenerate-once + `RAG_STRICT_GROUNDING` + `POST /evaluation/benchmark-grounding` | ✅ Hoàn thành |
 | 9     | Citation: claim → evidence → chunk/**entity/relationship** → document                                       | ✅ Hoàn thành |
 | 10    | Faithfulness: claim extraction, evidence matching, contradiction, NLI verifier, root-cause classification   | ✅ Hoàn thành |
-| 11    | Evaluation framework: golden dataset, metrics, experiments                                                  | ⏳            |
+| 11    | Evaluation framework: golden dataset, metrics, experiments, automated runner suite                          | ✅ Hoàn thành |
 | 12    | Regression + observability                                                                                  | ⏳            |
 | 13    | Benchmark đa provider + **vector vs graph vs hybrid** (quality / cost / latency)                            | ⏳            |
 
