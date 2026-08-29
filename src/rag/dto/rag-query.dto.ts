@@ -97,6 +97,15 @@ export class RagQueryDto {
   @ToBoolean()
   @IsBoolean()
   cite?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Ghi đè RAG_FAITHFULNESS_ENABLED — kiểm chứng tính trung thực & mâu thuẫn NLI.',
+  })
+  @IsOptional()
+  @ToBoolean()
+  @IsBoolean()
+  faithfulness?: boolean;
 }
 
 export class RagSearchDto extends RagQueryDto {}

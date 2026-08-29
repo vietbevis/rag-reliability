@@ -23,6 +23,8 @@ import {
   citationAccuracy,
   citationValidRate,
   claimSupportRate,
+  faithfulnessScore,
+  claimLevelHallucinationRate,
   hallucinationRateProxy,
   isAbstained,
   meanBool,
@@ -46,6 +48,8 @@ export interface RunEvaluationOptions {
   strict?: boolean;
   /** Ghi đè `RAG_CITATION_ENABLED` cho run này (§36). */
   cite?: boolean;
+  /** Ghi đè `RAG_FAITHFULNESS_ENABLED` cho run này (§36). */
+  faithfulness?: boolean;
 }
 
 export interface BenchmarkComparison {
@@ -146,6 +150,7 @@ export class EvaluationService {
             rerank: opts.rerank,
             strict: opts.strict,
             cite: opts.cite,
+            faithfulness: opts.faithfulness,
             sourceToDocId: seed.sourceToDocId,
             docIdToSource,
           }),
@@ -272,6 +277,19 @@ export class EvaluationService {
     );
   }
 
+  /** Benchmark faithfulness verification (PHASE 10) before/after. */
+  benchmarkFaithfulness(opts: {
+    datasetName: string;
+    topK?: number;
+  }): Promise<BenchmarkComparison> {
+    return this.benchmarkVariant(
+      opts.datasetName,
+      opts.topK,
+      'faithfulness',
+      (on) => ({ faithfulness: on }),
+    );
+  }
+
   // --- một case --------------------------------------------------------
 
   private async evaluateCase(
@@ -284,6 +302,7 @@ export class EvaluationService {
       rerank?: boolean;
       strict?: boolean;
       cite?: boolean;
+      faithfulness?: boolean;
       sourceToDocId: Map<string, string>;
       docIdToSource: Map<string, string>;
     },
@@ -301,7 +320,7 @@ export class EvaluationService {
     let status: AnswerStatus | null;
     let answer: string | null;
     let citations: Array<{ documentId: string; valid: boolean }>;
-    let claims: Array<{ supported: boolean }>;
+    let claims: Array<{ supported: boolean; verdict?: 'SUPPORTED' | 'UNSUPPORTED' | 'CONTRADICTED' }>;
     let latencyMs: number;
     let estimatedCost: number;
     let model: string | null;
@@ -329,6 +348,7 @@ export class EvaluationService {
         rerank: ctx.rerank,
         strict: ctx.strict,
         cite: ctx.cite,
+        faithfulness: ctx.faithfulness,
       });
       retrievedChunks = result.retrieval.chunks;
       status = result.status;
@@ -337,7 +357,10 @@ export class EvaluationService {
         documentId: ct.documentId,
         valid: ct.valid,
       }));
-      claims = result.claims.map((cl) => ({ supported: cl.supported }));
+      claims = result.claims.map((cl) => ({
+        supported: cl.supported,
+        verdict: cl.verdict,
+      }));
       latencyMs = result.latencyMs;
       estimatedCost = result.usage.estimatedCost;
       model = result.model;
@@ -371,6 +394,8 @@ export class EvaluationService {
     let citationAcc: number | null = null;
     let claimSupport: number | null = null;
     let citationValid: number | null = null;
+    let faithScore: number | null = null;
+    let claimHallucination: number | null = null;
 
     if (!retrievalOnly) {
       const j = await this.judge.judge(c.question, c.expectedAnswer, answer);
@@ -387,6 +412,8 @@ export class EvaluationService {
       );
       claimSupport = claimSupportRate(claims);
       citationValid = citationValidRate(citations);
+      faithScore = faithfulnessScore(claims);
+      claimHallucination = claimLevelHallucinationRate(claims);
     }
 
     const failureLayer = retrievalOnly
@@ -418,6 +445,8 @@ export class EvaluationService {
       citationAccuracy: citationAcc,
       claimSupportRate: claimSupport,
       citationValidRate: citationValid,
+      faithfulness: faithScore,
+      claimLevelHallucinationRate: claimHallucination,
       latencyMs,
       estimatedCost,
     } as Prisma.InputJsonValue;
@@ -447,6 +476,8 @@ export class EvaluationService {
       citationAccuracy: citationAcc,
       claimSupportRate: claimSupport,
       citationValidRate: citationValid,
+      faithfulness: faithScore,
+      claimLevelHallucinationRate: claimHallucination,
       latencyMs,
       estimatedCost,
       model,
@@ -552,6 +583,12 @@ export class EvaluationService {
       citationAccuracy: meanIgnoringNull(
         outcomes.map((o) => o.citationAccuracy),
       ),
+      faithfulness: meanIgnoringNull(
+        outcomes.map((o) => o.faithfulness),
+      ),
+      claimLevelHallucinationRate: meanIgnoringNull(
+        outcomes.map((o) => o.claimLevelHallucinationRate),
+      ),
       hallucinationRateProxy: generated.length
         ? hallucinationRateProxy(caseOutcomes)
         : null,
@@ -580,6 +617,8 @@ interface PerCase {
   citationAccuracy: number | null;
   claimSupportRate: number | null;
   citationValidRate: number | null;
+  faithfulness: number | null;
+  claimLevelHallucinationRate: number | null;
   latencyMs: number;
   estimatedCost: number;
   model: string | null;

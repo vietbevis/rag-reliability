@@ -79,6 +79,12 @@ export interface AppConfig {
     faithfulnessThreshold: number;
     hallucinationThreshold: number;
   };
+  faithfulness: {
+    enabled: boolean;
+    verifierMode: 'auto' | 'heuristic' | 'llm';
+    threshold: number;
+    regenerateOnUnfaithful: boolean;
+  };
   graph: {
     /** Công tắc tính năng Graph RAG (PROMPT §47 mở rộng). */
     enabled: boolean;
@@ -217,6 +223,12 @@ export function loadConfiguration(): AppConfig {
     reliability: {
       faithfulnessThreshold: env.FAITHFULNESS_THRESHOLD,
       hallucinationThreshold: env.HALLUCINATION_THRESHOLD,
+    },
+    faithfulness: {
+      enabled: env.RAG_FAITHFULNESS_ENABLED,
+      verifierMode: env.FAITHFULNESS_VERIFIER_MODE,
+      threshold: env.FAITHFULNESS_THRESHOLD,
+      regenerateOnUnfaithful: env.RAG_REGENERATE_ON_UNFAITHFUL,
     },
     graph: {
       enabled: env.GRAPH_RAG_ENABLED,

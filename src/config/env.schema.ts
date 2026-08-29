@@ -276,6 +276,13 @@ export const envSchema = z
     FAITHFULNESS_THRESHOLD: numeric({ min: 0, max: 1, default: 0.8 }),
     HALLUCINATION_THRESHOLD: numeric({ min: 0, max: 1, default: 0.1 }),
 
+    // ---- Faithfulness & Contradiction (PHASE 10) ---------------------
+    RAG_FAITHFULNESS_ENABLED: boolish(true),
+    FAITHFULNESS_VERIFIER_MODE: z
+      .enum(['auto', 'heuristic', 'llm'])
+      .default('auto'),
+    RAG_REGENERATE_ON_UNFAITHFUL: boolish(true),
+
     // ---- An toàn khi gọi AI API ---------------------------------------
     LLM_TIMEOUT_MS: numeric({
       int: true,

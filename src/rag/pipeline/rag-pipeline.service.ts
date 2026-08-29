@@ -3,6 +3,9 @@ import { PrismaService } from '../../database/prisma.service';
 import { AppError, EmbeddingError } from '../../common/errors';
 import type {
   Citation,
+  Claim,
+  Evidence,
+  FaithfulnessResult,
   RagStatus,
   RetrievalFilters,
   RetrievedChunk,
@@ -22,6 +25,7 @@ import { AnswerGenerationService } from '../grounding/answer-generation.service'
 import { ClaimExtractorService } from '../grounding/claim-extractor.service';
 import { EvidenceMatcherService } from '../grounding/evidence-matcher.service';
 import { CitationService } from '../grounding/citation.service';
+import { FaithfulnessService } from '../grounding/faithfulness.service';
 
 export interface RagQueryRequest {
   query: string;
@@ -34,6 +38,8 @@ export interface RagQueryRequest {
   strict?: boolean;
   /** Ghi đè `RAG_CITATION_ENABLED` — tách claim + đối chiếu evidence + citation. */
   cite?: boolean;
+  /** Ghi đè `RAG_FAITHFULNESS_ENABLED` — kiểm chứng trung thực & mâu thuẫn NLI. */
+  faithfulness?: boolean;
 }
 
 export interface RagQueryOptions {
@@ -53,7 +59,7 @@ export interface RagQueryResult {
   answer: string | null;
   citations: Citation[];
   claims: VerifiedClaim[];
-  faithfulness: null;
+  faithfulness: FaithfulnessResult | null;
   retrieval: {
     strategy: string;
     chunkCount: number;
@@ -85,21 +91,18 @@ const ABSTAIN_ANSWER =
   'Không tìm thấy thông tin đủ tin cậy trong knowledge base để trả lời câu hỏi này.';
 
 /**
- * Pipeline truy vấn RAG (PROMPT §41). PHASE 4:
- *
- *   query → retrieve (vector) → context build → context validation
- *         → (đủ) generate | (không đủ) abstain
+ * Pipeline truy vấn RAG (PROMPT §41).
+ *   query → retrieve → rerank → context build → context validation
+ *         → generate → claim extraction → evidence matching
+ *         → faithfulness verifier (PHASE 10) → citation build
  *         → persist RagQuery + trace
- *
- * Claim extraction / evidence matching / faithfulness / citation cấp claim đến
- * ở PHASE 8-9 (hiện `citations`/`claims` rỗng, `faithfulness` null). Reranking
- * ở PHASE 7.
  */
 @Injectable()
 export class RagPipelineService {
   private readonly logger = new Logger(RagPipelineService.name);
   private readonly rerankCfg: AppConfig['rerank'];
   private readonly citationCfg: AppConfig['citation'];
+  private readonly faithfulnessCfg: AppConfig['faithfulness'];
 
   constructor(
     private readonly prisma: PrismaService,
@@ -111,10 +114,12 @@ export class RagPipelineService {
     private readonly claimExtractor: ClaimExtractorService,
     private readonly evidenceMatcher: EvidenceMatcherService,
     private readonly citation: CitationService,
+    private readonly faithfulnessVerifier: FaithfulnessService,
     config: ConfigService<AppConfig, true>,
   ) {
     this.rerankCfg = config.get('rerank', { infer: true });
     this.citationCfg = config.get('citation', { infer: true });
+    this.faithfulnessCfg = config.get('faithfulness', { infer: true });
   }
 
   async query(
@@ -205,10 +210,16 @@ export class RagPipelineService {
       let model: string | null = null;
       let citations: Citation[] = [];
       let claims: VerifiedClaim[] = [];
+      let faithfulnessResult: FaithfulnessResult | null = null;
 
       if (!validation.proceed) {
         status = 'INSUFFICIENT_EVIDENCE';
         answer = ABSTAIN_ANSWER;
+        faithfulnessResult = {
+          score: 1.0,
+          grounded: true,
+          claims: [],
+        };
       } else {
         const gen = await this.generation.generate(req.query, context, {
           strict: req.strict,
@@ -233,22 +244,91 @@ export class RagPipelineService {
 
         if (status === 'INSUFFICIENT_EVIDENCE') {
           citations = [];
-        } else if (req.cite ?? this.citationCfg.enabled) {
-          // --- Citation cấp claim (PHASE 9, §24-25, §29) -----------------
-          const cite = await this.runCitation(
-            gen.answer,
-            gen.citedIndexes,
-            context.chunks,
-          );
-          citations = cite.citations;
-          claims = cite.claims;
-          usage.inputTokens += cite.usage.inputTokens;
-          usage.outputTokens += cite.usage.outputTokens;
-          usage.estimatedCost += cite.usage.estimatedCost;
-          trace.citation = cite.trace;
+          faithfulnessResult = {
+            score: 1.0,
+            grounded: true,
+            claims: [],
+          };
         } else {
-          // Baseline P4: map thô usedContext → chunk, không tách claim.
-          citations = this.baselineCitations(context.chunks, gen.citedIndexes);
+          const shouldCite = req.cite ?? this.citationCfg.enabled;
+          const shouldVerifyFaithfulness =
+            req.faithfulness ?? this.faithfulnessCfg.enabled;
+
+          if (shouldCite || shouldVerifyFaithfulness) {
+            // --- Citation cấp claim (PHASE 9, §24-25, §29) -----------------
+            const cite = await this.runCitation(
+              gen.answer,
+              gen.citedIndexes,
+              context.chunks,
+            );
+            citations = cite.citations;
+            claims = cite.claims;
+            usage.inputTokens += cite.usage.inputTokens;
+            usage.outputTokens += cite.usage.outputTokens;
+            usage.estimatedCost += cite.usage.estimatedCost;
+            trace.citation = cite.trace;
+
+            // --- Faithfulness Verifier & Contradiction (PHASE 10, §26-28) ---
+            if (shouldVerifyFaithfulness) {
+              const rawClaims = cite.rawClaims;
+              const rawEvidence = cite.rawEvidence;
+              const faithExec = await this.faithfulnessVerifier.verify(
+                gen.answer,
+                rawClaims,
+                rawEvidence,
+                context.chunks,
+                status,
+                { threshold: this.faithfulnessCfg.threshold },
+              );
+
+              faithfulnessResult = faithExec.result;
+              usage.inputTokens += faithExec.usage.inputTokens;
+              usage.outputTokens += faithExec.usage.outputTokens;
+              usage.estimatedCost += faithExec.usage.estimatedCost;
+              trace.faithfulness = {
+                score: faithExec.result.score,
+                grounded: faithExec.result.grounded,
+                rootCause: faithExec.result.rootCause,
+                method: faithExec.method,
+                latencyMs: faithExec.latencyMs,
+              };
+
+              // Đồng bộ verdict từ faithfulness verifier sang claims trả về
+              const faithEvByClaim = new Map(
+                faithExec.result.claims.map((e) => [e.claimId, e]),
+              );
+              claims = claims.map((c) => {
+                const fe = faithEvByClaim.get(c.id);
+                return fe
+                  ? {
+                      ...c,
+                      supported: fe.supported,
+                      verdict: fe.verdict,
+                      evidenceChunkIds: fe.evidenceChunkIds,
+                    }
+                  : c;
+              });
+
+              // Xử lý mâu thuẫn hoặc không grounded
+              const hasContradiction = claims.some(
+                (c) => c.verdict === 'CONTRADICTED',
+              );
+              if (
+                hasContradiction ||
+                faithExec.result.rootCause === 'CONFLICTING_CONTEXT'
+              ) {
+                status = 'CONFLICTING_EVIDENCE';
+              } else if (
+                !faithExec.result.grounded &&
+                status === 'GROUNDED'
+              ) {
+                status = 'PARTIALLY_GROUNDED';
+              }
+            }
+          } else {
+            // Baseline P4: map thô usedContext → chunk, không tách claim.
+            citations = this.baselineCitations(context.chunks, gen.citedIndexes);
+          }
         }
       }
 
@@ -261,6 +341,7 @@ export class RagPipelineService {
           provider,
           model,
           usage,
+          faithfulness: faithfulnessResult?.score ?? null,
           trace: trace as Prisma.InputJsonValue,
           claims: claims as unknown as Prisma.InputJsonValue,
           latencyMs,
@@ -275,7 +356,7 @@ export class RagPipelineService {
         answer,
         citations,
         claims,
-        faithfulness: null,
+        faithfulness: faithfulnessResult,
         retrieval: {
           strategy: retrieval.strategy,
           // Chunk THỰC SỰ vào prompt generation (sau rerank + token budget của
@@ -352,6 +433,8 @@ export class RagPipelineService {
   ): Promise<{
     citations: Citation[];
     claims: VerifiedClaim[];
+    rawClaims: Claim[];
+    rawEvidence: Evidence[];
     usage: { inputTokens: number; outputTokens: number; estimatedCost: number };
     trace: Record<string, unknown>;
   }> {
@@ -381,6 +464,8 @@ export class RagPipelineService {
     return {
       citations: built.citations,
       claims,
+      rawClaims: extraction.claims,
+      rawEvidence: evidence,
       usage: {
         inputTokens: extraction.usage.inputTokens,
         outputTokens: extraction.usage.outputTokens,

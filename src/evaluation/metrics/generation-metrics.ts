@@ -75,6 +75,34 @@ export function claimSupportRate(
   return round(claims.filter((c) => c.supported).length / claims.length);
 }
 
+/**
+ * Điểm Faithfulness chuẩn cấp claim (PHASE 10):
+ * (supported - 2 * contradicted) / totalClaims, kẹp trong [0, 1].
+ */
+export function faithfulnessScore(
+  claims: readonly { verdict?: 'SUPPORTED' | 'UNSUPPORTED' | 'CONTRADICTED'; supported: boolean }[],
+): number | null {
+  if (claims.length === 0) return null;
+  const supported = claims.filter((c) => c.verdict === 'SUPPORTED' || (c.verdict === undefined && c.supported)).length;
+  const contradicted = claims.filter((c) => c.verdict === 'CONTRADICTED').length;
+  const raw = (supported - contradicted * 2) / claims.length;
+  return round(Math.max(0, Math.min(1, raw)));
+}
+
+/**
+ * Tỉ lệ hallucination cấp claim (PHASE 10):
+ * Tỉ lệ các claim bị unsupported hoặc contradicted trên tổng số claim.
+ */
+export function claimLevelHallucinationRate(
+  claims: readonly { verdict?: 'SUPPORTED' | 'UNSUPPORTED' | 'CONTRADICTED'; supported: boolean }[],
+): number | null {
+  if (claims.length === 0) return null;
+  const hallucinated = claims.filter(
+    (c) => c.verdict === 'UNSUPPORTED' || c.verdict === 'CONTRADICTED' || (!c.supported && c.verdict === undefined),
+  ).length;
+  return round(hallucinated / claims.length);
+}
+
 export interface CaseOutcome {
   answerable: boolean;
   status: AnswerStatus;
@@ -83,7 +111,7 @@ export interface CaseOutcome {
 }
 
 /**
- * Hallucination rate **PROXY** (PHASE 9 sẽ thay bằng claim-level): tỉ lệ case
+ * Hallucination rate PROXY (kết hợp cấp case và cấp claim): tỉ lệ case
  * answerable mà model KHÔNG abstain nhưng câu trả lời sai (correctness < 0.3),
  * cộng case unanswerable mà model bịa ra câu trả lời.
  */

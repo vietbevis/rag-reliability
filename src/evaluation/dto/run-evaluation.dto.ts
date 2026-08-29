@@ -63,6 +63,22 @@ export class RunEvaluationDto {
   @ToBoolean()
   @IsBoolean()
   strict?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Ghi đè RAG_CITATION_ENABLED cho run này (§36)',
+  })
+  @IsOptional()
+  @ToBoolean()
+  @IsBoolean()
+  cite?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Ghi đè RAG_FAITHFULNESS_ENABLED cho run này (§36)',
+  })
+  @IsOptional()
+  @ToBoolean()
+  @IsBoolean()
+  faithfulness?: boolean;
 }
 
 /**

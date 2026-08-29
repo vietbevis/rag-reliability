@@ -1,6 +1,8 @@
 import {
   abstentionCorrect,
   citationAccuracy,
+  claimLevelHallucinationRate,
+  faithfulnessScore,
   hallucinationRateProxy,
   isAbstained,
   meanBool,
@@ -68,6 +70,32 @@ describe('generation-metrics', () => {
     });
     it('rỗng -> 0', () => {
       expect(hallucinationRateProxy([])).toBe(0);
+    });
+  });
+
+  describe('faithfulnessScore & claimLevelHallucinationRate', () => {
+    it('toàn bộ claim supported -> faithfulnessScore = 1, hallucinationRate = 0', () => {
+      const claims = [
+        { verdict: 'SUPPORTED' as const, supported: true },
+        { verdict: 'SUPPORTED' as const, supported: true },
+      ];
+      expect(faithfulnessScore(claims)).toBe(1);
+      expect(claimLevelHallucinationRate(claims)).toBe(0);
+    });
+
+    it('có claim contradicted -> faithfulnessScore bị trừ điểm nặng', () => {
+      const claims = [
+        { verdict: 'SUPPORTED' as const, supported: true },
+        { verdict: 'CONTRADICTED' as const, supported: false },
+      ];
+      // (1 - 2*1)/2 = -0.5 -> kẹp về 0
+      expect(faithfulnessScore(claims)).toBe(0);
+      expect(claimLevelHallucinationRate(claims)).toBe(0.5);
+    });
+
+    it('claims rỗng -> null', () => {
+      expect(faithfulnessScore([])).toBeNull();
+      expect(claimLevelHallucinationRate([])).toBeNull();
     });
   });
 

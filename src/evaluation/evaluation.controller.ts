@@ -41,6 +41,8 @@ export class EvaluationController {
       topK: dto.topK,
       rerank: dto.rerank,
       strict: dto.strict,
+      cite: dto.cite,
+      faithfulness: dto.faithfulness,
     });
   }
 
@@ -78,6 +80,19 @@ export class EvaluationController {
   })
   benchmarkCitation(@Body() dto: BenchmarkVariantDto) {
     return this.evaluation.benchmarkCitation({
+      datasetName: dto.datasetName,
+      topK: dto.topK,
+    });
+  }
+
+  @Post('benchmark-faithfulness')
+  @HttpCode(200)
+  @ApiOperation({
+    summary:
+      'Chạy dataset 2 lần (faithfulness verifier off → on), trả before/after + delta (PHASE 10 §27)',
+  })
+  benchmarkFaithfulness(@Body() dto: BenchmarkVariantDto) {
+    return this.evaluation.benchmarkFaithfulness({
       datasetName: dto.datasetName,
       topK: dto.topK,
     });

@@ -23,6 +23,7 @@ import { AnswerGenerationService } from './grounding/answer-generation.service';
 import { ClaimExtractorService } from './grounding/claim-extractor.service';
 import { EvidenceMatcherService } from './grounding/evidence-matcher.service';
 import { CitationService } from './grounding/citation.service';
+import { FaithfulnessService } from './grounding/faithfulness.service';
 import { RagPipelineService } from './pipeline/rag-pipeline.service';
 import { RagController } from './rag.controller';
 
@@ -32,7 +33,8 @@ import { RagController } from './rag.controller';
  *   PHASE 2: chunking (structure-aware | fixed) + chunk quality
  *   PHASE 3: embedding đa provider (batch) + lưu pgvector
  *   PHASE 4: baseline RAG — vector retrieval -> context -> validate -> generate
- * Các phase sau thêm graph, keyword/hybrid, rerank, faithfulness, evaluation.
+ *   PHASE 5-9: graph, keyword/hybrid, rerank, strict grounding, claim citation
+ *   PHASE 10: faithfulness verifier + contradiction detection
  */
 @Module({
   imports: [ParsersModule],
@@ -61,6 +63,7 @@ import { RagController } from './rag.controller';
     ClaimExtractorService,
     EvidenceMatcherService,
     CitationService,
+    FaithfulnessService,
     RagPipelineService,
   ],
   exports: [
@@ -75,6 +78,7 @@ import { RagController } from './rag.controller';
     VectorSchemaService,
     RetrievalService,
     ContextBuilderService,
+    FaithfulnessService,
     RagPipelineService,
   ],
 })

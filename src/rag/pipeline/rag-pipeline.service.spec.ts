@@ -9,8 +9,12 @@ import { AnswerGenerationService } from '../grounding/answer-generation.service'
 import { ClaimExtractorService } from '../grounding/claim-extractor.service';
 import { EvidenceMatcherService } from '../grounding/evidence-matcher.service';
 import { CitationService } from '../grounding/citation.service';
+import { FaithfulnessService } from '../grounding/faithfulness.service';
 import { RetrievalService } from '../retrieval/retrieval.service';
 import { RerankerService } from '../../ai/reranking/reranker.service';
+import { LlmService } from '../../ai/llm/llm.service';
+import { LlmFactoryService } from '../../ai/llm/llm-factory.service';
+import { FakeLlmProvider } from '../../ai/llm/providers/fake-llm.provider';
 import { RagPipelineService } from './rag-pipeline.service';
 
 function chunk(id: string, score: number): RetrievedChunk {
@@ -43,6 +47,7 @@ function build(
     retrievalError?: string;
     rerank?: boolean;
     cite?: boolean;
+    faithfulness?: boolean;
     claims?: Array<{ id: string; text: string }>;
   } = {},
 ) {
@@ -78,6 +83,11 @@ function build(
     },
     rerank: { enabled: opts.rerank ?? false },
     citation: { enabled: opts.cite ?? false },
+    faithfulness: {
+      enabled: opts.faithfulness ?? false,
+      verifierMode: 'heuristic',
+      threshold: 0.8,
+    },
   });
   const contextBuilder = new ContextBuilderService(
     new TokenCounterService(),
@@ -140,6 +150,10 @@ function build(
     >[0],
     config,
   );
+  const fakeLlm = new LlmService({
+    create: () => new FakeLlmProvider(),
+  } as unknown as LlmFactoryService);
+  const faithfulnessVerifier = new FaithfulnessService(fakeLlm, config);
 
   return {
     svc: new RagPipelineService(
@@ -152,6 +166,7 @@ function build(
       claimExtractor,
       evidenceMatcher,
       citation,
+      faithfulnessVerifier,
       config,
     ),
     rerankMock,
@@ -437,5 +452,88 @@ describe('RagPipelineService (PHASE 9 citation)', () => {
     const r = await svc.query({ query: 'q' });
     // generation inputTokens 20 + extract inputTokens 5
     expect(r.usage.inputTokens).toBe(25);
+  });
+});
+
+describe('RagPipelineService (PHASE 10 faithfulness)', () => {
+  const supportChunk = (id: string, content?: string): RetrievedChunk => ({
+    chunkId: id,
+    documentId: 'doc-1',
+    content:
+      content ??
+      'Sinh viên được phép bảo lưu kết quả học tập tối đa hai học kỳ liên tiếp.',
+    score: 0.9,
+    source: 'vector',
+    section: 'Điều 5',
+    metadata: {},
+  });
+
+  it('faithfulness=true: chạy verifier, trả faithfulness result và cập nhật DB', async () => {
+    const { svc, ragQueryUpdate } = build({
+      cite: true,
+      faithfulness: true,
+      retrievedChunks: [supportChunk('k1')],
+      genResult: {
+        answer: 'Sinh viên được bảo lưu hai học kỳ liên tiếp.',
+        status: 'GROUNDED',
+        citedIndexes: [1],
+      },
+      claims: [
+        { id: 'c1', text: 'Sinh viên được bảo lưu hai học kỳ liên tiếp.' },
+      ],
+    });
+
+    const r = await svc.query({ query: 'q' });
+
+    expect(r.faithfulness).toBeDefined();
+    expect(r.faithfulness?.grounded).toBe(true);
+    expect(r.faithfulness?.score).toBe(1.0);
+    expect(r.claims[0]?.verdict).toBe('SUPPORTED');
+    expect(ragQueryUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          faithfulness: 1.0,
+        }),
+      }),
+    );
+  });
+
+  it('phát hiện mâu thuẫn số liệu -> status chuyển thành CONFLICTING_EVIDENCE', async () => {
+    const { svc } = build({
+      cite: true,
+      faithfulness: true,
+      retrievedChunks: [supportChunk('k1', 'Sinh viên được phép bảo lưu tối đa 2 học kỳ.')],
+      genResult: {
+        answer: 'Sinh viên được bảo lưu 3 học kỳ.',
+        status: 'GROUNDED',
+        citedIndexes: [1],
+      },
+      claims: [
+        { id: 'c1', text: 'Sinh viên được bảo lưu 3 học kỳ.' },
+      ],
+    });
+
+    const r = await svc.query({ query: 'q' });
+
+    expect(r.status).toBe('CONFLICTING_EVIDENCE');
+    expect(r.faithfulness?.grounded).toBe(false);
+    expect(r.claims[0]?.verdict).toBe('CONTRADICTED');
+  });
+
+  it('INSUFFICIENT_EVIDENCE -> faithfulness score 1.0, grounded = true', async () => {
+    const { svc } = build({
+      faithfulness: true,
+      genResult: {
+        answer: 'x',
+        status: 'INSUFFICIENT_EVIDENCE',
+        citedIndexes: [],
+      },
+    });
+
+    const r = await svc.query({ query: 'q' });
+
+    expect(r.faithfulness?.score).toBe(1.0);
+    expect(r.faithfulness?.grounded).toBe(true);
+    expect(r.faithfulness?.claims).toEqual([]);
   });
 });
