@@ -81,6 +81,32 @@ describe('StructureAwareChunkerService', () => {
     ).toBe(true);
   });
 
+  it('bảng GFM quá lớn -> mỗi mảnh lặp lại header + separator', async () => {
+    const rows = Array.from(
+      { length: 40 },
+      (_, i) => `| Ngành ${i} | A0${i % 5} | ${20 + i},5 | ${50 + i} |`,
+    );
+    const md = [
+      '# Điểm chuẩn',
+      '## Bảng',
+      '| Ngành | Tổ hợp | Điểm | Chỉ tiêu |',
+      '| --- | --- | --- | --- |',
+      ...rows,
+    ].join('\n');
+    const chunks = await make({ maxTokens: 120, overlapTokens: 10 }).split({
+      markdown: md,
+      text: '',
+    });
+    const tableChunks = chunks.filter((c) => c.content.includes('| ---'));
+    expect(tableChunks.length).toBeGreaterThan(1);
+    for (const c of tableChunks) {
+      expect(c.content).toContain('| Ngành | Tổ hợp | Điểm | Chỉ tiêu |');
+      expect(
+        c.content.indexOf('| --- | --- | --- | --- |'),
+      ).toBeGreaterThanOrEqual(0);
+    }
+  });
+
   it('fallback sang text thô khi không có markdown', async () => {
     const chunks = await make().split({
       text: 'Một đoạn văn thô không có bất kỳ heading markdown nào ở đây cả.',

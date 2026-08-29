@@ -122,11 +122,23 @@ export class StructureAwareChunkerService implements ChunkingStrategy {
   /** Block > max: tách theo câu (hoặc dòng), gói theo cửa sổ token có overlap. */
   private splitOversizedBlock(block: MdBlock): string[] {
     const sep = block.type === 'code' || block.type === 'table' ? '\n' : ' ';
-    const units =
+    let units =
       sep === '\n' ? block.text.split('\n') : splitSentences(block.text);
 
+    // Bảng GFM quá lớn: giữ 2 dòng đầu (header + separator) và LẶP LẠI ở mọi
+    // mảnh sau đó, để LLM biết cột nào là cột nào khi bảng bị cắt.
+    let tableHeader: string[] = [];
+    if (
+      block.type === 'table' &&
+      units.length > 2 &&
+      /^\s*\|/.test(units[1] ?? '')
+    ) {
+      tableHeader = units.slice(0, 2);
+      units = units.slice(2);
+    }
+
     const pieces: string[] = [];
-    let buf: string[] = [];
+    let buf: string[] = [...tableHeader];
 
     const joined = (): string => buf.join(sep).trim();
 
@@ -137,22 +149,28 @@ export class StructureAwareChunkerService implements ChunkingStrategy {
         pieces.push(joined());
 
         // overlap: giữ lại phần cuối của piece vừa đóng, nhưng không để phần
-        // overlap + unit hiện tại vượt max (nếu vượt thì bỏ overlap).
+        // overlap + header bảng + unit hiện tại vượt max (nếu vượt thì bỏ overlap).
+        const headerTokens = tableHeader.length
+          ? this.tokens.count(tableHeader.join(sep))
+          : 0;
         const unitTokens = this.tokens.count(unit);
         const carry: string[] = [];
         let carryTokens = 0;
         for (
           let k = buf.length - 1;
-          k >= 0 &&
+          k >= tableHeader.length &&
           carryTokens < this.bounds.overlap &&
-          carryTokens + this.tokens.count(buf[k]!) + unitTokens <=
+          headerTokens +
+            carryTokens +
+            this.tokens.count(buf[k]!) +
+            unitTokens <=
             this.bounds.max;
           k--
         ) {
           carry.unshift(buf[k]!);
           carryTokens += this.tokens.count(buf[k]!);
         }
-        buf = [...carry, unit];
+        buf = [...tableHeader, ...carry, unit];
       }
     }
     if (buf.length > 0) pieces.push(joined());

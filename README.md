@@ -236,6 +236,24 @@ curl -XPOST localhost:3000/documents/<id>/embed
 
 Giới hạn upload: **25 MB**/file. Định dạng không hỗ trợ → `400 UNSUPPORTED_MIME`.
 
+### Bảng trong DOCX / PDF / XLSX / PPTX
+
+`@firecrawl/anydoc` chuyển mọi định dạng về **Markdown GFM**, bảng → bảng GFM
+(`| cột | cột |`). Đã kiểm thử end-to-end (ingest → chunk → retrieval → RAG):
+
+| Nguồn | Bảng | Ghi chú |
+|---|---|---|
+| **DOCX / XLSX / PPTX** (OOXML) | ✅ chính xác | OOXML có cấu trúc bảng tường minh; heading (`#`) giữ đúng nếu file dùng style Heading. |
+| **PDF native-text, bảng có kẻ ô** | ✅ tái tạo tốt | anydoc dựng lại bảng từ vị trí text + đường kẻ. Bảng không kẻ ô / merge cell / nhiều cột phức tạp có thể lệch. |
+| **PDF scan (ảnh)** | ❌ → `NEEDS_OCR` | Cần `FIRECRAWL_API_KEY` (OCR hosted) hoặc `ANYDOC_OCR=hosted`. |
+
+Chunker `structure` (mặc định) giữ **nguyên một bảng trong một chunk** nếu ≤
+`CHUNK_MAX_TOKENS` (512), kèm breadcrumb điều khoản. Bảng lớn hơn bị cắt theo
+hàng nhưng **dòng header + separator được lặp lại ở mọi mảnh** để LLM vẫn biết
+cột nào là cột nào. LLM đọc bảng GFM tốt cho tra cứu ô (đã xác nhận: hỏi "học
+phí thạc sĩ nhóm Y Dược" → trả đúng ô giao hàng×cột). Với corpus nhiều bảng,
+dùng `structure` — `semantic`/`fixed` cắt bảng kém.
+
 ---
 
 ## Truy vấn RAG
