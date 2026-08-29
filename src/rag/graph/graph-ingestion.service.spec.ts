@@ -1,6 +1,5 @@
 import { mockConfigService } from '../../config/config.mock';
 import { PrismaService } from '../../database/prisma.service';
-import { LlmService } from '../../ai/llm/llm.service';
 import { Neo4jService } from '../../graph/neo4j.service';
 import { EntityExtractorService } from './entity-extractor.service';
 import { GraphExtractionCacheService } from './graph-extraction-cache.service';
@@ -39,6 +38,7 @@ function build(
 
   const neo4j = { enabled: opts.enabled ?? true } as unknown as Neo4jService;
   const extractor = {
+    model: 'fake-llm-v1',
     extract: jest.fn().mockResolvedValue({
       entities: [{ name: 'A', type: 'ORG', description: '' }],
       relationships: [],
@@ -56,8 +56,6 @@ function build(
   const writer = {
     replaceDocument: jest.fn().mockResolvedValue(undefined),
   } as unknown as GraphWriteService;
-  const llm = { activeModel: 'fake-llm-v1' } as unknown as LlmService;
-
   const config = mockConfigService({
     graph: {
       extract: {
@@ -77,7 +75,6 @@ function build(
       extractor,
       cache,
       writer,
-      llm,
       config,
     ),
     extractor: extractor.extract as jest.Mock,

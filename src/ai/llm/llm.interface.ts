@@ -22,6 +22,13 @@ export interface LLMOptions {
   retryConfig?: Partial<RetryConfig>;
   /** Gợi ý cho provider hỗ trợ chế độ JSON native. */
   responseFormat?: 'text' | 'json';
+  /**
+   * `false` → YÊU CẦU provider TẮT chế độ suy luận ("thinking"/reasoning) của
+   * model. Dùng cho các tác vụ structured-output ngắn (vd graph extraction) —
+   * khối reasoning làm mỗi lời gọi chậm gấp nhiều lần mà không lợi gì.
+   * Bỏ trống = theo mặc định của model.
+   */
+  reasoning?: boolean;
   /** Nhãn mờ được truyền vào trace observability. */
   traceLabel?: string;
 }

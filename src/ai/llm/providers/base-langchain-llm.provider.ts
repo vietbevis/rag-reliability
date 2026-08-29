@@ -1,4 +1,5 @@
-import { Logger } from '@nestjs/common';
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import {
   AIMessage,
@@ -6,6 +7,7 @@ import {
   HumanMessage,
   SystemMessage,
 } from '@langchain/core/messages';
+import { Logger } from '@nestjs/common';
 import type { ZodType } from 'zod';
 import { LlmError } from '../../../common/errors';
 import type { TokenUsage } from '../../../common/types';

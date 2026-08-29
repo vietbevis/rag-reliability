@@ -271,6 +271,11 @@ export const envSchema = z
       .pipe(z.array(z.string()).min(1)),
     // Đổi prompt extraction ⇒ tăng số này ⇒ cache extraction cũ tự vô hiệu.
     GRAPH_PROMPT_VERSION: z.string().trim().default('1'),
+    // Model riêng cho bước trích xuất graph. Để trống → dùng model LLM chính.
+    // Dùng model KHÔNG-reasoning (vd qwen2.5:7b) — model "thinking" (qwen3) sinh
+    // khối <think> rất dài trên structured-output ⇒ mỗi lời gọi vài phút.
+    // Đổi model ⇒ khoá cache extraction đổi theo ⇒ chunk cũ sẽ trích lại.
+    GRAPH_EXTRACT_MODEL: z.string().trim().optional(),
 
     // ---- Retrieval nâng cao (PHASE 6) -----------------------------------
     // Chiến lược mặc định khi client không chỉ định (POST /rag/query|search).

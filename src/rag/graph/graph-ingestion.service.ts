@@ -3,7 +3,6 @@ import { ConfigService } from '@nestjs/config';
 import type { AppConfig } from '../../config/configuration';
 import { PrismaService } from '../../database/prisma.service';
 import { GraphError } from '../../common/errors';
-import { LlmService } from '../../ai/llm/llm.service';
 import {
   DocumentStatus,
   IngestionStage,
@@ -45,7 +44,6 @@ export class GraphIngestionService {
     private readonly extractor: EntityExtractorService,
     private readonly cache: GraphExtractionCacheService,
     private readonly writer: GraphWriteService,
-    private readonly llm: LlmService,
     config: ConfigService<AppConfig, true>,
   ) {
     this.extractCfg = config.get('graph', { infer: true }).extract;
@@ -103,7 +101,9 @@ export class GraphIngestionService {
     const t0 = Date.now();
     await this.setStatus(documentId, DocumentStatus.GRAPHING);
 
-    const model = this.llm.activeModel;
+    // Khoá cache theo model THỰC dùng để trích (GRAPH_EXTRACT_MODEL nếu có),
+    // không phải model chat chính.
+    const model = this.extractor.model;
     const promptVersion = this.extractCfg.promptVersion;
     const perChunkCalls = 1 + this.extractCfg.gleanings;
     const callBudget = this.extractCfg.maxLlmCallsPerDoc;

@@ -52,6 +52,11 @@ export class EntityExtractorService {
     return this.cfg.promptVersion;
   }
 
+  /** Model thực dùng cho extraction — `GRAPH_EXTRACT_MODEL` hoặc model chính. */
+  get model(): string {
+    return this.cfg.model ?? this.llm.activeModel;
+  }
+
   async extract(chunkText: string): Promise<ChunkExtractionResult> {
     const text = this.clip(chunkText);
     const acc: ChunkExtractionResult = {
@@ -88,6 +93,11 @@ export class EntityExtractorService {
       res = await this.llm.chatStructured(messages, graphExtractionSchema, {
         temperature: 0,
         traceLabel: 'graph.extract',
+        model: this.cfg.model,
+        // Graph extraction là NER có ràng buộc schema. Model "thinking" +
+        // structured output/tool_choice: hoặc bị API từ chối, hoặc chậm gấp
+        // nhiều lần. Tắt cứng reasoning ở MỌI model.
+        reasoning: false,
       });
     } catch (err) {
       // Output của model local không parse được schema (JSON méo) → coi chunk này

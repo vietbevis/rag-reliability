@@ -119,6 +119,8 @@ export interface AppConfig {
       maxLlmCallsPerDoc: number;
       entityTypes: string[];
       promptVersion: string;
+      /** Model riêng cho extraction; `undefined` → model LLM chính. */
+      model?: string;
     };
     /** Traversal + entity linking cho GraphRetriever (PHASE 6). */
     retrieval: {
@@ -286,6 +288,7 @@ export function loadConfiguration(): AppConfig {
         maxLlmCallsPerDoc: env.GRAPH_EXTRACT_MAX_LLM_CALLS_PER_DOC,
         entityTypes: env.GRAPH_ENTITY_TYPES,
         promptVersion: env.GRAPH_PROMPT_VERSION,
+        model: env.GRAPH_EXTRACT_MODEL,
       },
       retrieval: {
         maxHops: env.GRAPH_MAX_HOPS,
