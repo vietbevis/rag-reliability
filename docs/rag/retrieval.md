@@ -85,6 +85,43 @@ không nối chuỗi → an toàn injection kể cả khi khoá `metadata` do ng
    - l2/ip: `1/(1+distance)` (xấp xỉ; cosine là mặc định và chính xác nhất cho
      embedding đã normalize).
 
+### Tinh chỉnh HNSW lúc query (PHASE 16 — Supabase / pgvector playbook)
+
+`hnsw.ef_search` (mặc định pgvector = 40) là nút chỉnh recall/tốc độ chính. Filter
+trong `WHERE` **không** bỏ qua index nhưng được áp SAU index scan → nếu filter
+chọn lọc, HNSW dễ trả thiếu kết quả ("overfiltering").
+
+| Env | Mặc định | Tác dụng |
+| --- | --- | --- |
+| `RETRIEVAL_HNSW_EF_SEARCH` | `0` (= giữ 40) | `>0` → `SET LOCAL hnsw.ef_search = N` cho MỌI query. Supabase: 100 ≈ acc@10 0.98; 250 ≈ 0.99. Chậm hơn tuyến tính. |
+| `RETRIEVAL_HNSW_ITERATIVE_SCAN` | `false` | `true` + query CÓ filter `metadata`/`documentIds` → thêm `SET LOCAL hnsw.iterative_scan = relaxed_order` (pgvector quét tiếp cho đủ kết quả). **GUC này chỉ có ở pgvector ≥ 0.8** — chỉ bật khi chắc chắn phiên bản. |
+
+Khi có tham số cần set, query chạy trong 1 `$transaction` (`SET LOCAL` + `SELECT`);
+`trace.<source>.hnswTuning` ghi các lệnh đã áp. Không có tham số → query đơn như cũ.
+
+**Tham số BUILD index** (`m`, `ef_construction`) khai báo trong migration
+`20260830004012_phase16_hnsw_index_params` — `m=16, ef_construction=128` cho
+vector 1024 chiều. Bảng lớn: build tay bằng `CREATE INDEX CONCURRENTLY` +
+`prisma migrate resolve --applied` (xem comment trong migration).
+
+### Đòn bẩy khi corpus lớn (chưa hiện thực)
+
+- **`halfvec(1024)`** — index nửa kích thước (2 byte/chiều), recall giảm không
+  đáng kể: `USING hnsw ((embedding::halfvec(1024)) halfvec_cosine_ops)`.
+- **inner product** cho vector đã normalize (e5 có normalize) — `<#>` /
+  `vector_ip_ops`, nhanh hơn cosine một chút (`EMBEDDING_DISTANCE=ip` + rebuild index).
+- **binary quantization + rerank exact** — index ~32× nhỏ hơn, dùng khi hàng triệu vector.
+- **`pg_prewarm`** index + 10k–50k query warm-up trước khi vào production (Supabase:
+  "giữ index trong RAM là yếu tố quan trọng nhất").
+
+### Chẩn đoán chậm
+
+`trace.retrieval.latencyMs` (tổng) + `trace.retrieval.<source>.latencyMs` (từng
+nguồn) trong response `/rag/query` (PHASE 16). So với `trace.generation.latencyMs`
++ `trace.faithfulness.latencyMs` để biết nút thắt. Nếu `VectorSchemaService` log
+_"Chưa có ANN index — vector search sẽ quét tuần tự"_ lúc boot → chạy
+`npm run prisma:deploy` (KHÔNG `migrate dev` — sẽ lại drop index vector/tsvector).
+
 `RetrievalService` (orchestrator) — PHASE 4 chỉ gọi `vector`; PHASE 6 gọi cả 3
 + fusion. Mỗi lần truy hồi ghi một `RetrievalLog`
 (`{ query, strategy, topK, filters, results: [{chunkId, documentId, score, source}], latencyMs, ragQueryId? }`)
@@ -245,9 +282,15 @@ văn bản / tên riêng (§17), graph tăng cho multi-hop (§32 Type B).
 
 ## Ghi chú hiệu năng (P6+)
 
-Query có JOIN + `WHERE e.model = ... AND d.status = ...` có thể khiến planner
-**không dùng HNSW index** (HNSW scan chỉ kích hoạt khi
-`ORDER BY embedding <op> const LIMIT k` là thao tác chủ đạo, không bị filter
-chặn trước). Với corpus lớn cần: (a) partial index theo model, (b) materialize
-"chunk của document COMPLETED" hoặc (c) đẩy filter sau top-k. Đo bằng
-`EXPLAIN ANALYZE` khi corpus vượt ~50k chunk.
+`WHERE` **không** làm planner bỏ HNSW index (pgvector docs) — index vẫn scan theo
+`ORDER BY embedding <op> const LIMIT k`, filter (`e.model`, `d.status`, filter
+người dùng) áp SAU. Hệ quả: nếu filter chọn lọc, HNSW (mặc định `ef_search=40`)
+có thể trả **thiếu** kết quả → dùng `RETRIEVAL_HNSW_ITERATIVE_SCAN` (pgvector ≥ 0.8)
+hoặc `RETRIEVAL_HNSW_EF_SEARCH` cao hơn (xem "Tinh chỉnh HNSW lúc query" ở trên).
+Ở đây `e.model` (một model) + `d.status='COMPLETED'` (gần hết corpus) KHÔNG chọn
+lọc → không ảnh hưởng cho tới khi client truyền filter `metadata`/`documentIds`.
+
+Với corpus rất lớn, phương án khác: partial index theo model, `halfvec`, hoặc
+materialize "chunk của document COMPLETED". Luôn đo bằng `EXPLAIN (ANALYZE, BUFFERS)`
+với query THẬT khi corpus vượt ~50k chunk; kỳ vọng thấy
+`Index Scan using Embedding_embedding_hnsw_cosine_idx`, KHÔNG phải `Seq Scan`.

@@ -134,7 +134,9 @@ export class RetrievalService {
     for (const { source, res } of results) {
       embeddingTokens += res.embeddingTokens;
       estimatedCost += res.estimatedCost;
-      perSourceTrace[source] = res.trace;
+      // Gắn latency từng nguồn vào trace (PHASE 16 — quan sát được nơi tốn thời
+      // gian: retrieval vs generation vs faithfulness).
+      perSourceTrace[source] = { ...res.trace, latencyMs: res.latencyMs };
       if (typeof res.trace.error === 'string') infraFailures++;
       outputs.push({ source, chunks: res.chunks });
     }
@@ -151,6 +153,7 @@ export class RetrievalService {
       latencyMs: Date.now() - started,
       usage: { embeddingTokens, estimatedCost },
       trace: {
+        latencyMs: Date.now() - started,
         ...perSourceTrace,
         fusion:
           sources.length > 1

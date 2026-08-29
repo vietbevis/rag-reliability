@@ -292,6 +292,19 @@ export const envSchema = z
     RETRIEVAL_STRATEGY: z
       .enum(['vector', 'keyword', 'graph', 'hybrid'])
       .default('vector'),
+    // Tinh chỉnh HNSW lúc query (pgvector, PHASE 16). 0 = giữ mặc định pgvector
+    // (hnsw.ef_search = 40). Tăng → recall cao hơn, query chậm hơn (Supabase:
+    // 100 ≈ acc@10 0.98; 250 ≈ 0.99). Áp bằng `SET LOCAL` trong 1 transaction.
+    RETRIEVAL_HNSW_EF_SEARCH: numeric({
+      int: true,
+      min: 0,
+      max: 1000,
+      default: 0,
+    }),
+    // Chống "overfiltering": khi có filter metadata/documentId, filter áp SAU
+    // index scan nên HNSW dễ trả thiếu kết quả. `hnsw.iterative_scan` quét thêm
+    // cho đủ. GUC này CHỈ có ở pgvector >= 0.8 — chỉ bật khi chắc chắn phiên bản.
+    RETRIEVAL_HNSW_ITERATIVE_SCAN: boolish(false),
     // Graph traversal (local) — graph-rag.md §4.
     GRAPH_MAX_HOPS: numeric({ int: true, min: 1, max: 4, default: 2 }),
     GRAPH_MAX_ENTITY_DEGREE: numeric({

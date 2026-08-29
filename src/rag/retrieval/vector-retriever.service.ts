@@ -42,6 +42,8 @@ export class VectorRetrieverService implements Retriever {
   private readonly logger = new Logger(VectorRetrieverService.name);
   private readonly distanceOp: string;
   private readonly distanceKind: AppConfig['embedding']['distance'];
+  private readonly hnswEfSearch: number;
+  private readonly hnswIterativeScan: boolean;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -51,6 +53,9 @@ export class VectorRetrieverService implements Retriever {
   ) {
     this.distanceKind = config.get('embedding', { infer: true }).distance;
     this.distanceOp = this.vectorSchema.distanceOperator;
+    const hnsw = config.get('retrieval', { infer: true }).hnsw;
+    this.hnswEfSearch = hnsw.efSearch;
+    this.hnswIterativeScan = hnsw.iterativeScan;
   }
 
   async retrieve(options: RetrieveOptions): Promise<RetrieverResult> {
@@ -81,19 +86,34 @@ export class VectorRetrieverService implements Retriever {
     const where = this.buildWhere(options, model);
     const distanceOp = Prisma.raw(this.distanceOp);
 
+    const selectSql = Prisma.sql`
+      SELECT c."id", c."documentId", c."content", c."heading", c."section",
+             c."page", c."metadata",
+             e."embedding" ${distanceOp} ${vecLiteral}::vector AS distance
+      FROM "Embedding" e
+      JOIN "DocumentChunk" c ON c."id" = e."chunkId"
+      JOIN "Document" d ON d."id" = c."documentId"
+      WHERE ${where}
+      ORDER BY distance ASC
+      LIMIT ${options.topK}
+    `;
+
+    // Tinh chỉnh HNSW theo lời gọi (PHASE 16 — Supabase/pgvector playbook). Chỉ
+    // vào transaction khi thực sự có tham số cần set (tránh chi phí BEGIN/COMMIT
+    // cho query thường).
+    const tuning = this.sessionTuning(options.filters);
+
     let rows: Row[];
     try {
-      rows = await this.prisma.$queryRaw<Row[]>`
-        SELECT c."id", c."documentId", c."content", c."heading", c."section",
-               c."page", c."metadata",
-               e."embedding" ${distanceOp} ${vecLiteral}::vector AS distance
-        FROM "Embedding" e
-        JOIN "DocumentChunk" c ON c."id" = e."chunkId"
-        JOIN "Document" d ON d."id" = c."documentId"
-        WHERE ${where}
-        ORDER BY distance ASC
-        LIMIT ${options.topK}
-      `;
+      if (tuning.length > 0) {
+        const batch = await this.prisma.$transaction([
+          ...tuning.map((stmt) => this.prisma.$executeRawUnsafe(stmt)),
+          this.prisma.$queryRaw<Row[]>(selectSql),
+        ]);
+        rows = batch[batch.length - 1] as Row[];
+      } else {
+        rows = await this.prisma.$queryRaw<Row[]>(selectSql);
+      }
     } catch (err) {
       // Hợp đồng Retriever: KHÔNG ném (§54) — để fusion tiếp với nguồn khác.
       this.logger.warn(`Vector query lỗi: ${(err as Error).message}`);
@@ -125,8 +145,32 @@ export class VectorRetrieverService implements Retriever {
         distance: this.distanceKind,
         candidates: chunks.length,
         topScore: chunks[0]?.score ?? null,
+        ...(tuning.length > 0 ? { hnswTuning: tuning } : {}),
       },
     };
+  }
+
+  /**
+   * Câu lệnh `SET LOCAL` cần chạy cùng transaction với SELECT để tinh chỉnh HNSW
+   * (PHASE 16). `hnsw.ef_search` áp cho mọi query nếu cấu hình > 0.
+   * `hnsw.iterative_scan` chỉ áp khi query CÓ filter chọn lọc (metadata /
+   * documentId) — đúng kịch bản "overfiltering" mà Supabase mô tả — và chỉ khi
+   * bật cờ (`RETRIEVAL_HNSW_ITERATIVE_SCAN`), vì GUC này chỉ có ở pgvector >= 0.8.
+   *
+   * `hnswEfSearch` là số nguyên đã validate (env.schema) → nội suy an toàn.
+   */
+  private sessionTuning(filters?: RetrieveOptions['filters']): string[] {
+    const out: string[] = [];
+    if (this.hnswEfSearch > 0) {
+      out.push(`SET LOCAL hnsw.ef_search = ${this.hnswEfSearch}`);
+    }
+    const hasSelectiveFilter =
+      (filters?.documentIds?.length ?? 0) > 0 ||
+      Object.keys(filters?.metadata ?? {}).length > 0;
+    if (this.hnswIterativeScan && hasSelectiveFilter) {
+      out.push(`SET LOCAL hnsw.iterative_scan = relaxed_order`);
+    }
+    return out;
   }
 
   private buildWhere(options: RetrieveOptions, model: string): Prisma.Sql {

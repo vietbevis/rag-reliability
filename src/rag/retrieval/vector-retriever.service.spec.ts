@@ -11,10 +11,19 @@ function build(
     configured?: boolean;
     embedThrows?: boolean;
     distance?: 'cosine' | 'l2' | 'ip';
+    hnsw?: { efSearch?: number; iterativeScan?: boolean };
   } = {},
 ) {
   const queryRaw = jest.fn().mockResolvedValue(opts.rows ?? []);
-  const prisma = { $queryRaw: queryRaw } as unknown as PrismaService;
+  const executeRawUnsafe = jest.fn().mockResolvedValue(0);
+  const transaction = jest.fn((promises: Promise<unknown>[]) =>
+    Promise.all(promises),
+  );
+  const prisma = {
+    $queryRaw: queryRaw,
+    $executeRawUnsafe: executeRawUnsafe,
+    $transaction: transaction,
+  } as unknown as PrismaService;
 
   const embed = opts.embedThrows
     ? jest.fn().mockRejectedValue(new EmbeddingError('AUTH', 'no key'))
@@ -37,11 +46,21 @@ function build(
 
   const config = mockConfigService({
     embedding: { distance: opts.distance ?? 'cosine' },
+    retrieval: opts.hnsw
+      ? {
+          hnsw: {
+            efSearch: opts.hnsw.efSearch ?? 0,
+            iterativeScan: opts.hnsw.iterativeScan ?? false,
+          },
+        }
+      : undefined,
   });
 
   return {
     svc: new VectorRetrieverService(prisma, embeddings, vectorSchema, config),
     queryRaw,
+    executeRawUnsafe,
+    transaction,
     embed,
   };
 }
@@ -118,5 +137,58 @@ describe('VectorRetrieverService', () => {
       },
     });
     expect(queryRaw).toHaveBeenCalledTimes(1);
+  });
+
+  describe('tinh chỉnh HNSW (PHASE 16)', () => {
+    it('mặc định (efSearch=0, iterativeScan=false) → KHÔNG vào transaction', async () => {
+      const { svc, transaction, executeRawUnsafe } = build({
+        rows: [row('a', 0.2)],
+      });
+      await svc.retrieve({ query: 'q', topK: 5 });
+      expect(transaction).not.toHaveBeenCalled();
+      expect(executeRawUnsafe).not.toHaveBeenCalled();
+    });
+
+    it('efSearch > 0 → SET LOCAL hnsw.ef_search trong 1 transaction, vẫn trả rows', async () => {
+      const { svc, transaction, executeRawUnsafe } = build({
+        rows: [row('a', 0.2), row('b', 0.4)],
+        hnsw: { efSearch: 100 },
+      });
+      const r = await svc.retrieve({ query: 'q', topK: 5 });
+      expect(transaction).toHaveBeenCalledTimes(1);
+      expect(executeRawUnsafe).toHaveBeenCalledWith(
+        'SET LOCAL hnsw.ef_search = 100',
+      );
+      expect(r.chunks).toHaveLength(2);
+      expect(r.trace.hnswTuning).toEqual(['SET LOCAL hnsw.ef_search = 100']);
+    });
+
+    it('iterativeScan bật + query CÓ filter → thêm SET LOCAL hnsw.iterative_scan', async () => {
+      const { svc, executeRawUnsafe } = build({
+        rows: [],
+        hnsw: { efSearch: 80, iterativeScan: true },
+      });
+      await svc.retrieve({
+        query: 'q',
+        topK: 5,
+        filters: { metadata: { source: 'x' } },
+      });
+      expect(executeRawUnsafe).toHaveBeenCalledWith(
+        'SET LOCAL hnsw.ef_search = 80',
+      );
+      expect(executeRawUnsafe).toHaveBeenCalledWith(
+        'SET LOCAL hnsw.iterative_scan = relaxed_order',
+      );
+    });
+
+    it('iterativeScan bật nhưng query KHÔNG có filter → KHÔNG set iterative_scan', async () => {
+      const { svc, executeRawUnsafe, transaction } = build({
+        rows: [],
+        hnsw: { iterativeScan: true },
+      });
+      await svc.retrieve({ query: 'q', topK: 5 });
+      expect(transaction).not.toHaveBeenCalled();
+      expect(executeRawUnsafe).not.toHaveBeenCalled();
+    });
   });
 });

@@ -84,6 +84,19 @@ describe('RetrievalService (PHASE 6 — strategy + fusion)', () => {
     expect(r.chunks.map((c) => c.chunkId)).toEqual(['a']);
   });
 
+  it('trace ghi latency tổng + latency từng nguồn (PHASE 16 — observability)', async () => {
+    const { svc } = build({
+      strategy: 'hybrid',
+      vector: res([chunk('a', 0.9)]),
+      keyword: res([chunk('b', 0.8, 'keyword')]),
+      graph: res([chunk('c', 0.7, 'graph')]),
+    });
+    const r = await svc.retrieve({ query: 'q' });
+    expect(typeof r.trace.latencyMs).toBe('number');
+    expect((r.trace.vector as { latencyMs: number }).latencyMs).toBe(1);
+    expect((r.trace.keyword as { latencyMs: number }).latencyMs).toBe(1);
+  });
+
   it('strategy=keyword override: chỉ gọi keyword', async () => {
     const { svc, vector, keyword } = build();
     const r = await svc.retrieve({ query: 'q', strategy: 'keyword' });

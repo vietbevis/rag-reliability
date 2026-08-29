@@ -135,6 +135,13 @@ export interface AppConfig {
   /** Hợp nhất kết quả nhiều retriever (PHASE 6). */
   retrieval: {
     strategy: 'vector' | 'keyword' | 'graph' | 'hybrid';
+    /** Tinh chỉnh HNSW lúc query (PHASE 16 — Supabase/pgvector playbook). */
+    hnsw: {
+      /** `hnsw.ef_search` (0 = giữ mặc định pgvector = 40). */
+      efSearch: number;
+      /** Bật `hnsw.iterative_scan = relaxed_order` khi query có filter (pgvector >= 0.8). */
+      iterativeScan: boolean;
+    };
     fusion: {
       method: 'rrf' | 'weighted';
       rrfK: number;
@@ -303,6 +310,10 @@ export function loadConfiguration(): AppConfig {
     },
     retrieval: {
       strategy: env.RETRIEVAL_STRATEGY,
+      hnsw: {
+        efSearch: env.RETRIEVAL_HNSW_EF_SEARCH,
+        iterativeScan: env.RETRIEVAL_HNSW_ITERATIVE_SCAN,
+      },
       fusion: {
         method: env.FUSION_METHOD,
         rrfK: env.FUSION_RRF_K,
