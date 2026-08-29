@@ -38,6 +38,8 @@ export interface RunEvaluationOptions {
   isBaseline?: boolean;
   mode?: EvalMode;
   topK?: number;
+  /** Ghi đè `RERANK_ENABLED` cho run này (benchmark before/after — §36). */
+  rerank?: boolean;
 }
 
 export interface EvaluationRunSummary {
@@ -103,6 +105,9 @@ export class EvaluationService {
           chunkingStrategy: this.config.get('chunking', { infer: true })
             .strategy,
           minRelevance: rag.minRelevance,
+          rerank:
+            opts.rerank ?? this.config.get('rerank', { infer: true }).enabled,
+          rerankProvider: this.config.get('rerank', { infer: true }).provider,
         },
         provider: this.llm.activeProvider,
       },
@@ -117,6 +122,7 @@ export class EvaluationService {
             datasetId: seed.datasetId,
             mode,
             topK,
+            rerank: opts.rerank,
             sourceToDocId: seed.sourceToDocId,
             docIdToSource,
           }),
@@ -158,6 +164,55 @@ export class EvaluationService {
     }
   }
 
+  /**
+   * Benchmark rerank before/after (PROMPT §36-37): chạy cùng dataset 2 lần —
+   * `rerank: false` rồi `rerank: true` — rồi so số liệu. Chứng minh rerank có
+   * cải thiện đủ để bù cost/latency hay không.
+   */
+  async benchmarkRerank(opts: {
+    datasetName: string;
+    mode?: EvalMode;
+    topK?: number;
+  }): Promise<{
+    before: EvaluationRunSummary;
+    after: EvaluationRunSummary;
+    deltas: Array<{
+      metric: string;
+      before: number | null;
+      after: number | null;
+      delta: number | null;
+    }>;
+  }> {
+    const before = await this.run({
+      ...opts,
+      rerank: false,
+      label: `${opts.datasetName}-rerank-off-${stamp()}`,
+    });
+    const after = await this.run({
+      ...opts,
+      rerank: true,
+      label: `${opts.datasetName}-rerank-on-${stamp()}`,
+    });
+
+    const keys = [
+      ...new Set([
+        ...Object.keys(before.metrics),
+        ...Object.keys(after.metrics),
+      ]),
+    ].sort();
+    const deltas = keys.map((metric) => {
+      const b = numOrNull(before.metrics[metric]);
+      const a = numOrNull(after.metrics[metric]);
+      return {
+        metric,
+        before: b,
+        after: a,
+        delta: b !== null && a !== null ? round(a - b) : null,
+      };
+    });
+    return { before, after, deltas };
+  }
+
   // --- một case --------------------------------------------------------
 
   private async evaluateCase(
@@ -167,6 +222,7 @@ export class EvaluationService {
       datasetId: string;
       mode: EvalMode;
       topK: number;
+      rerank?: boolean;
       sourceToDocId: Map<string, string>;
       docIdToSource: Map<string, string>;
     },
@@ -207,6 +263,7 @@ export class EvaluationService {
       const result = await this.pipeline.query({
         query: c.question,
         topK: ctx.topK,
+        rerank: ctx.rerank,
       });
       retrievedChunks = result.retrieval.chunks;
       status = result.status;
@@ -462,4 +519,12 @@ function mean(values: number[]): number {
 
 function round(n: number): number {
   return Math.round(n * 1e4) / 1e4;
+}
+
+function stamp(): string {
+  return new Date().toISOString().slice(0, 19);
+}
+
+function numOrNull(v: number | null | undefined): number | null {
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
 }

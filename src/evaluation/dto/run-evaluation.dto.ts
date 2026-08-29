@@ -45,4 +45,34 @@ export class RunEvaluationDto {
   @Min(1)
   @Max(200)
   topK?: number;
+
+  @ApiPropertyOptional({
+    description:
+      'Ghi đè RERANK_ENABLED cho run này (§36 benchmark before/after)',
+  })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  rerank?: boolean;
+}
+
+/** Body cho `POST /evaluation/benchmark-rerank`. */
+export class BenchmarkRerankDto {
+  @ApiProperty({ description: 'Tên dataset' })
+  @IsString()
+  @MinLength(1)
+  datasetName!: string;
+
+  @ApiPropertyOptional({ enum: ['retrieval', 'full'], default: 'full' })
+  @IsOptional()
+  @IsIn(['retrieval', 'full'])
+  mode?: 'retrieval' | 'full';
+
+  @ApiPropertyOptional({ minimum: 1, maximum: 200 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  topK?: number;
 }

@@ -2,6 +2,7 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsObject,
@@ -68,6 +69,15 @@ export class RagQueryDto {
   @IsOptional()
   @IsIn(RETRIEVAL_STRATEGIES)
   strategy?: (typeof RETRIEVAL_STRATEGIES)[number];
+
+  @ApiPropertyOptional({
+    description:
+      'Ghi đè RERANK_ENABLED cho request này (benchmark before/after).',
+  })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  rerank?: boolean;
 }
 
 export class RagSearchDto extends RagQueryDto {}

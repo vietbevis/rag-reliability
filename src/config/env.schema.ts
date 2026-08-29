@@ -143,6 +143,13 @@ export const envSchema = z
     QUALITY_THRESHOLD: numeric({ min: 0, max: 1, default: 0.7 }),
     RETRIEVAL_TOP_K: numeric({ int: true, min: 1, max: 200, default: 20 }),
     RERANK_TOP_K: numeric({ int: true, min: 1, max: 100, default: 5 }),
+    // ---- Reranking (PHASE 7) --------------------------------------------
+    // Bật/tắt bước rerank. Tắt → đi thẳng retrieval(topK=RERANK_TOP_K) → context.
+    RERANK_ENABLED: boolish(false),
+    // none = identity (baseline) | fake = heuristic token-overlap (CI) | llm = listwise LLM
+    RERANK_PROVIDER: z.enum(['none', 'fake', 'llm']).default('none'),
+    // Số ứng viên lấy từ retrieval để đưa vào reranker (rerank topN → topK).
+    RERANK_CANDIDATES: numeric({ int: true, min: 1, max: 200, default: 20 }),
     MAX_CONTEXT_TOKENS: numeric({
       int: true,
       min: 256,

@@ -15,10 +15,15 @@ import { FakeLlmProvider } from './llm/providers/fake-llm.provider';
 import { GeminiLlmProvider } from './llm/providers/gemini-llm.provider';
 import { OpenAiLlmProvider } from './llm/providers/openai-llm.provider';
 import { TokenCounterService } from './tokenizer/token-counter.service';
+import { NoopRerankerProvider } from './reranking/providers/noop-reranker.provider';
+import { FakeRerankerProvider } from './reranking/providers/fake-reranker.provider';
+import { LlmRerankerProvider } from './reranking/providers/llm-reranker.provider';
+import { RerankerFactoryService } from './reranking/reranker-factory.service';
+import { RerankerService } from './reranking/reranker.service';
 
 /**
- * Tầng AI đa provider (PROMPT §4). Mọi lời gọi LLM/embedding trong service đều
- * đi qua {@link LlmService} / {@link EmbeddingService}; các provider cụ thể
+ * Tầng AI đa provider (PROMPT §4). Mọi lời gọi LLM/embedding/reranking trong service đều
+ * đi qua {@link LlmService} / {@link EmbeddingService} / {@link RerankerService}; các provider cụ thể
  * được wire ở đây và chọn qua env, không bao giờ bị tham chiếu từ business logic.
  */
 @Global()
@@ -40,6 +45,11 @@ import { TokenCounterService } from './tokenizer/token-counter.service';
     EmbeddingService,
     TokenCounterService,
     AiProbeService,
+    NoopRerankerProvider,
+    FakeRerankerProvider,
+    LlmRerankerProvider,
+    RerankerFactoryService,
+    RerankerService,
   ],
   exports: [
     LlmService,
@@ -48,6 +58,8 @@ import { TokenCounterService } from './tokenizer/token-counter.service';
     EmbeddingFactoryService,
     TokenCounterService,
     AiProbeService,
+    RerankerService,
+    RerankerFactoryService,
   ],
 })
 export class AiModule {}

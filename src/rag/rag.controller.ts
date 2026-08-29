@@ -62,6 +62,7 @@ export class RagController {
         topK: dto.topK,
         filters: dto.filters,
         strategy: dto.strategy,
+        rerank: dto.rerank,
       },
       { rethrow: true },
     );

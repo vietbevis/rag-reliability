@@ -12,7 +12,7 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PrismaService } from '../database/prisma.service';
 import { EvaluationService } from './evaluation.service';
 import { BenchmarkService } from './benchmark.service';
-import { RunEvaluationDto } from './dto/run-evaluation.dto';
+import { BenchmarkRerankDto, RunEvaluationDto } from './dto/run-evaluation.dto';
 
 @ApiTags('evaluation')
 @Controller('evaluation')
@@ -35,6 +35,21 @@ export class EvaluationController {
       label: dto.label,
       mode: dto.mode,
       isBaseline: dto.isBaseline,
+      topK: dto.topK,
+      rerank: dto.rerank,
+    });
+  }
+
+  @Post('benchmark-rerank')
+  @HttpCode(200)
+  @ApiOperation({
+    summary:
+      'Chạy dataset 2 lần (rerank off → on), trả metrics before/after + delta (PROMPT §36)',
+  })
+  benchmarkRerank(@Body() dto: BenchmarkRerankDto) {
+    return this.evaluation.benchmarkRerank({
+      datasetName: dto.datasetName,
+      mode: dto.mode,
       topK: dto.topK,
     });
   }

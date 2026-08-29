@@ -7,6 +7,9 @@ import { jest } from '@jest/globals';
 // lẫn LLM để chạy được toàn bộ pipeline (ingest → embed → RAG query) + eval.
 process.env.EMBEDDING_PROVIDER = 'fake';
 process.env.LLM_PROVIDER = 'fake';
+// Reranker: mặc định TẮT (RERANK_ENABLED không đặt); provider `fake` (tất định)
+// để test nào bật `rerank: true` / benchmark-rerank chạy được không cần LLM.
+process.env.RERANK_PROVIDER = 'fake';
 
 // Golden dataset dùng fixture nhỏ, tất định (không đụng `evaluation/datasets/` thật).
 // jest chạy từ gốc repo (rootDir = ./test nhưng cwd = gốc).

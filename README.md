@@ -16,14 +16,14 @@ NestJS 11 · TypeScript (strict) · PostgreSQL + pgvector · Prisma 7 (generator
 LangGraph.js · Multi-provider LLM (OpenAI · Gemini · Anthropic · Custom) ·
 `@firecrawl/anydoc` (parsing) · Docker Compose · Jest.
 
-## Trạng thái: PHASE 0-6 ✅
+## Trạng thái: PHASE 0-7 ✅
 
 | Có sẵn                                                                                                              | Chưa (phase sau)                                      |
 | ----------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| Config validate bằng Zod, health check (`/health` gồm pgvector + neo4j)                                             | Reranking (P7)                                       |
-| Prisma 7 + schema đầy đủ + migration + pgvector                                                                     | Grounded generation nghiêm ngặt + abstention (P8)    |
-| Tầng AI đa provider: 5 LLM + 4 embedding (gồm `fake`), đổi bằng env                                                 | Citation cấp claim / faithfulness (P9-10)            |
-| Token counting, cost estimation theo provider, retry/timeout/phân loại lỗi                                          | Evaluation framework đầy đủ / regression / obs (P11-12) |
+| Config validate bằng Zod, health check (`/health` gồm pgvector + neo4j)                                             | Grounded generation nghiêm ngặt + abstention (P8)    |
+| Prisma 7 + schema đầy đủ + migration + pgvector                                                                     | Citation cấp claim / faithfulness (P9-10)            |
+| Tầng AI đa provider: 5 LLM + 4 embedding (gồm `fake`), đổi bằng env                                                 | Evaluation framework đầy đủ / regression / obs (P11-12) |
+| Token counting, cost estimation theo provider, retry/timeout/phân loại lỗi                                          |                                                     |
 | Parser: anydoc (chính) + plaintext/html (fallback)                                                                  |                                                     |
 | **Ingestion**: normalize → clean → dedup → quality gate, có trace                                                   |                                                     |
 | **Chunking**: structure-aware (Markdown) + fixed (baseline), chunk quality, đổi bằng env                            |                                                     |
@@ -31,13 +31,14 @@ LangGraph.js · Multi-provider LLM (OpenAI · Gemini · Anthropic · Custom) ·
 | **Baseline RAG (P4)**: vector retrieval → context builder (token budget) → context validation → grounded generation (structured output + `schema.parse` server-side) → citation map thô → `RagQuery` trace |          |
 | **Graph RAG — construction (P5)**: Neo4j entity/relation graph, extraction LLM + gleaning, cache hash, cleanup doc |                                                     |
 | **Retrieval nâng cao (P6)**: keyword (PG full-text) · graph traversal (3-tier entity linking, degree-cap, circuit-breaker) · hybrid + fusion (RRF/weighted) · `strategy` per-request |          |
-| **API RAG**: `POST /rag/search` · `POST /rag/query` — nhận `strategy: vector\|keyword\|graph\|hybrid`             |                                                     |
+| **Reranking (P7)**: provider noop/fake/LLM-listwise, fallback identity (§54), `RERANK_ENABLED` + `rerank` per-request, `POST /evaluation/benchmark-rerank` (before/after) |          |
+| **API RAG**: `POST /rag/search` · `POST /rag/query` — nhận `strategy` + `rerank`                                    |                                                     |
 | **Evaluation harness (P4)**: golden dataset + retrieval metrics (Recall@K/MRR/NDCG…) + generation metrics (abstention/correctness) + baseline `EvaluationRun` |          |
 | **API tài liệu**: upload → ingest → chunk → embed (tới `COMPLETED`) + `GET /documents/:id/{chunks,embeddings,jobs}` |                                                     |
 | `GET /ai/providers`, `POST /ai/providers/test`                                                                      |                                                     |
 | **API graph (P5)**: `POST/GET /documents/:id/graph` · `DELETE /documents/:id` (dọn Neo4j) · `POST /graph/reconcile` |                                                     |
 | Docker Compose (app + postgres + neo4j), Dockerfile multi-stage                                                     |                                                     |
-| 269 unit test + 43 e2e/integration test (8 graph e2e chỉ chạy khi bật Neo4j)                                        |                                                     |
+| 302 unit test + 45 e2e/integration test (8 graph e2e chỉ chạy khi bật Neo4j)                                        |                                                     |
 
 Chi tiết: [`docs/architecture/rag-architecture.md`](docs/architecture/rag-architecture.md),
 [`docs/architecture/graph-rag.md`](docs/architecture/graph-rag.md),
@@ -47,6 +48,7 @@ Chi tiết: [`docs/architecture/rag-architecture.md`](docs/architecture/rag-arch
 [`docs/rag/chunking.md`](docs/rag/chunking.md),
 [`docs/rag/embedding.md`](docs/rag/embedding.md),
 [`docs/rag/retrieval.md`](docs/rag/retrieval.md),
+[`docs/rag/reranking.md`](docs/rag/reranking.md),
 [`docs/rag/grounding.md`](docs/rag/grounding.md),
 [`docs/evaluation/metrics.md`](docs/evaluation/metrics.md),
 [`docs/evaluation/experiments.md`](docs/evaluation/experiments.md).

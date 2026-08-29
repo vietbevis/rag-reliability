@@ -130,6 +130,28 @@ Trong thời gian bảo lưu, sinh viên không được hưởng các chế đ�
     expect(rq?.retrievalLogs[0]?.strategy).toBe('hybrid');
   });
 
+  it('POST /rag/query rerank=true — trace.rerank có method fake, chunk sau rerank', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/rag/query')
+      .send({
+        query: '[e2e] Đơn xin bảo lưu nộp cho ai, trước bao lâu?',
+        rerank: true,
+        filters: { documentIds: [created[0]] },
+      });
+    expect(res.status).toBe(200);
+    expect(res.body.trace.rerank).toMatchObject({
+      enabled: true,
+      method: 'fake',
+      fellBack: false,
+    });
+    expect(res.body.retrieval.chunkCount).toBeGreaterThan(0);
+    // score = rerankScore ∈ [0,1]
+    for (const c of res.body.retrieval.chunks) {
+      expect(c.score).toBeGreaterThanOrEqual(0);
+      expect(c.score).toBeLessThanOrEqual(1);
+    }
+  });
+
   it('POST /rag/query — luồng đầy đủ, persist RagQuery + RetrievalLog', async () => {
     const res = await request(app.getHttpServer())
       .post('/rag/query')

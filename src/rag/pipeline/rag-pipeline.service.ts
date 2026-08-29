@@ -11,6 +11,9 @@ import {
   Prisma,
   RagStatus as RagStatusEnum,
 } from '../../generated/prisma/client';
+import { ConfigService } from '@nestjs/config';
+import type { AppConfig } from '../../config/configuration';
+import { RerankerService } from '../../ai/reranking/reranker.service';
 import { RetrievalService } from '../retrieval/retrieval.service';
 import { ContextBuilderService } from '../context/context-builder.service';
 import { ContextValidatorService } from '../context/context-validator.service';
@@ -21,6 +24,8 @@ export interface RagQueryRequest {
   topK?: number;
   filters?: RetrievalFilters;
   strategy?: 'vector' | 'keyword' | 'graph' | 'hybrid';
+  /** Ghi đè `RERANK_ENABLED` cho request này (benchmark before/after). */
+  rerank?: boolean;
 }
 
 export interface RagQueryOptions {
@@ -85,14 +90,19 @@ const ABSTAIN_ANSWER =
 @Injectable()
 export class RagPipelineService {
   private readonly logger = new Logger(RagPipelineService.name);
+  private readonly rerankCfg: AppConfig['rerank'];
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly retrieval: RetrievalService,
+    private readonly reranker: RerankerService,
     private readonly contextBuilder: ContextBuilderService,
     private readonly contextValidator: ContextValidatorService,
     private readonly generation: AnswerGenerationService,
-  ) {}
+    config: ConfigService<AppConfig, true>,
+  ) {
+    this.rerankCfg = config.get('rerank', { infer: true });
+  }
 
   async query(
     req: RagQueryRequest,
@@ -112,9 +122,14 @@ export class RagPipelineService {
     const trace: Record<string, unknown> = {};
 
     try {
+      const rerankOn = req.rerank ?? this.rerankCfg.enabled;
+      const finalTopK = req.topK ?? this.rerankCfg.topK;
+      // Rerank bật → kéo nhiều ứng viên rồi mới thu về finalTopK.
+      const retrieveTopK = rerankOn ? this.rerankCfg.candidates : finalTopK;
+
       const retrieval = await this.retrieval.retrieve({
         query: req.query,
-        topK: req.topK,
+        topK: retrieveTopK,
         filters: req.filters,
         strategy: req.strategy,
         ragQueryId: ragQuery.id,
@@ -132,7 +147,34 @@ export class RagPipelineService {
         );
       }
 
-      const context = this.contextBuilder.build(retrieval.chunks);
+      // --- Rerank (PHASE 7) ------------------------------------------
+      // Reranker KHÔNG bao giờ ném; lỗi → fallback identity (§54). Sau rerank,
+      // `score` = `rerankScore` (điểm liên quan sau cùng) để ContextBuilder sắp
+      // theo đúng thứ tự reranker và ContextValidator so ngưỡng cho đúng.
+      let workingChunks: RetrievedChunk[] = retrieval.chunks;
+      if (rerankOn && retrieval.chunks.length > 0) {
+        const rr = await this.reranker.rerank(
+          req.query,
+          retrieval.chunks,
+          finalTopK,
+        );
+        workingChunks = rr.chunks.map((c) => ({ ...c, score: c.rerankScore }));
+        usage.inputTokens += rr.usage.inputTokens;
+        usage.outputTokens += rr.usage.outputTokens;
+        usage.estimatedCost += rr.usage.estimatedCost;
+        trace.rerank = {
+          enabled: true,
+          method: rr.method,
+          fellBack: rr.fellBack,
+          in: retrieval.chunks.length,
+          out: rr.chunks.length,
+          latencyMs: rr.latencyMs,
+        };
+      } else {
+        trace.rerank = { enabled: rerankOn };
+      }
+
+      const context = this.contextBuilder.build(workingChunks);
       trace.context = {
         chunks: context.chunks.length,
         totalTokens: context.totalTokens,
@@ -190,9 +232,10 @@ export class RagPipelineService {
         faithfulness: null,
         retrieval: {
           strategy: retrieval.strategy,
-          chunkCount: retrieval.chunks.length,
+          chunkCount: workingChunks.length,
           topScore: validation.topScore,
-          chunks: retrieval.chunks.map((c) => ({
+          // Chunk THỰC SỰ vào context (sau rerank nếu có).
+          chunks: workingChunks.map((c) => ({
             chunkId: c.chunkId,
             documentId: c.documentId,
             score: c.score,

@@ -7,6 +7,7 @@ import { ContextBuilderService } from '../context/context-builder.service';
 import { ContextValidatorService } from '../context/context-validator.service';
 import { AnswerGenerationService } from '../grounding/answer-generation.service';
 import { RetrievalService } from '../retrieval/retrieval.service';
+import { RerankerService } from '../../ai/reranking/reranker.service';
 import { RagPipelineService } from './rag-pipeline.service';
 
 function chunk(id: string, score: number): RetrievedChunk {
@@ -32,6 +33,7 @@ function build(
     genThrows?: unknown;
     minChunks?: number;
     retrievalError?: string;
+    rerank?: boolean;
   } = {},
 ) {
   const ragQueryCreate = jest
@@ -62,12 +64,27 @@ function build(
       minChunks: opts.minChunks ?? 1,
       minRelevance: 0,
     },
+    rerank: { enabled: opts.rerank ?? false },
   });
   const contextBuilder = new ContextBuilderService(
     new TokenCounterService(),
     config,
   );
   const contextValidator = new ContextValidatorService(config);
+
+  const rerankMock = jest.fn(
+    (_q: string, chunks: RetrievedChunk[], k: number) =>
+      Promise.resolve({
+        chunks: chunks
+          .slice(0, k)
+          .map((c, i) => ({ ...c, rerankScore: 1 - i * 0.1, rank: i })),
+        usage: { inputTokens: 3, outputTokens: 2, estimatedCost: 0 },
+        latencyMs: 1,
+        method: 'fake',
+        fellBack: false,
+      }),
+  );
+  const reranker = { rerank: rerankMock } as unknown as RerankerService;
 
   const generation = {
     generate: opts.genThrows
@@ -92,10 +109,13 @@ function build(
     svc: new RagPipelineService(
       prisma,
       retrieval,
+      reranker,
       contextBuilder,
       contextValidator,
       generation,
+      config,
     ),
+    rerankMock,
     ragQueryUpdate,
     generate: generation.generate as jest.Mock,
   };
@@ -192,5 +212,29 @@ describe('RagPipelineService (PHASE 4 baseline)', () => {
     const r = await svc.query({ query: 'q' });
     expect(r.citations).toHaveLength(1);
     expect(r.citations[0]!.chunkId).toBe('a');
+  });
+
+  it('RERANK_ENABLED=false -> KHÔNG gọi reranker', async () => {
+    const { svc, rerankMock } = build();
+    await svc.query({ query: 'q' });
+    expect(rerankMock).not.toHaveBeenCalled();
+  });
+
+  it('rerank=true (override) -> gọi reranker, chunk vào context là chunk sau rerank', async () => {
+    const { svc, rerankMock } = build({
+      retrievedChunks: [chunk('a', 0.3), chunk('b', 0.9), chunk('c', 0.5)],
+    });
+    const r = await svc.query({ query: 'q', rerank: true });
+    expect(rerankMock).toHaveBeenCalledWith('q', expect.any(Array), 5);
+    // mock rerank trả chunk theo thứ tự input, rerankScore giảm dần → 'a' top
+    expect(r.retrieval.chunks[0]!.chunkId).toBe('a');
+    expect(r.retrieval.chunks[0]!.score).toBe(1); // = rerankScore
+    expect((r.trace.rerank as { method: string }).method).toBe('fake');
+  });
+
+  it('RERANK_ENABLED=true qua config -> tự bật', async () => {
+    const { svc, rerankMock } = build({ rerank: true });
+    await svc.query({ query: 'q' });
+    expect(rerankMock).toHaveBeenCalled();
   });
 });

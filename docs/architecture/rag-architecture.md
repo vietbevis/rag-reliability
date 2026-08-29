@@ -33,7 +33,7 @@ Faithfulness tăng A→B, latency +C ms, cost +D%".
 | 4     | Baseline RAG: vector retrieval → context → validate → generate + evaluation harness + golden dataset + baseline metrics | ✅ Hoàn thành |
 | 5     | **Graph RAG — construction**: entity + relationship extraction (LLM + gleaning) → Neo4j; cache theo hash; ingestion stage `GRAPH`; cleanup/reconcile idempotent; API | ✅ Hoàn thành |
 | 6     | Retrieval nâng cao: metadata filter · keyword (PG full-text) · **graph traversal (local, 3-tier entity linking, degree-cap, circuit-breaker)** · hybrid · fusion (RRF/weighted) · `strategy` per-request | ✅ Hoàn thành |
-| 7     | Reranking + benchmark before/after                                                                          | ⏳            |
+| 7     | Reranking: noop/fake/LLM-listwise provider + fallback identity (§54) + `POST /evaluation/benchmark-rerank` (before/after) | ✅ Hoàn thành |
 | 8     | Grounded generation + abstention                                                                            | ⏳            |
 | 9     | Citation: claim → evidence → chunk/**entity/relationship** → document                                       | ⏳            |
 | 10    | Faithfulness: claim extraction, evidence matching, contradiction                                            | ⏳            |
@@ -61,7 +61,7 @@ src/
 ├── ai/
 │   ├── llm/         # LLMProvider interface + 5 provider (openai|gemini|anthropic|custom|fake)
 │   ├── embeddings/  # EmbeddingProvider interface + 4 provider (openai|gemini|custom|fake)
-│   ├── reranking/   # RerankerProvider interface (hiện thực ở PHASE 6)
+│   ├── reranking/   # (P7) RerankerProvider (noop|fake|llm-listwise) · factory · RerankerService (fallback identity §54)
 │   └── tokenizer/   # đếm token (js-tiktoken)
 ├── documents/parsers/  # anydoc (chính) + plaintext/html (fallback)
 ├── common/         # errors, types (pipeline contracts §53), utils, constants
@@ -103,10 +103,10 @@ flowchart TD
 
 ## 5. Pipeline truy vấn RAG (`POST /rag/query`)
 
-Đã hiện thực (P4 vector · P6 keyword/graph/hybrid/fusion): retrieval theo
-`strategy` → (hybrid) fusion → context builder → context validation → grounded
-generation → citation map thô → response.
-Đường xám (P7-10): reranker, claim extraction, evidence matching, contradiction,
+Đã hiện thực (P4 vector · P6 keyword/graph/hybrid/fusion · P7 rerank): retrieval
+theo `strategy` → (hybrid) fusion → (RERANK_ENABLED) rerank → context builder →
+context validation → grounded generation → citation map thô → response.
+Đường xám (P8-10): claim extraction, evidence matching, contradiction,
 faithfulness check. Query analyzer: hoãn (client chọn `strategy` trực tiếp).
 
 ```mermaid
@@ -119,7 +119,7 @@ flowchart TD
   VEC --> FUS["FUSION (P6): RRF | weighted (chỉ khi >1 nguồn)"]
   KW --> FUS
   GR --> FUS
-  FUS --> RR["(P7) Reranker: top 20 -> top 5 (co fallback)"]
+  FUS --> RR["RERANK (P7): RERANK_CANDIDATES -> RERANK_TOP_K (noop|fake|llm; fallback identity §54)"]
   RR --> CB["CONTEXT BUILDER (P4): dedup, sort, token budget"]
   CB --> CV{"CONTEXT VALIDATION (P4): du evidence?"}
   CV -->|khong| ABS["INSUFFICIENT_EVIDENCE (khong goi LLM) — P4"]
@@ -136,7 +136,7 @@ flowchart TD
 > `strategy` mặc định = `RETRIEVAL_STRATEGY` (env), ghi đè bằng field `strategy`
 > trong body `POST /rag/query|search`. `hybrid` chạy 3 nguồn SONG SONG; nguồn nào
 > lỗi hạ tầng thì fusion vẫn tiếp với nguồn còn lại, chỉ báo `error` toàn cục khi
-> MỌI nguồn fail (PROMPT §54). Reranker/claim/faithfulness vẫn ở P7-10 (`claims:
+> MỌI nguồn fail (PROMPT §54). Claim/faithfulness vẫn ở P8-10 (`claims:
 > []`, `faithfulness: null`). Xem `docs/rag/retrieval.md`.
 
 ## 6. Failure handling (PROMPT §54)
@@ -151,7 +151,7 @@ flowchart TD
 | Keyword retriever | `websearch_to_tsquery` rỗng → `trace.reason`, 0 kết quả (không lỗi); lỗi DB → `trace.error`                                                                     |
 | Graph retriever   | graph tắt / seed rỗng → `trace.reason`, 0 kết quả; Neo4j chết → `trace.error` + circuit-breaker (3 lỗi liên tiếp → bỏ qua 30s); không bao giờ ném (hợp đồng `Retriever`) |
 | Fusion            | chỉ 1 nguồn có kết quả → pass-through (không đổi score/source); mọi nguồn rỗng → `chunks: []`                                                                    |
-| Reranker (P7)     | fallback ranking (giữ thứ tự fusion)                                                                                                                           |
+| Reranker (P7)     | provider ném / trả rỗng / schema.parse rỗng → `RerankerService` fallback **identity** (giữ thứ tự fusion), `trace.rerank.fellBack = true`, query vẫn chạy |
 | LLM               | phân loại lỗi (`RATE_LIMIT`, `OVERLOADED`, `SAFETY_BLOCK`…), retry lỗi tạm thời, (tương lai) fallback provider                                                 |
 | Faithfulness fail | regenerate hoặc abstain                                                                                                                                        |
 

@@ -56,6 +56,12 @@ export interface AppConfig {
     minChunks: number;
     temperature: number;
   };
+  rerank: {
+    enabled: boolean;
+    provider: 'none' | 'fake' | 'llm';
+    candidates: number;
+    topK: number;
+  };
   reliability: {
     faithfulnessThreshold: number;
     hallucinationThreshold: number;
@@ -175,6 +181,12 @@ export function loadConfiguration(): AppConfig {
       minRelevance: env.RAG_MIN_RELEVANCE,
       minChunks: env.RAG_MIN_CHUNKS,
       temperature: env.RAG_TEMPERATURE,
+    },
+    rerank: {
+      enabled: env.RERANK_ENABLED,
+      provider: env.RERANK_PROVIDER,
+      candidates: env.RERANK_CANDIDATES,
+      topK: env.RERANK_TOP_K,
     },
     reliability: {
       faithfulnessThreshold: env.FAITHFULNESS_THRESHOLD,

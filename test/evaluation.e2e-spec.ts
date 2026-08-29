@@ -102,4 +102,28 @@ describe('Evaluation harness (e2e) — PHASE 4', () => {
       .send({ datasetName: 'khong-co-that' });
     expect(res.status).toBeGreaterThanOrEqual(400);
   });
+
+  it('POST /evaluation/benchmark-rerank — chạy 2 run (off/on), trả deltas', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/evaluation/benchmark-rerank')
+      .send({ datasetName: 'e2e-mini' });
+    expect(res.status).toBe(200);
+    expect(res.body.before.runId).toBeDefined();
+    expect(res.body.after.runId).toBeDefined();
+    expect(res.body.before.runId).not.toBe(res.body.after.runId);
+    expect(Array.isArray(res.body.deltas)).toBe(true);
+    const recall = res.body.deltas.find(
+      (d: { metric: string }) => d.metric === 'recallAt5',
+    );
+    expect(recall).toBeDefined();
+
+    const beforeRun = await prisma.evaluationRun.findUnique({
+      where: { id: res.body.before.runId },
+    });
+    expect((beforeRun?.config as { rerank?: boolean }).rerank).toBe(false);
+    const afterRun = await prisma.evaluationRun.findUnique({
+      where: { id: res.body.after.runId },
+    });
+    expect((afterRun?.config as { rerank?: boolean }).rerank).toBe(true);
+  }, 90_000);
 });
