@@ -1,0 +1,1255 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RAG Reliability — Test Console</title>
+    <style>
+      :root {
+        --bg: #f6f7f9;
+        --panel: #fff;
+        --ink: #1c2430;
+        --muted: #66727f;
+        --border: #e3e7ec;
+        --accent: #2f6feb;
+        --accent-ink: #fff;
+        --ok: #1a7f45;
+        --warn: #b9770e;
+        --err: #c23b3b;
+        --code-bg: #0f1720;
+        --code-ink: #d7e0ea;
+        --chip: #eef1f5;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0f141a;
+          --panel: #171d25;
+          --ink: #e6ebf1;
+          --muted: #9aa7b4;
+          --border: #2a323d;
+          --accent: #4b8bff;
+          --chip: #232b35;
+          --code-bg: #0b0f14;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font:
+          14px/1.5 -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          Roboto,
+          sans-serif;
+      }
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        background: var(--panel);
+        border-bottom: 1px solid var(--border);
+        padding: 10px 16px;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      header h1 {
+        font-size: 15px;
+        margin: 0;
+        font-weight: 700;
+      }
+      header .sub {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .wrap {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 16px;
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 14px;
+      }
+      @media (min-width: 960px) {
+        .wrap {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        overflow: hidden;
+      }
+      .card > summary {
+        cursor: pointer;
+        padding: 12px 14px;
+        font-weight: 700;
+        list-style: none;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .card > summary::-webkit-details-marker {
+        display: none;
+      }
+      .card > summary::after {
+        content: '▸';
+        color: var(--muted);
+      }
+      .card[open] > summary::after {
+        content: '▾';
+      }
+      .card .body {
+        padding: 0 14px 14px;
+        display: grid;
+        gap: 14px;
+      }
+      .op {
+        border-top: 1px solid var(--border);
+        padding-top: 12px;
+      }
+      .op:first-child {
+        border-top: 0;
+        padding-top: 0;
+      }
+      .op h3 {
+        margin: 0 0 4px;
+        font-size: 13px;
+      }
+      .op .path {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .method {
+        display: inline-block;
+        font-size: 11px;
+        font-weight: 700;
+        padding: 1px 6px;
+        border-radius: 5px;
+        background: var(--chip);
+        margin-right: 6px;
+      }
+      .m-GET {
+        color: var(--ok);
+      }
+      .m-POST {
+        color: var(--accent);
+      }
+      .m-DELETE {
+        color: var(--err);
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        align-items: center;
+        margin-top: 8px;
+      }
+      label {
+        font-size: 12px;
+        color: var(--muted);
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+      }
+      input[type='text'],
+      input[type='number'],
+      textarea,
+      select {
+        background: var(--bg);
+        color: var(--ink);
+        border: 1px solid var(--border);
+        border-radius: 7px;
+        padding: 6px 8px;
+        font: inherit;
+        min-width: 120px;
+      }
+      textarea {
+        width: 100%;
+        min-height: 70px;
+        font-family: ui-monospace, Menlo, monospace;
+        font-size: 12px;
+      }
+      input[type='checkbox'] {
+        transform: translateY(1px);
+      }
+      .grow {
+        flex: 1;
+        min-width: 200px;
+      }
+      button {
+        background: var(--accent);
+        color: var(--accent-ink);
+        border: 0;
+        border-radius: 7px;
+        padding: 7px 12px;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button.ghost {
+        background: var(--chip);
+        color: var(--ink);
+      }
+      button:active {
+        transform: translateY(1px);
+      }
+      .out {
+        margin-top: 8px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        overflow: hidden;
+        display: none;
+      }
+      .out.show {
+        display: block;
+      }
+      .out .meta {
+        padding: 5px 9px;
+        font-size: 12px;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        background: var(--chip);
+      }
+      .badge {
+        font-weight: 700;
+        padding: 0 6px;
+        border-radius: 5px;
+      }
+      .b-ok {
+        color: var(--ok);
+      }
+      .b-err {
+        color: var(--err);
+      }
+      .b-warn {
+        color: var(--warn);
+      }
+      pre {
+        margin: 0;
+        padding: 10px;
+        background: var(--code-bg);
+        color: var(--code-ink);
+        overflow: auto;
+        font-family: ui-monospace, Menlo, monospace;
+        font-size: 12px;
+        max-height: 460px;
+      }
+      .hint {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .pill {
+        background: var(--chip);
+        border-radius: 999px;
+        padding: 2px 9px;
+        font-size: 12px;
+      }
+      .statusbadge {
+        font-weight: 700;
+      }
+      a {
+        color: var(--accent);
+      }
+      .lastdoc {
+        font-size: 12px;
+      }
+      .lastdoc code {
+        background: var(--chip);
+        padding: 1px 5px;
+        border-radius: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>RAG Reliability — Test Console</h1>
+      <span class="sub" id="pingState">…</span>
+      <label
+        style="
+          flex-direction: row;
+          align-items: center;
+          gap: 6px;
+          margin-left: auto;
+        "
+      >
+        <span>Base URL</span>
+        <input type="text" id="baseUrl" style="min-width: 240px" />
+      </label>
+      <a href="/docs" target="_blank" class="pill">Swagger ↗</a>
+      <span class="lastdoc">doc gần nhất: <code id="lastDoc">—</code></span>
+    </header>
+
+    <div class="wrap" id="app"></div>
+
+    <script>
+      const $ = (s, r = document) => r.querySelector(s);
+      const el = (tag, attrs = {}, ...kids) => {
+        const n = document.createElement(tag);
+        for (const [k, v] of Object.entries(attrs)) {
+          if (k === 'class') n.className = v;
+          else if (k === 'html') n.innerHTML = v;
+          else if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
+          else n.setAttribute(k, v);
+        }
+        for (const kid of kids)
+          n.append(kid?.nodeType ? kid : document.createTextNode(kid ?? ''));
+        return n;
+      };
+
+      const store = {
+        get base() {
+          return localStorage.getItem('ragcon.base') || location.origin;
+        },
+        set base(v) {
+          localStorage.setItem('ragcon.base', v);
+        },
+        get lastDoc() {
+          return localStorage.getItem('ragcon.lastDoc') || '';
+        },
+        set lastDoc(v) {
+          localStorage.setItem('ragcon.lastDoc', v);
+          $('#lastDoc').textContent = v || '—';
+        },
+        get lastRun() {
+          return localStorage.getItem('ragcon.lastRun') || '';
+        },
+        set lastRun(v) {
+          localStorage.setItem('ragcon.lastRun', v);
+        },
+        get lastQuery() {
+          return localStorage.getItem('ragcon.lastQuery') || '';
+        },
+        set lastQuery(v) {
+          localStorage.setItem('ragcon.lastQuery', v);
+        },
+      };
+
+      $('#baseUrl').value = store.base;
+      $('#baseUrl').addEventListener('change', (e) => {
+        store.base = e.target.value.trim().replace(/\/$/, '');
+        ping();
+      });
+      $('#lastDoc').textContent = store.lastDoc || '—';
+
+      async function api(method, path, { body, form } = {}) {
+        const t0 = performance.now();
+        const opts = { method, headers: {} };
+        if (form) opts.body = form;
+        else if (body !== undefined) {
+          opts.headers['Content-Type'] = 'application/json';
+          opts.body = JSON.stringify(body);
+        }
+        let res, data, text;
+        try {
+          res = await fetch(store.base + path, opts);
+          text = await res.text();
+          try {
+            data = JSON.parse(text);
+          } catch {
+            data = text;
+          }
+        } catch (e) {
+          return {
+            ok: false,
+            status: 0,
+            ms: Math.round(performance.now() - t0),
+            data: String(e),
+            netErr: true,
+          };
+        }
+        return {
+          ok: res.ok,
+          status: res.status,
+          ms: Math.round(performance.now() - t0),
+          data,
+        };
+      }
+
+      async function ping() {
+        const s = $('#pingState');
+        s.textContent = 'đang kiểm tra…';
+        const r = await api('GET', '/health/live');
+        s.innerHTML = r.ok
+          ? '<span class="badge b-ok">● online</span> ' + store.base
+          : '<span class="badge b-err">● offline</span> ' +
+            store.base +
+            ' — app chưa chạy?';
+      }
+
+      function renderResult(container, r) {
+        const box =
+          $('.out', container) ||
+          container.appendChild(el('div', { class: 'out' }));
+        box.classList.add('show');
+        box.innerHTML = '';
+        const cls = r.netErr
+          ? 'b-err'
+          : r.status < 300
+            ? 'b-ok'
+            : r.status < 500
+              ? 'b-warn'
+              : 'b-err';
+        box.append(
+          el(
+            'div',
+            { class: 'meta' },
+            el('span', { class: 'badge ' + cls }, String(r.status || 'ERR')),
+            el('span', {}, r.ms + ' ms'),
+            r.data && r.data.status
+              ? el('span', { class: 'pill statusbadge' }, r.data.status)
+              : '',
+          ),
+        );
+        const pretty =
+          typeof r.data === 'string' ? r.data : JSON.stringify(r.data, null, 2);
+        box.append(el('pre', {}, pretty));
+        return r;
+      }
+
+      /* ---------- section builder ---------- */
+      function section(title, ops) {
+        const card = el('details', { class: 'card' });
+        card.append(el('summary', {}, title));
+        const body = el('div', { class: 'body' });
+        card.append(body);
+        for (const op of ops) body.append(buildOp(op));
+        return card;
+      }
+
+      function buildOp(op) {
+        const wrap = el('div', { class: 'op' });
+        wrap.append(el('h3', {}, op.title));
+        wrap.append(
+          el(
+            'div',
+            { class: 'path' },
+            el('span', { class: 'method m-' + op.method }, op.method),
+            op.pathLabel || op.path,
+          ),
+        );
+        if (op.hint) wrap.append(el('div', { class: 'hint' }, op.hint));
+
+        const fields = {};
+        const rows = el('div', {});
+        for (const f of op.fields || []) {
+          const row = el('div', { class: 'row' });
+          if (f.type === 'checkbox') {
+            const cb = el('input', { type: 'checkbox' });
+            if (f.default) cb.checked = true;
+            fields[f.name] = cb;
+            row.append(
+              el(
+                'label',
+                { style: 'flex-direction:row;align-items:center;gap:6px' },
+                cb,
+                f.label || f.name,
+              ),
+            );
+          } else if (f.type === 'textarea') {
+            const ta = el('textarea', { placeholder: f.placeholder || '' });
+            if (f.default) ta.value = f.default;
+            fields[f.name] = ta;
+            const l = el('label', { class: 'grow' }, f.label || f.name);
+            l.append(ta);
+            row.append(l);
+          } else if (f.type === 'select') {
+            const sel = el('select', {});
+            for (const o of f.options)
+              sel.append(el('option', { value: o }, o));
+            if (f.default) sel.value = f.default;
+            fields[f.name] = sel;
+            const l = el('label', {}, f.label || f.name);
+            l.append(sel);
+            row.append(l);
+          } else if (f.type === 'file') {
+            const fi = el('input', { type: 'file' });
+            fields[f.name] = fi;
+            const l = el('label', {}, f.label || f.name);
+            l.append(fi);
+            row.append(l);
+          } else {
+            const inp = el('input', {
+              type: f.type === 'number' ? 'number' : 'text',
+              placeholder: f.placeholder || '',
+            });
+            if (f.default != null) inp.value = f.default;
+            if (f.grow) inp.className = 'grow';
+            fields[f.name] = inp;
+            const l = el(
+              f.grow ? 'label' : 'label',
+              { class: f.grow ? 'grow' : '' },
+              f.label || f.name,
+            );
+            l.append(inp);
+            row.append(l);
+            if (f.fillLast) {
+              row.append(
+                el(
+                  'button',
+                  {
+                    class: 'ghost',
+                    type: 'button',
+                    onclick: () => {
+                      inp.value =
+                        f.fillLast === 'doc'
+                          ? store.lastDoc
+                          : f.fillLast === 'run'
+                            ? store.lastRun
+                            : store.lastQuery;
+                    },
+                  },
+                  '⤺ gần nhất',
+                ),
+              );
+            }
+          }
+          rows.append(row);
+        }
+        wrap.append(rows);
+
+        const btnRow = el('div', { class: 'row' });
+        const btn = el('button', { type: 'button' }, op.button || 'Gửi');
+        btn.addEventListener('click', async () => {
+          btn.disabled = true;
+          btn.textContent = '…';
+          try {
+            const ctx = {};
+            for (const [k, node] of Object.entries(fields)) {
+              ctx[k] =
+                node.type === 'checkbox'
+                  ? node.checked
+                  : node.type === 'file'
+                    ? node.files[0] || null
+                    : node.value.trim();
+            }
+            const req = op.build(ctx);
+            const r = await api(req.method || op.method, req.path, {
+              body: req.body,
+              form: req.form,
+            });
+            renderResult(wrap, r);
+            if (op.after) op.after(r, ctx);
+          } finally {
+            btn.disabled = false;
+            btn.textContent = op.button || 'Gửi';
+          }
+        });
+        btnRow.append(btn);
+        wrap.append(btnRow);
+        wrap.append(el('div', { class: 'out' }));
+        return wrap;
+      }
+
+      /* ---------- helper: chỉ giữ field có giá trị (ValidationPipe forbidNonWhitelisted) ---------- */
+      const clean = (obj) => {
+        const o = {};
+        for (const [k, v] of Object.entries(obj)) {
+          if (v === '' || v === undefined || v === null) continue;
+          o[k] = v;
+        }
+        return o;
+      };
+      const num = (v) => (v === '' ? undefined : Number(v));
+      const strategies = ['vector', 'keyword', 'graph', 'hybrid'];
+      const datasets = [
+        'answerable',
+        'multi-hop',
+        'conflicting',
+        'adversarial',
+        'unanswerable',
+      ];
+      const experiments = [
+        'exp-001',
+        'exp-002',
+        'exp-003',
+        'exp-004',
+        'exp-005',
+        'exp-007',
+      ];
+
+      /* ==================== SECTIONS ==================== */
+      const app = $('#app');
+
+      app.append(
+        section('① Hệ thống & Provider', [
+          {
+            title: 'Health check đầy đủ',
+            method: 'GET',
+            path: '/health',
+            build: () => ({ path: '/health' }),
+          },
+          {
+            title: 'Liveness',
+            method: 'GET',
+            path: '/health/live',
+            build: () => ({ path: '/health/live' }),
+          },
+          {
+            title: 'Danh sách provider AI (LLM + embedding + reranker)',
+            method: 'GET',
+            path: '/ai/providers',
+            build: () => ({ path: '/ai/providers' }),
+          },
+          {
+            title: 'Test kết nối một provider',
+            method: 'POST',
+            path: '/ai/providers/test',
+            fields: [
+              {
+                name: 'provider',
+                type: 'select',
+                options: ['custom', 'openai', 'gemini', 'anthropic', 'fake'],
+                default: 'custom',
+              },
+            ],
+            build: (c) => ({
+              path: '/ai/providers/test',
+              body: { provider: c.provider },
+            }),
+          },
+        ]),
+      );
+
+      app.append(
+        section('② Tài liệu — ingest & pipeline', [
+          {
+            title: 'Ingest văn bản trực tiếp (markdown)',
+            method: 'POST',
+            path: '/documents',
+            hint: 'Tự chạy PARSE→CLEAN→DEDUP→QUALITY→CHUNK→EMBED. Lưu id vào "doc gần nhất".',
+            fields: [
+              {
+                name: 'title',
+                type: 'text',
+                default: 'Quy chế thử nghiệm',
+                grow: true,
+              },
+              { name: 'source', type: 'text', default: 'console-test' },
+              {
+                name: 'text',
+                type: 'textarea',
+                default:
+                  '# Quy chế thử nghiệm\n\n## Điều 1. Thời gian bảo lưu\n\nSinh viên được phép bảo lưu kết quả học tập tối đa hai học kỳ liên tiếp trong toàn khoá học.\n\n## Điều 2. Thủ tục\n\nĐơn xin bảo lưu nộp cho phòng đào tạo trước ngày bắt đầu học kỳ ít nhất mười lăm ngày làm việc.',
+              },
+            ],
+            build: (c) => ({
+              path: '/documents',
+              body: { title: c.title, source: c.source, text: c.text },
+            }),
+            after: (r) => {
+              if (r.data && r.data.document && r.data.document.id)
+                store.lastDoc = r.data.document.id;
+            },
+          },
+
+          {
+            title: 'Upload file (pdf / docx / xlsx / pptx / csv / html / md)',
+            method: 'POST',
+            path: '/documents',
+            fields: [
+              { name: 'file', type: 'file' },
+              {
+                name: 'title',
+                type: 'text',
+                default: '',
+                placeholder: '(tuỳ chọn)',
+              },
+              { name: 'source', type: 'text', default: 'console-upload' },
+            ],
+            build: (c) => {
+              const fd = new FormData();
+              if (c.file) fd.append('file', c.file);
+              if (c.title) fd.append('title', c.title);
+              if (c.source) fd.append('source', c.source);
+              return { path: '/documents', form: fd };
+            },
+            after: (r) => {
+              if (r.data && r.data.document && r.data.document.id)
+                store.lastDoc = r.data.document.id;
+            },
+          },
+
+          {
+            title: 'Liệt kê tài liệu',
+            method: 'GET',
+            path: '/documents',
+            fields: [
+              {
+                name: 'status',
+                type: 'select',
+                options: [
+                  '',
+                  'COMPLETED',
+                  'CHUNKING',
+                  'EMBEDDING',
+                  'REJECTED',
+                  'FAILED',
+                ],
+                default: '',
+              },
+              { name: 'take', type: 'number', default: '20' },
+            ],
+            build: (c) => ({
+              path:
+                '/documents?' +
+                new URLSearchParams(clean({ status: c.status, take: c.take })),
+            }),
+          },
+
+          {
+            title: 'Chi tiết tài liệu (text đã clean, quality report)',
+            method: 'GET',
+            path: '/documents/:id',
+            fields: [{ name: 'id', type: 'text', grow: true, fillLast: 'doc' }],
+            build: (c) => ({ path: '/documents/' + encodeURIComponent(c.id) }),
+          },
+
+          {
+            title: 'Chunks của tài liệu',
+            method: 'GET',
+            path: '/documents/:id/chunks',
+            fields: [{ name: 'id', type: 'text', grow: true, fillLast: 'doc' }],
+            build: (c) => ({
+              path: '/documents/' + encodeURIComponent(c.id) + '/chunks',
+            }),
+          },
+
+          {
+            title: 'Tóm tắt embedding',
+            method: 'GET',
+            path: '/documents/:id/embeddings',
+            fields: [{ name: 'id', type: 'text', grow: true, fillLast: 'doc' }],
+            build: (c) => ({
+              path: '/documents/' + encodeURIComponent(c.id) + '/embeddings',
+            }),
+          },
+
+          {
+            title: 'Các stage ingestion + thời gian',
+            method: 'GET',
+            path: '/documents/:id/jobs',
+            fields: [{ name: 'id', type: 'text', grow: true, fillLast: 'doc' }],
+            build: (c) => ({
+              path: '/documents/' + encodeURIComponent(c.id) + '/jobs',
+            }),
+          },
+
+          {
+            title: 'Chạy lại toàn bộ pipeline',
+            method: 'POST',
+            path: '/documents/:id/ingest',
+            button: 'Re-ingest',
+            fields: [{ name: 'id', type: 'text', grow: true, fillLast: 'doc' }],
+            build: (c) => ({
+              path: '/documents/' + encodeURIComponent(c.id) + '/ingest',
+            }),
+          },
+
+          {
+            title: 'Chạy lại chunking (chọn strategy)',
+            method: 'POST',
+            path: '/documents/:id/chunk',
+            button: 'Re-chunk',
+            fields: [
+              { name: 'id', type: 'text', grow: true, fillLast: 'doc' },
+              {
+                name: 'strategy',
+                type: 'select',
+                options: ['structure', 'fixed', 'semantic'],
+                default: 'structure',
+              },
+            ],
+            build: (c) => ({
+              path: '/documents/' + encodeURIComponent(c.id) + '/chunk',
+              body: { strategy: c.strategy },
+            }),
+          },
+
+          {
+            title: 'Sinh lại embedding',
+            method: 'POST',
+            path: '/documents/:id/embed',
+            button: 'Re-embed',
+            fields: [{ name: 'id', type: 'text', grow: true, fillLast: 'doc' }],
+            build: (c) => ({
+              path: '/documents/' + encodeURIComponent(c.id) + '/embed',
+              body: {},
+            }),
+          },
+
+          {
+            title: 'Graph RAG — dựng entity/quan hệ → Neo4j',
+            method: 'POST',
+            path: '/documents/:id/graph',
+            button: 'Build graph',
+            hint: 'Cần GRAPH_RAG_ENABLED=true và Neo4j.',
+            fields: [{ name: 'id', type: 'text', grow: true, fillLast: 'doc' }],
+            build: (c) => ({
+              path: '/documents/' + encodeURIComponent(c.id) + '/graph',
+              body: {},
+            }),
+          },
+
+          {
+            title: 'Graph — tóm tắt entity/quan hệ của tài liệu',
+            method: 'GET',
+            path: '/documents/:id/graph',
+            fields: [{ name: 'id', type: 'text', grow: true, fillLast: 'doc' }],
+            build: (c) => ({
+              path: '/documents/' + encodeURIComponent(c.id) + '/graph',
+            }),
+          },
+
+          {
+            title: 'Xoá tài liệu (dọn Neo4j + cascade Postgres)',
+            method: 'DELETE',
+            path: '/documents/:id',
+            button: 'Xoá',
+            fields: [{ name: 'id', type: 'text', grow: true, fillLast: 'doc' }],
+            build: (c) => ({ path: '/documents/' + encodeURIComponent(c.id) }),
+          },
+        ]),
+      );
+
+      app.append(
+        section('③ Truy hồi (không gọi LLM)', [
+          {
+            title: 'POST /rag/search — debug retrieval',
+            method: 'POST',
+            path: '/rag/search',
+            hint: 'Kiểm tra "có kéo đúng chunk không". strategy: vector | keyword | graph | hybrid.',
+            fields: [
+              {
+                name: 'query',
+                type: 'textarea',
+                default:
+                  'Sinh viên được bảo lưu kết quả học tập tối đa mấy học kỳ?',
+              },
+              { name: 'topK', type: 'number', default: '5' },
+              {
+                name: 'strategy',
+                type: 'select',
+                options: strategies,
+                default: 'vector',
+              },
+              {
+                name: 'sources',
+                type: 'text',
+                placeholder: 'lọc theo source, phẩy (tuỳ chọn)',
+              },
+            ],
+            build: (c) => ({
+              path: '/rag/search',
+              body: clean({
+                query: c.query,
+                topK: num(c.topK),
+                strategy: c.strategy,
+                filters: c.sources
+                  ? {
+                      sources: c.sources
+                        .split(',')
+                        .map((s) => s.trim())
+                        .filter(Boolean),
+                    }
+                  : undefined,
+              }),
+            }),
+          },
+        ]),
+      );
+
+      app.append(
+        section('④ RAG Query — pipeline đầy đủ', [
+          {
+            title: 'POST /rag/query',
+            method: 'POST',
+            path: '/rag/query',
+            hint: 'retrieve → context → validate → generate → claim → evidence → faithfulness → citation.',
+            fields: [
+              {
+                name: 'query',
+                type: 'textarea',
+                default:
+                  'Sinh viên được bảo lưu kết quả học tập tối đa mấy học kỳ?',
+              },
+              { name: 'topK', type: 'number', default: '5' },
+              {
+                name: 'strategy',
+                type: 'select',
+                options: strategies,
+                default: 'vector',
+              },
+              { name: 'rerank', type: 'checkbox', label: 'rerank' },
+              { name: 'strict', type: 'checkbox', label: 'strict grounding' },
+              {
+                name: 'cite',
+                type: 'checkbox',
+                label: 'citation',
+                default: true,
+              },
+              {
+                name: 'faithfulness',
+                type: 'checkbox',
+                label: 'faithfulness verifier',
+                default: true,
+              },
+            ],
+            build: (c) => ({
+              path: '/rag/query',
+              body: clean({
+                query: c.query,
+                topK: num(c.topK),
+                strategy: c.strategy,
+                rerank: c.rerank || undefined,
+                strict: c.strict || undefined,
+                cite: c.cite || undefined,
+                faithfulness: c.faithfulness || undefined,
+              }),
+            }),
+            after: (r) => {
+              if (r.data && r.data.id) store.lastQuery = r.data.id;
+            },
+          },
+        ]),
+      );
+
+      app.append(
+        section('⑤ Lịch sử truy vấn (audit)', [
+          {
+            title: 'Liệt kê RagQuery',
+            method: 'GET',
+            path: '/rag/queries',
+            fields: [
+              {
+                name: 'status',
+                type: 'select',
+                options: [
+                  '',
+                  'GROUNDED',
+                  'PARTIALLY_GROUNDED',
+                  'INSUFFICIENT_EVIDENCE',
+                  'CONFLICTING_EVIDENCE',
+                ],
+                default: '',
+              },
+              { name: 'take', type: 'number', default: '20' },
+            ],
+            build: (c) => ({
+              path:
+                '/rag/queries?' +
+                new URLSearchParams(clean({ status: c.status, take: c.take })),
+            }),
+          },
+          {
+            title: 'Chi tiết một truy vấn (+ citations)',
+            method: 'GET',
+            path: '/rag/queries/:id',
+            fields: [
+              { name: 'id', type: 'text', grow: true, fillLast: 'query' },
+            ],
+            build: (c) => ({
+              path: '/rag/queries/' + encodeURIComponent(c.id),
+            }),
+          },
+          {
+            title: 'Trace timeline từng chặng',
+            method: 'GET',
+            path: '/rag/queries/:id/trace',
+            fields: [
+              { name: 'id', type: 'text', grow: true, fillLast: 'query' },
+            ],
+            build: (c) => ({
+              path: '/rag/queries/' + encodeURIComponent(c.id) + '/trace',
+            }),
+          },
+        ]),
+      );
+
+      app.append(
+        section('⑥ Đánh giá — golden dataset (111 case)', [
+          {
+            title: 'Chạy đánh giá một dataset',
+            method: 'POST',
+            path: '/evaluation/run',
+            button: 'Run eval',
+            hint: 'mode=retrieval nhanh (không LLM). mode=full gọi LLM cho từng case — có thể lâu.',
+            fields: [
+              {
+                name: 'datasetName',
+                type: 'select',
+                options: datasets,
+                default: 'answerable',
+              },
+              {
+                name: 'mode',
+                type: 'select',
+                options: ['retrieval', 'full'],
+                default: 'retrieval',
+              },
+              { name: 'topK', type: 'number', default: '5' },
+              {
+                name: 'isBaseline',
+                type: 'checkbox',
+                label: 'chốt làm baseline',
+              },
+              { name: 'strict', type: 'checkbox', label: 'strict' },
+              { name: 'cite', type: 'checkbox', label: 'cite' },
+              { name: 'faithfulness', type: 'checkbox', label: 'faithfulness' },
+              { name: 'rerank', type: 'checkbox', label: 'rerank' },
+            ],
+            build: (c) => ({
+              path: '/evaluation/run',
+              body: clean({
+                datasetName: c.datasetName,
+                mode: c.mode,
+                topK: num(c.topK),
+                isBaseline: c.isBaseline || undefined,
+                strict: c.strict || undefined,
+                cite: c.cite || undefined,
+                faithfulness: c.faithfulness || undefined,
+                rerank: c.rerank || undefined,
+              }),
+            }),
+            after: (r) => {
+              if (r.data && r.data.runId) store.lastRun = r.data.runId;
+            },
+          },
+
+          {
+            title: 'Liệt kê các run',
+            method: 'GET',
+            path: '/evaluation/runs',
+            fields: [
+              {
+                name: 'datasetName',
+                type: 'select',
+                options: ['', ...datasets],
+                default: '',
+              },
+            ],
+            build: (c) => ({
+              path:
+                '/evaluation/runs' +
+                (c.datasetName ? '?datasetName=' + c.datasetName : ''),
+            }),
+          },
+
+          {
+            title: 'Chi tiết một run (metrics + từng case)',
+            method: 'GET',
+            path: '/evaluation/runs/:id',
+            fields: [{ name: 'id', type: 'text', grow: true, fillLast: 'run' }],
+            build: (c) => ({
+              path: '/evaluation/runs/' + encodeURIComponent(c.id),
+            }),
+          },
+
+          {
+            title: 'So run với baseline (regression gate)',
+            method: 'POST',
+            path: '/evaluation/runs/:id/compare',
+            fields: [{ name: 'id', type: 'text', grow: true, fillLast: 'run' }],
+            build: (c) => ({
+              path: '/evaluation/runs/' + encodeURIComponent(c.id) + '/compare',
+              body: {},
+            }),
+          },
+
+          {
+            title: 'Chốt run làm baseline',
+            method: 'POST',
+            path: '/evaluation/runs/:id/set-baseline',
+            fields: [{ name: 'id', type: 'text', grow: true, fillLast: 'run' }],
+            build: (c) => ({
+              path:
+                '/evaluation/runs/' +
+                encodeURIComponent(c.id) +
+                '/set-baseline',
+              body: {},
+            }),
+          },
+        ]),
+      );
+
+      app.append(
+        section('⑦ Experiment & benchmark before/after', [
+          {
+            title: 'Danh sách experiment chuẩn',
+            method: 'GET',
+            path: '/evaluation/experiments',
+            build: () => ({ path: '/evaluation/experiments' }),
+          },
+          {
+            title: 'Chạy một experiment (before/after + delta)',
+            method: 'POST',
+            path: '/evaluation/experiments/run',
+            button: 'Run',
+            fields: [
+              {
+                name: 'experimentId',
+                type: 'select',
+                options: experiments,
+                default: 'exp-003',
+              },
+              {
+                name: 'datasetName',
+                type: 'select',
+                options: ['', ...datasets],
+                default: '',
+              },
+            ],
+            build: (c) => ({
+              path: '/evaluation/experiments/run',
+              body: clean({
+                experimentId: c.experimentId,
+                datasetName: c.datasetName,
+              }),
+            }),
+          },
+
+          {
+            title: 'Benchmark rerank (off vs on)',
+            method: 'POST',
+            path: '/evaluation/benchmark-rerank',
+            button: 'Run',
+            fields: [
+              {
+                name: 'datasetName',
+                type: 'select',
+                options: datasets,
+                default: 'answerable',
+              },
+            ],
+            build: (c) => ({
+              path: '/evaluation/benchmark-rerank',
+              body: { datasetName: c.datasetName },
+            }),
+          },
+          {
+            title: 'Benchmark grounding (basic vs strict)',
+            method: 'POST',
+            path: '/evaluation/benchmark-grounding',
+            button: 'Run',
+            fields: [
+              {
+                name: 'datasetName',
+                type: 'select',
+                options: datasets,
+                default: 'answerable',
+              },
+            ],
+            build: (c) => ({
+              path: '/evaluation/benchmark-grounding',
+              body: { datasetName: c.datasetName },
+            }),
+          },
+          {
+            title: 'Benchmark citation (off vs on)',
+            method: 'POST',
+            path: '/evaluation/benchmark-citation',
+            button: 'Run',
+            fields: [
+              {
+                name: 'datasetName',
+                type: 'select',
+                options: datasets,
+                default: 'answerable',
+              },
+            ],
+            build: (c) => ({
+              path: '/evaluation/benchmark-citation',
+              body: { datasetName: c.datasetName },
+            }),
+          },
+          {
+            title: 'Benchmark faithfulness verifier (off vs on)',
+            method: 'POST',
+            path: '/evaluation/benchmark-faithfulness',
+            button: 'Run',
+            fields: [
+              {
+                name: 'datasetName',
+                type: 'select',
+                options: datasets,
+                default: 'answerable',
+              },
+            ],
+            build: (c) => ({
+              path: '/evaluation/benchmark-faithfulness',
+              body: { datasetName: c.datasetName },
+            }),
+          },
+          {
+            title: 'Benchmark 4 chiến lược retrieval',
+            method: 'POST',
+            path: '/evaluation/benchmark-strategies',
+            button: 'Run',
+            fields: [
+              {
+                name: 'datasetName',
+                type: 'select',
+                options: datasets,
+                default: 'answerable',
+              },
+              {
+                name: 'mode',
+                type: 'select',
+                options: ['retrieval', 'full'],
+                default: 'retrieval',
+              },
+            ],
+            build: (c) => ({
+              path: '/evaluation/benchmark-strategies',
+              body: clean({ datasetName: c.datasetName, mode: c.mode }),
+            }),
+          },
+          {
+            title: 'Benchmark provider hiện tại (quality/cost/latency)',
+            method: 'POST',
+            path: '/evaluation/benchmark-providers',
+            button: 'Run',
+            fields: [
+              {
+                name: 'datasetName',
+                type: 'select',
+                options: datasets,
+                default: 'answerable',
+              },
+            ],
+            build: (c) => ({
+              path: '/evaluation/benchmark-providers',
+              body: { datasetName: c.datasetName },
+            }),
+          },
+        ]),
+      );
+
+      app.append(
+        section('⑧ Graph — bảo trì', [
+          {
+            title: 'Reconcile — dọn node/quan hệ mồ côi trong Neo4j',
+            method: 'POST',
+            path: '/graph/reconcile',
+            button: 'Reconcile',
+            build: () => ({ path: '/graph/reconcile', body: {} }),
+          },
+        ]),
+      );
+
+      /* mở sẵn 4 section đầu */
+      [...document.querySelectorAll('.card')]
+        .slice(0, 4)
+        .forEach((c) => (c.open = true));
+      ping();
+    </script>
+  </body>
+</html>

@@ -93,6 +93,7 @@ npm run start:dev
 ```
 
 - API: <http://localhost:3000>
+- **Test console** (form UI cho mọi endpoint): <http://localhost:3000/console>
 - Swagger: <http://localhost:3000/docs>
 - Health: <http://localhost:3000/health> · Liveness: `/health/live`
 
@@ -238,6 +239,11 @@ Giới hạn upload: **25 MB**/file. Định dạng không hỗ trợ → `400 U
 ---
 
 ## Truy vấn RAG
+
+> Cách nhanh nhất để thử tất cả: mở **<http://localhost:3000/console>** — một
+> trang form gọi thẳng mọi endpoint (health, ingest text/file, retrieval, RAG
+> query, lịch sử, đánh giá, benchmark, graph). Cùng origin nên không vướng CORS;
+> `GET /console` được `@SkipThrottle()`.
 
 ```bash
 # Chỉ retrieval — kiểm tra "có kéo đúng chunk không", KHÔNG tốn LLM

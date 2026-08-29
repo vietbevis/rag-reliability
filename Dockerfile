@@ -25,6 +25,9 @@ COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/prisma ./prisma
 COPY --from=build --chown=node:node /app/prisma.config.ts ./prisma.config.ts
+# Tài nguyên đọc lúc chạy (relative process.cwd()): trang test console + golden dataset.
+COPY --from=build --chown=node:node /app/public ./public
+COPY --from=build --chown=node:node /app/evaluation ./evaluation
 COPY --chown=node:node package.json ./
 USER node
 EXPOSE 3000

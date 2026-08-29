@@ -9,6 +9,7 @@ import { EvaluationModule } from './evaluation/evaluation.module';
 import { GraphModule } from './graph/graph.module';
 import { HealthModule } from './health/health.module';
 import { RateLimitModule } from './common/rate-limit/rate-limit.module';
+import { ConsoleModule } from './console/console.module';
 import { RagModule } from './rag/rag.module';
 
 /**
@@ -32,6 +33,7 @@ import { RagModule } from './rag/rag.module';
     DocumentsModule,
     EvaluationModule,
     HealthModule,
+    ConsoleModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: AllExceptionsFilter }],
 })
