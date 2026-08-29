@@ -9,44 +9,41 @@ export type LlmAnswerStatus =
   | 'INSUFFICIENT_EVIDENCE'
   | 'CONFLICTING_EVIDENCE';
 
-const ABSTENTION_PATTERNS: readonly string[] = [
+/**
+ * STRONG: cụm rõ ràng là "không trả lời được" — match dù answer dài (LLM chèn
+ * một câu từ chối vào giữa câu trả lời cũng đủ để nghi ngờ).
+ */
+const STRONG_ABSTENTION: readonly string[] = [
+  'không tìm thấy thông tin',
+  'không đủ thông tin để trả lời',
+  'không đủ căn cứ để trả lời',
+  'không đủ bằng chứng để trả lời',
+  'không thể trả lời câu hỏi',
+  'tôi không biết',
+  'insufficient_evidence',
+  'insufficient evidence',
+];
+
+/**
+ * WEAK: có thể là câu trả lời hợp lệ ("quy chế không đề cập thời hạn" là câu
+ * trả lời ĐÚNG). Chỉ coi là abstention khi answer NGẮN (≤ ~25 từ) — câu trả lời
+ * thực sự thường dài hơn và có thêm nội dung.
+ */
+const WEAK_ABSTENTION: readonly string[] = [
   'không tìm thấy',
   'không có thông tin',
   'không đủ thông tin',
   'không đủ căn cứ',
-  'không đủ cơ sở',
-  'không đủ tài liệu',
-  'không đủ bằng chứng',
-  'không thể trả lời',
-  'tôi không biết',
   'chưa có thông tin',
-  'chưa có dữ liệu',
   'chưa đủ thông tin',
-  'chưa đủ căn cứ',
-  'chưa đủ cơ sở',
   'ngữ cảnh không đề cập',
-  'ngữ cảnh không có',
   'ngữ cảnh không cung cấp',
   'tài liệu không đề cập',
-  'tài liệu không có',
   'tài liệu không cung cấp',
-  'tài liệu không nhắc',
-  'không được đề cập',
-  'không được nhắc đến',
-  'không được nhắc tới',
-  'không được nêu',
-  'không được cung cấp',
-  'không nêu rõ',
-  'không rõ',
-  'không xác định được',
-  'không thể xác định',
-  'không có dữ liệu',
-  'không có tài liệu',
-  'không có cơ sở',
-  'không có căn cứ',
-  'insufficient_evidence',
-  'insufficient evidence',
+  'không tìm thấy thông tin đủ tin cậy',
 ];
+
+const WEAK_ABSTENTION_MAX_WORDS = 25;
 
 const VIETNAMESE_STOPWORDS: ReadonlySet<string> = new Set([
   'là',
@@ -63,6 +60,8 @@ const VIETNAMESE_STOPWORDS: ReadonlySet<string> = new Set([
   'mà',
   'này',
   'đó',
+  'đây',
+  'đấy',
   'với',
   'để',
   'có',
@@ -89,10 +88,33 @@ const VIETNAMESE_STOPWORDS: ReadonlySet<string> = new Set([
   'sẽ',
   'cũng',
   'rất',
+  'nhưng',
+  'tuy',
+  'dù',
+  'mỗi',
+  'từng',
+  'quá',
+  'lắm',
+  'tôi',
+  'bạn',
+  'chỉ',
+  'còn',
 ]);
 
+function wordCount(text: string): number {
+  const matches = text.match(/[\p{L}\p{N}]+/gu);
+  return matches ? matches.length : 0;
+}
+
 /**
- * Kiểm tra xem câu trả lời có khớp các mẫu từ chối trả lời (abstention) hay không.
+ * Kiểm tra xem câu trả lời có phải là từ chối trả lời (abstention) hay không.
+ *
+ * FINDING 1 (agy P8): `includes()` với chuỗi con quá chung ("không nêu rõ",
+ * "không rõ"...) làm hỏng câu trả lời hợp lệ ("Quy chế không đề cập thời hạn"
+ * LÀ câu trả lời đúng). Nay chia 2 tầng:
+ *  - STRONG: cụm rõ nghĩa từ chối → match ở mọi độ dài.
+ *  - WEAK: có thể là câu trả lời hợp lệ → chỉ match khi answer ngắn
+ *    (≤ WEAK_ABSTENTION_MAX_WORDS từ), tức không có thêm nội dung thực chất.
  */
 export function looksLikeAbstention(answer: string): boolean {
   if (!answer) {
@@ -102,7 +124,16 @@ export function looksLikeAbstention(answer: string): boolean {
   if (normalized.length === 0) {
     return true;
   }
-  return ABSTENTION_PATTERNS.some((pattern) => normalized.includes(pattern));
+  if (STRONG_ABSTENTION.some((pattern) => normalized.includes(pattern))) {
+    return true;
+  }
+  if (
+    wordCount(normalized) <= WEAK_ABSTENTION_MAX_WORDS &&
+    WEAK_ABSTENTION.some((pattern) => normalized.includes(pattern))
+  ) {
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -158,7 +189,14 @@ export interface GroundingResolveInput {
   lexicalRatio: number;
   minRatio: number; // ngưỡng RAG_MIN_GROUNDING_RATIO
   strict: boolean; // RAG_STRICT_GROUNDING
+  answerTokenCount: number; // số token nội dung của answer (contentTokens(answer).size)
 }
+
+/**
+ * FINDING 3 (agy P8): câu trả lời quá ngắn ("Hai học kỳ.") có a.size nhỏ nên
+ * lexicalGroundingRatio nhiễu mạnh — bỏ qua rule (e) khi answer dưới ngưỡng này.
+ */
+const MIN_TOKENS_FOR_LEXICAL_CHECK = 5;
 
 export interface GroundingResolveResult {
   status: LlmAnswerStatus;
@@ -221,8 +259,10 @@ export function resolveGroundingStatus(
   }
 
   // e. [strict] llmStatus ∈ {GROUNDED, PARTIALLY_GROUNDED} và lexicalRatio < minRatio
+  //    (chỉ khi answer đủ dài — answer ngắn cho ratio nhiễu, xem FINDING 3)
   if (
     input.strict &&
+    input.answerTokenCount >= MIN_TOKENS_FOR_LEXICAL_CHECK &&
     (input.llmStatus === 'GROUNDED' ||
       input.llmStatus === 'PARTIALLY_GROUNDED') &&
     input.lexicalRatio < input.minRatio

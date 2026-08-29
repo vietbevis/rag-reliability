@@ -8,31 +8,33 @@ import {
 
 describe('grounding-checks', () => {
   describe('looksLikeAbstention', () => {
-    it('nhận diện đúng các mẫu abstention tiếng Việt và tiếng Anh', () => {
-      const abstentionExamples = [
-        'Tôi không tìm thấy thông tin trong tài liệu.',
-        'Hiện tại không có thông tin về vấn đề này.',
+    it('nhận diện các cụm STRONG dù answer dài', () => {
+      const strongExamples = [
+        'Theo phân tích chi tiết toàn bộ ngữ cảnh được cung cấp ở trên, ' +
+          'tôi không tìm thấy thông tin nào liên quan trực tiếp đến câu hỏi.',
         'Tài liệu không đủ thông tin để trả lời.',
-        'Không đủ căn cứ xác định.',
-        'Không đủ cơ sở để kết luận.',
-        'Tôi không thể trả lời câu hỏi này.',
+        'Tôi không thể trả lời câu hỏi này dựa trên tài liệu hiện có.',
         'Tôi không biết.',
-        'Chưa có thông tin cập nhật.',
-        'Chưa có dữ liệu về kỳ thi.',
-        'Chưa đủ thông tin để phản hồi.',
-        'Ngữ cảnh không đề cập đến học phí.',
-        'Ngữ cảnh không có thông tin này.',
-        'Tài liệu không đề cập đến thời gian thi.',
-        'Nội dung này không được đề cập trong văn bản.',
-        'Không được nhắc đến trong tài liệu.',
-        'Văn bản không nêu rõ mức phạt.',
-        'Hiện tại không rõ lý do.',
-        'Không xác định được điều kiện tốt nghiệp.',
         'insufficient_evidence',
         'insufficient evidence',
       ];
 
-      for (const example of abstentionExamples) {
+      for (const example of strongExamples) {
+        expect(looksLikeAbstention(example)).toBe(true);
+      }
+    });
+
+    it('nhận diện các cụm WEAK khi answer NGẮN', () => {
+      const weakShort = [
+        'Hiện tại không có thông tin về vấn đề này.',
+        'Không đủ căn cứ xác định.',
+        'Chưa có thông tin cập nhật.',
+        'Chưa đủ thông tin để phản hồi.',
+        'Ngữ cảnh không đề cập đến học phí.',
+        'Tài liệu không đề cập đến thời gian thi.',
+      ];
+
+      for (const example of weakShort) {
         expect(looksLikeAbstention(example)).toBe(true);
       }
     });
@@ -52,6 +54,22 @@ describe('grounding-checks', () => {
       ];
 
       for (const answer of normalAnswers) {
+        expect(looksLikeAbstention(answer)).toBe(false);
+      }
+    });
+
+    it('FINDING 1: KHÔNG phạt oan câu trả lời hợp lệ chứa cụm WEAK nhưng DÀI', () => {
+      // Kịch bản agy P8: câu trả lời đúng, có nội dung thực chất
+      const validButLong = [
+        'Quy chế chung không đề cập thời hạn cụ thể của việc bảo lưu kết quả ' +
+          'học tập, mà giao cho từng khoa tự quy định trong quy định nội bộ ' +
+          'của đơn vị mình, dựa trên đặc thù chương trình đào tạo.',
+        'Văn bản không nêu rõ mức phạt cụ thể đối với hành vi này; thẩm quyền ' +
+          'xử lý được giao cho hội đồng kỷ luật cấp khoa xem xét theo từng ' +
+          'trường hợp và mức độ vi phạm thực tế của sinh viên.',
+      ];
+
+      for (const answer of validButLong) {
         expect(looksLikeAbstention(answer)).toBe(false);
       }
     });
@@ -119,12 +137,13 @@ describe('grounding-checks', () => {
   describe('resolveGroundingStatus', () => {
     const baseInput: GroundingResolveInput = {
       llmStatus: 'GROUNDED',
-      answer: 'Sinh viên được bảo lưu 2 học kỳ.',
+      answer: 'Sinh viên được phép bảo lưu kết quả học tập tối đa hai học kỳ.',
       usedContextCount: 2,
       groundedSelfReport: true,
       lexicalRatio: 0.9,
       minRatio: 0.5,
       strict: false,
+      answerTokenCount: 8,
     };
 
     describe('nhánh a: looksLikeAbstention', () => {
@@ -286,6 +305,24 @@ describe('grounding-checks', () => {
           lexicalRatio: 0.2,
           minRatio: 0.5,
           strict: false,
+        };
+        const res = resolveGroundingStatus(input);
+        expect(res).toEqual({
+          status: 'GROUNDED',
+          downgraded: false,
+          regenerate: false,
+        });
+      });
+
+      it('FINDING 3: bỏ qua kiểm tra lexical khi answer quá ngắn (< 5 token)', () => {
+        const input: GroundingResolveInput = {
+          ...baseInput,
+          llmStatus: 'GROUNDED',
+          answer: 'Hai học kỳ.',
+          answerTokenCount: 3,
+          lexicalRatio: 0.2,
+          minRatio: 0.5,
+          strict: true,
         };
         const res = resolveGroundingStatus(input);
         expect(res).toEqual({

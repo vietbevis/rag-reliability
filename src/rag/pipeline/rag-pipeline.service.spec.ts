@@ -27,8 +27,13 @@ function build(
     retrievedChunks?: RetrievedChunk[];
     genResult?: {
       answer: string;
-      status: 'GROUNDED' | 'PARTIALLY_GROUNDED' | 'INSUFFICIENT_EVIDENCE';
+      status:
+        | 'GROUNDED'
+        | 'PARTIALLY_GROUNDED'
+        | 'INSUFFICIENT_EVIDENCE'
+        | 'CONFLICTING_EVIDENCE';
       citedIndexes: number[];
+      conflictNote?: string;
     };
     genThrows?: unknown;
     minChunks?: number;
@@ -93,6 +98,10 @@ function build(
           answer: opts.genResult?.answer ?? 'Câu trả lời.',
           status: opts.genResult?.status ?? 'GROUNDED',
           citedIndexes: opts.genResult?.citedIndexes ?? [1],
+          conflictNote: opts.genResult?.conflictNote,
+          groundingRatio: 0.9,
+          downgraded: false,
+          regenerated: false,
           provider: 'fake',
           model: 'fake-llm-v1',
           usage: {
@@ -246,6 +255,58 @@ describe('RagPipelineService (PHASE 4 baseline)', () => {
     // config.mock rerank.candidates mặc định 20 → phải kéo max(20, 40) = 40
     expect(retrieve).toHaveBeenCalledWith(
       expect.objectContaining({ topK: 40 }),
+    );
+  });
+
+  it('FINDING 6: req.strict được chuyển xuống contextValidator + generation', async () => {
+    const { svc, generate } = build();
+    const validate = jest.spyOn(
+      (svc as unknown as { contextValidator: ContextValidatorService })
+        .contextValidator,
+      'validate',
+    );
+    await svc.query({ query: 'q', strict: true });
+    expect(validate).toHaveBeenCalledWith(expect.anything(), true);
+    expect(generate).toHaveBeenCalledWith('q', expect.anything(), {
+      strict: true,
+    });
+  });
+
+  it('FINDING 6: CONFLICTING_EVIDENCE → giữ nguyên answer + citations, conflictNote vào trace', async () => {
+    const { svc } = build({
+      genResult: {
+        answer: 'Điều 1 nói A, Điều 5 nói không A — mâu thuẫn.',
+        status: 'CONFLICTING_EVIDENCE',
+        citedIndexes: [1, 2],
+        conflictNote: 'Điều 1 vs Điều 5',
+      },
+      retrievedChunks: [chunk('a', 0.8), chunk('b', 0.6)],
+    });
+    const r = await svc.query({ query: 'q', strict: true });
+    expect(r.status).toBe('CONFLICTING_EVIDENCE');
+    expect(r.answer).toBe('Điều 1 nói A, Điều 5 nói không A — mâu thuẫn.');
+    expect(r.citations).toHaveLength(2);
+    expect((r.trace.generation as { conflictNote: string }).conflictNote).toBe(
+      'Điều 1 vs Điều 5',
+    );
+  });
+
+  it('FINDING 6: generation hạ về INSUFFICIENT_EVIDENCE → answer thành ABSTAIN, citations rỗng', async () => {
+    const { svc, ragQueryUpdate } = build({
+      genResult: {
+        answer: 'Câu trả lời gốc của LLM trước khi bị hạ bậc.',
+        status: 'INSUFFICIENT_EVIDENCE',
+        citedIndexes: [1],
+      },
+    });
+    const r = await svc.query({ query: 'q', strict: true });
+    expect(r.status).toBe('INSUFFICIENT_EVIDENCE');
+    expect(r.answer).toMatch(/Không tìm thấy/);
+    expect(r.citations).toEqual([]);
+    expect(ragQueryUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'INSUFFICIENT_EVIDENCE' }),
+      }),
     );
   });
 });

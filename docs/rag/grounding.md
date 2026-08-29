@@ -62,6 +62,20 @@ Output `GroundingContext { chunks, totalTokens, sources: [{documentId, chunkIds}
 §35). `RAG_STRICT_GROUNDING=true` (hoặc `strict: true` per-request) siết ngưỡng
 relevance + bật hậu kiểm ở AnswerGeneration.
 
+> **⚠️ `RAG_ABSTAIN_MIN_RELEVANCE` phụ thuộc thang điểm của bước cuối cùng
+> trước validator.**
+> `topScore` là `score` của chunk đầu — thang điểm KHÁC nhau theo pipeline:
+>
+> | Pipeline | Thang `topScore` | Chunk vô quan nằm quanh | Giá trị `ABSTAIN_MIN` hợp lý |
+> | --- | --- | --- | --- |
+> | vector-only (cosine) | `1 − distance/2` → trực giao ≈ **0.5** | 0.4 – 0.55 | **0.6 – 0.7** |
+> | vector-only (l2/ip) | xem `retrieval.md` | — | hiệu chỉnh theo corpus |
+> | có rerank (fake/llm) | `rerankScore` bắt đầu từ **0.0** | ~0.0 – 0.2 | **0.1 – 0.2** (mặc định 0.15) |
+>
+> Mặc định `0.15` được chọn cho pipeline **có rerank**. Vận hành **vector-only +
+> strict** thì phải nâng `RAG_ABSTAIN_MIN_RELEVANCE` lên ~0.65, nếu không ngưỡng
+> gần như không bao giờ chặn (mọi chunk cosine đều ≥ 0.4).
+
 Khi abstain: trả câu cố định
 _"Không tìm thấy thông tin đủ tin cậy trong knowledge base để trả lời câu hỏi
 này."_, status `INSUFFICIENT_EVIDENCE`, `citations: []` — **không gọi LLM**.
@@ -95,17 +109,32 @@ lọc `[1, nContext]`, bỏ trùng, sắp tăng.
 
 | Điều kiện | Kết quả | Áp dụng |
 | --- | --- | --- |
-| answer khớp mẫu abstention tiếng Việt (`looksLikeAbstention`) | → `INSUFFICIENT_EVIDENCE` | cả non-strict |
+| answer khớp mẫu abstention (`looksLikeAbstention`) | → `INSUFFICIENT_EVIDENCE` | cả non-strict |
 | status GROUNDED/PARTIALLY nhưng `usedContext` rỗng | → `INSUFFICIENT_EVIDENCE` | cả non-strict |
 | [strict] GROUNDED nhưng `groundedInContext = false` | → `PARTIALLY_GROUNDED` | strict |
-| [strict] `lexicalGroundingRatio(answer, context) < RAG_MIN_GROUNDING_RATIO` | GROUNDED→`PARTIALLY_GROUNDED` + **sinh lại 1 lần** (`RAG_REGENERATE_ON_UNGROUNDED`) | strict |
+| [strict] answer ≥ 5 token nội dung và `lexicalGroundingRatio(answer, context) < RAG_MIN_GROUNDING_RATIO` | GROUNDED→`PARTIALLY_GROUNDED` + **sinh lại 1 lần** (`RAG_REGENERATE_ON_UNGROUNDED`) | strict |
+
+`looksLikeAbstention` chia 2 tầng để tránh phạt oan câu trả lời hợp lệ (_"Quy chế
+không đề cập thời hạn"_ LÀ câu trả lời đúng):
+
+- **STRONG** (_"không tìm thấy thông tin"_, _"không thể trả lời câu hỏi"_,
+  _"tôi không biết"_, `insufficient_evidence`…) — match ở mọi độ dài.
+- **WEAK** (_"không có thông tin"_, _"ngữ cảnh không đề cập"_…) — chỉ match khi
+  answer **≤ 25 từ**, tức không kèm nội dung thực chất.
 
 `lexicalGroundingRatio` = tỉ lệ token nội dung (bỏ stopword) của answer xuất hiện
-trong context — proxy thô cho "answer dùng từ ngữ có trong ngữ cảnh".
+trong context — proxy thô cho "answer dùng từ ngữ có trong ngữ cảnh". **Bỏ qua
+khi answer < 5 token nội dung** (câu ngắn kiểu _"Hai học kỳ."_ cho ratio nhiễu
+mạnh) và **không** dùng cho paraphrase-detection (diễn đạt lại hợp lệ nhưng ít
+trùng từ vẫn có thể bị hạ xuống PARTIALLY — chấp nhận được vì chỉ hạ bậc, không
+xoá answer). Claim-level faithfulness đúng nghĩa = P10.
 
-`trace.generation` thêm `groundingRatio`, `downgraded`, `regenerated`,
-`conflictNote`. Khi status bị hạ về `INSUFFICIENT_EVIDENCE` → dùng câu abstain
-chuẩn + `citations: []`.
+`trace.generation` = **output thô của LLM TRƯỚC hậu kiểm pipeline**: `citedIndexes`
+ở đây là `usedContext` LLM khai, giữ nguyên kể cả khi status bị hạ về
+`INSUFFICIENT_EVIDENCE` (lúc đó `citations` cấp response = `[]`). Dùng để audit
+"LLM đã nói gì" vs "pipeline quyết gì". `trace.generation` thêm `groundingRatio`,
+`downgraded`, `regenerated`, `conflictNote`. Khi status bị hạ về
+`INSUFFICIENT_EVIDENCE` → answer = câu abstain chuẩn + `citations: []`.
 
 `temperature` mặc định 0 (`RAG_TEMPERATURE`) — grounded answer cần tất định.
 
@@ -140,5 +169,10 @@ Mỗi truy vấn ghi `RagQuery`:
   off → on. So abstentionAccuracy / hallucinationRateProxy / answerCorrectness /
   passRate + avgLatencyMs / totalCost. Kỳ vọng: hallucination giảm, latency+cost
   tăng nhẹ (regenerate). Bật strict chỉ khi delta đủ lớn.
+  > **Cần LLM thật.** `FakeLlmProvider` luôn trả `status = GROUNDED` +
+  > `groundedInContext = true` (trích xuất câu, không biết abstain) → chạy
+  > benchmark-grounding với `LLM_PROVIDER=fake` cho delta ≈ 0 ở mọi metric. Đó
+  > KHÔNG phải bug — chỉ là mock tất định; strict grounding chỉ có tác dụng đo
+  > được với provider thật. E2E dùng fake chỉ kiểm smoke đường đi.
 - **Experiment 005 (P10)** — no verifier vs Faithfulness verifier claim-level.
 - Baseline (§35): lưu `EvaluationRun.isBaseline = true` — mọi run sau so với nó.

@@ -63,4 +63,13 @@ describe('ContextValidatorService', () => {
     const v = make({}, { strict: true, abstainMinRelevance: 0.15 });
     expect(v.validate(ctx([0.1])).proceed).toBe(false);
   });
+
+  it('FINDING 6: strict dùng max(minRelevance, abstainMinRelevance) khi minRelevance CAO hơn', () => {
+    const v = make({ minRelevance: 0.5 }, { abstainMinRelevance: 0.15 });
+    // strict → ngưỡng = max(0.5, 0.15) = 0.5, KHÔNG phải 0.15
+    const r = v.validate(ctx([0.3]), true);
+    expect(r.proceed).toBe(false);
+    expect(r.reason).toContain('0.5');
+    expect(v.validate(ctx([0.55]), true).proceed).toBe(true);
+  });
 });

@@ -11,6 +11,7 @@ import { LlmService } from '../../ai/llm/llm.service';
 import type { ChatMessage } from '../../ai/llm/llm.interface';
 import { ContextBuilderService } from '../context/context-builder.service';
 import {
+  contentTokens,
   lexicalGroundingRatio,
   resolveGroundingStatus,
 } from './grounding-checks';
@@ -184,6 +185,7 @@ export class AnswerGenerationService {
       lexicalRatio: groundingRatio,
       minRatio: this.cfg.minGroundingRatio,
       strict,
+      answerTokenCount: contentTokens(data.answer).size,
     });
     return { ...r, groundingRatio };
   }

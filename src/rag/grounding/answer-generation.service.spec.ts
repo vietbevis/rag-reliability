@@ -168,6 +168,42 @@ describe('AnswerGenerationService', () => {
     expect(r.regenerated).toBe(true);
   });
 
+  it('strict + lần sinh lại VẪN grounding thấp → chỉ sinh lại 1 lần, lấy kết quả lần 2', async () => {
+    const { llm, calls } = llmReturning(
+      {
+        answer: 'Từ ngữ xa lạ hoàn toàn không dính dáng.',
+        status: 'GROUNDED',
+        usedContext: [1],
+        groundedInContext: true,
+        conflictNote: '',
+      },
+      {
+        answer: 'Vẫn là từ ngữ xa lạ khác biệt hoàn toàn nữa.',
+        status: 'GROUNDED',
+        usedContext: [1],
+        groundedInContext: true,
+        conflictNote: '',
+      },
+    );
+    const svc = build({
+      llm,
+      grounding: {
+        strict: true,
+        minGroundingRatio: 0.4,
+        regenerateOnUngrounded: true,
+      },
+    });
+    const r = await svc.generate(
+      'q',
+      context(['Nội dung ngữ cảnh riêng biệt.']),
+    );
+    expect(calls()).toBe(2); // KHÔNG lặp vô hạn — tối đa 1 lần sinh lại
+    expect(r.regenerated).toBe(true);
+    expect(r.answer).toBe('Vẫn là từ ngữ xa lạ khác biệt hoàn toàn nữa.');
+    expect(r.status).toBe('PARTIALLY_GROUNDED'); // vẫn bị hạ bậc
+    expect(r.usage.inputTokens).toBe(20); // cộng dồn cả 2 lần
+  });
+
   it('strict + regenerateOnUngrounded=false → KHÔNG sinh lại', async () => {
     const { llm, calls } = llmReturning({
       answer: 'Từ ngữ xa lạ hoàn toàn.',
