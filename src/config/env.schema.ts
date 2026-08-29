@@ -176,6 +176,27 @@ export const envSchema = z
     // với chỉ dẫn cứng hơn.
     RAG_REGENERATE_ON_UNGROUNDED: boolish(true),
 
+    // ---- Citation cấp claim (PHASE 9) -----------------------------------
+    // Bật/tắt tách claim + đối chiếu evidence + citation do backend quản lý.
+    // TẮT = hành vi P4 (citations map thô theo usedContext, claims rỗng).
+    RAG_CITATION_ENABLED: boolish(true),
+    // Tỉ lệ token nội dung của claim phải xuất hiện trong chunk để coi là được
+    // chunk đó hỗ trợ (claim-recall). Deterministic, không gọi LLM.
+    CITATION_MIN_OVERLAP: numeric({ min: 0, max: 1, default: 0.5 }),
+    // Số chunk evidence tối đa giữ cho mỗi claim.
+    CITATION_MAX_PER_CLAIM: numeric({ int: true, min: 1, max: 10, default: 3 }),
+    // Thử map claim quan hệ → cạnh RELATED trong Neo4j (chỉ khi GRAPH_RAG_ENABLED
+    // và Neo4j sống; no-op nếu không). graph-rag.md §5.
+    CITATION_RELATIONSHIP_ENABLED: boolish(true),
+    // Số token nội dung tối thiểu của answer để chạy tách claim (answer ngắn hơn
+    // coi như 1 claim = chính nó).
+    CITATION_MIN_ANSWER_TOKENS: numeric({
+      int: true,
+      min: 1,
+      max: 100,
+      default: 6,
+    }),
+
     // ---- Graph RAG (PHASE 5 — construction) ------------------------------
     // Công tắc tính năng. Khi bật: NEO4J_URI + NEO4J_PASSWORD bắt buộc, pipeline
     // ingest thêm bước GRAPHING (trích entity/quan hệ → Neo4j).

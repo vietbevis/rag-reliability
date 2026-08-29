@@ -35,7 +35,7 @@ Faithfulness tăng A→B, latency +C ms, cost +D%".
 | 6     | Retrieval nâng cao: metadata filter · keyword (PG full-text) · **graph traversal (local, 3-tier entity linking, degree-cap, circuit-breaker)** · hybrid · fusion (RRF/weighted) · `strategy` per-request | ✅ Hoàn thành |
 | 7     | Reranking: noop/fake/LLM-listwise provider + fallback identity (§54) + `POST /evaluation/benchmark-rerank` (before/after) | ✅ Hoàn thành |
 | 8     | Grounded generation + abstention: prompt siết + hậu kiểm answer↔context (hàm thuần) + CONFLICTING_EVIDENCE + regenerate-once + `RAG_STRICT_GROUNDING` + `POST /evaluation/benchmark-grounding` | ✅ Hoàn thành |
-| 9     | Citation: claim → evidence → chunk/**entity/relationship** → document                                       | ⏳            |
+| 9     | Citation: claim → evidence → chunk/**entity/relationship** → document                                       | ✅ Hoàn thành |
 | 10    | Faithfulness: claim extraction, evidence matching, contradiction                                            | ⏳            |
 | 11    | Evaluation framework: golden dataset, metrics, experiments                                                  | ⏳            |
 | 12    | Regression + observability                                                                                  | ⏳            |
@@ -53,7 +53,7 @@ src/
 ├── rag/embedding/   # orchestrator (chunk→pgvector) + kiểm tra vector schema
 ├── rag/retrieval/   # Retriever interface · VectorRetriever (P4) · KeywordRetriever (P6, PG full-text) · GraphRetriever + GraphEntityLinker (P6) · fusion.ts (RRF/weighted, thuần) · RetrievalService (dispatch strategy + fusion)
 ├── rag/context/     # ContextBuilder (dedup·sort·token budget) · ContextValidator (abstain gate §22, strict P8)
-├── rag/grounding/   # AnswerGeneration (structured output §50 · P8 hậu kiểm) · grounding-checks.ts (thuần); claim/faithfulness ở P9-10
+├── rag/grounding/   # AnswerGeneration (structured output §50 · P8 hậu kiểm) · grounding-checks.ts (thuần); ClaimExtractor (LLM+fallback) · EvidenceMatcher (lexical claim-recall, thuần) · CitationService (chunk+relationship, §29) — P9; faithfulness ở P10
 ├── rag/pipeline/    # (P4) RagPipelineService: retrieve→context→validate→generate→persist RagQuery
 ├── rag/graph/       # (P5) EntityExtractor (LLM+gleaning) · entity-resolution (thuần) · GraphWrite (UNWIND MERGE) · GraphCleanup (removeDoc/reconcile) · GraphExtractionCache · GraphIngestion (orchestrator) · GraphController (/graph/reconcile); graph traversal ở P6
 ├── graph/           # (P5) Neo4jService (driver pool, read/write/writeTx) · Neo4jSchemaService (constraint/index) · Neo4jHealthIndicator · graph.module (@Global)
@@ -103,11 +103,12 @@ flowchart TD
 
 ## 5. Pipeline truy vấn RAG (`POST /rag/query`)
 
-Đã hiện thực (P4 vector · P6 keyword/graph/hybrid/fusion · P7 rerank): retrieval
+Đã hiện thực (P4 vector · P6 keyword/graph/hybrid/fusion · P7 rerank · P9 citation): retrieval
 theo `strategy` → (hybrid) fusion → (RERANK_ENABLED) rerank → context builder →
-context validation → grounded generation → citation map thô → response.
-Đường xám (P9-10): claim extraction, evidence matching, contradiction,
-claim-level faithfulness. Query analyzer: hoãn (client chọn `strategy` trực tiếp).
+context validation → grounded generation → claim extraction (LLM) → evidence
+matching (lexical) → citation map (chunk + relationship) → response.
+Đường xám (P10): faithfulness verifier (NLI-level, hallucination classifier).
+Query analyzer: hoãn (client chọn `strategy` trực tiếp).
 
 ```mermaid
 flowchart TD
@@ -124,20 +125,22 @@ flowchart TD
   CB --> CV{"CONTEXT VALIDATION (P4): du evidence?"}
   CV -->|khong| ABS["INSUFFICIENT_EVIDENCE (khong goi LLM) — P4"]
   CV -->|co| GEN["GROUNDED GEN (P4 schema.parse · P8 hậu kiểm answer↔context + regenerate-once)"]
-  GEN --> CE["(P8) Claim extraction"]
-  CE --> EM["(P9) Evidence matching: claim -> chunk"]
+  GEN --> CE["(P9) Claim extraction (LLM + fallback)"]
+  CE --> EM["(P9) Evidence matching: claim -> chunk (lexical claim-recall)"]
   EM --> CD{"(P9) Contradiction?"}
   CD -->|co| CF["(P9) CONFLICTING_EVIDENCE: citation ca 2 nguon / abstain"]
   CD -->|khong| FF["(P10) Faithfulness check: supported / unsupported / contradicted"]
-  FF --> CIT["CITATION MAP (P4 tho: usedContext -> chunk -> document; P9 cap claim)"]
+  FF --> CIT["CITATION MAP (P9: claim -> evidence -> chunk/relationship -> document; P4 fallback: usedContext -> chunk)"]
   CIT --> RESP["Response: answer, status, citations, claims, retrieval, faithfulness, provider, model, usage"]
 ```
 
 > `strategy` mặc định = `RETRIEVAL_STRATEGY` (env), ghi đè bằng field `strategy`
 > trong body `POST /rag/query|search`. `hybrid` chạy 3 nguồn SONG SONG; nguồn nào
 > lỗi hạ tầng thì fusion vẫn tiếp với nguồn còn lại, chỉ báo `error` toàn cục khi
-> MỌI nguồn fail (PROMPT §54). Claim/faithfulness vẫn ở P8-10 (`claims:
-> []`, `faithfulness: null`). Xem `docs/rag/retrieval.md`.
+> MỌI nguồn fail (PROMPT §54). Citation cấp claim hoàn thành (P9):
+> `RAG_CITATION_ENABLED=true` → tách claim (LLM) → evidence matching (lexical) →
+> citation (chunk + relationship). `faithfulness` vẫn ở P10 (trả `null`).
+> Xem `docs/rag/retrieval.md`, `docs/rag/citation.md`.
 
 ## 6. Failure handling (PROMPT §54)
 

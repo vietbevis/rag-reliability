@@ -188,6 +188,8 @@ model RagQuery {
   faithfulness Float?
   usage        Json       @default("{}")
   trace        Json       @default("{}")
+  /// PHASE 9: [{ id, text, supported, verdict, evidenceChunkIds }] — audit claim.
+  claims       Json       @default("[]")
   latencyMs    Int?
   error        String?
   createdAt    DateTime   @default(now())
@@ -219,13 +221,21 @@ model Citation {
   id         String         @id @default(cuid())
   ragQueryId String
   ragQuery   RagQuery       @relation(fields: [ragQueryId], references: [id], onDelete: Cascade)
+  /// PHASE 9: id claim do backend cấp (c1, c2...) — KHÔNG tin id LLM tự tạo.
+  claimId    String         @default("")
   claimText  String
+  /// 'chunk' = claim → chunk → document; 'relationship' = claim → cạnh RELATED.
+  kind       String         @default("chunk")
   documentId String?
   document   Document?      @relation(fields: [documentId], references: [id], onDelete: SetNull)
   chunkId    String?
   chunk      DocumentChunk? @relation(fields: [chunkId], references: [id], onDelete: SetNull)
   page       Int?
   section    String?
+  /// Chỉ khi kind = 'relationship' (graph-rag.md §5).
+  sourceEntity String?
+  targetEntity String?
+  relationType String?
   valid      Boolean        @default(false)
   createdAt  DateTime       @default(now())
 

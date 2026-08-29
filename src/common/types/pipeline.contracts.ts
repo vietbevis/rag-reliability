@@ -139,20 +139,40 @@ export interface Claim {
   text: string;
 }
 
+/** Claim kèm kết quả đối chiếu evidence — hình dạng trả trong response (§24-25). */
+export interface VerifiedClaim {
+  id: string;
+  text: string;
+  supported: boolean;
+  verdict: 'SUPPORTED' | 'UNSUPPORTED' | 'CONTRADICTED';
+  evidenceChunkIds: string[];
+}
+
 export interface Evidence {
   claimId: string;
   supported: boolean;
   evidenceChunkIds: string[];
   verdict: 'SUPPORTED' | 'UNSUPPORTED' | 'CONTRADICTED';
+  /** Độ khớp từ vựng cao nhất giữa claim và chunk [0,1] (§25 proxy). */
+  score: number;
 }
+
+export type CitationKind = 'chunk' | 'relationship';
 
 export interface Citation {
   claimId: string;
   claimText: string;
+  /** 'chunk' = claim → chunk → document; 'relationship' = claim → cạnh RELATED. */
+  kind: CitationKind;
   documentId: string;
   chunkId: string;
   page?: number;
   section?: string;
+  /** Chỉ khi kind = 'relationship' (graph-rag.md §5). */
+  sourceEntity?: string;
+  targetEntity?: string;
+  relationType?: string;
+  /** Backend map được claim → evidence → nguồn cụ thể (§29). Không map được → false. */
   valid: boolean;
 }
 

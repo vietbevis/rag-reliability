@@ -21,6 +21,8 @@ import {
 import {
   abstentionCorrect,
   citationAccuracy,
+  citationValidRate,
+  claimSupportRate,
   hallucinationRateProxy,
   isAbstained,
   meanBool,
@@ -42,6 +44,8 @@ export interface RunEvaluationOptions {
   rerank?: boolean;
   /** Ghi đè `RAG_STRICT_GROUNDING` cho run này (§36). */
   strict?: boolean;
+  /** Ghi đè `RAG_CITATION_ENABLED` cho run này (§36). */
+  cite?: boolean;
 }
 
 export interface BenchmarkComparison {
@@ -123,6 +127,8 @@ export class EvaluationService {
           rerankProvider: this.config.get('rerank', { infer: true }).provider,
           strict:
             opts.strict ?? this.config.get('grounding', { infer: true }).strict,
+          cite:
+            opts.cite ?? this.config.get('citation', { infer: true }).enabled,
         },
         provider: this.llm.activeProvider,
       },
@@ -139,6 +145,7 @@ export class EvaluationService {
             topK,
             rerank: opts.rerank,
             strict: opts.strict,
+            cite: opts.cite,
             sourceToDocId: seed.sourceToDocId,
             docIdToSource,
           }),
@@ -252,6 +259,19 @@ export class EvaluationService {
     );
   }
 
+  /** Benchmark citation cấp claim (PHASE 9) before/after. */
+  benchmarkCitation(opts: {
+    datasetName: string;
+    topK?: number;
+  }): Promise<BenchmarkComparison> {
+    return this.benchmarkVariant(
+      opts.datasetName,
+      opts.topK,
+      'cite',
+      (on) => ({ cite: on }),
+    );
+  }
+
   // --- một case --------------------------------------------------------
 
   private async evaluateCase(
@@ -263,6 +283,7 @@ export class EvaluationService {
       topK: number;
       rerank?: boolean;
       strict?: boolean;
+      cite?: boolean;
       sourceToDocId: Map<string, string>;
       docIdToSource: Map<string, string>;
     },
@@ -279,7 +300,8 @@ export class EvaluationService {
     let retrievedChunks: Array<{ documentId: string }>;
     let status: AnswerStatus | null;
     let answer: string | null;
-    let citations: Array<{ documentId: string }>;
+    let citations: Array<{ documentId: string; valid: boolean }>;
+    let claims: Array<{ supported: boolean }>;
     let latencyMs: number;
     let estimatedCost: number;
     let model: string | null;
@@ -295,6 +317,7 @@ export class EvaluationService {
       status = null;
       answer = null;
       citations = [];
+      claims = [];
       latencyMs = r.latencyMs;
       estimatedCost = r.usage.estimatedCost;
       model = null;
@@ -305,11 +328,16 @@ export class EvaluationService {
         topK: ctx.topK,
         rerank: ctx.rerank,
         strict: ctx.strict,
+        cite: ctx.cite,
       });
       retrievedChunks = result.retrieval.chunks;
       status = result.status;
       answer = result.answer;
-      citations = result.citations;
+      citations = result.citations.map((ct) => ({
+        documentId: ct.documentId,
+        valid: ct.valid,
+      }));
+      claims = result.claims.map((cl) => ({ supported: cl.supported }));
       latencyMs = result.latencyMs;
       estimatedCost = result.usage.estimatedCost;
       model = result.model;
@@ -341,6 +369,8 @@ export class EvaluationService {
 
     let answerCorrectness: number | null = null;
     let citationAcc: number | null = null;
+    let claimSupport: number | null = null;
+    let citationValid: number | null = null;
 
     if (!retrievalOnly) {
       const j = await this.judge.judge(c.question, c.expectedAnswer, answer);
@@ -350,9 +380,13 @@ export class EvaluationService {
         .map((s) => ctx.sourceToDocId.get(s))
         .filter((id): id is string => !!id);
       citationAcc = citationAccuracy(
-        citations.map((ct) => ({ documentId: ct.documentId })),
+        citations
+          .filter((ct) => ct.valid && ct.documentId.length > 0)
+          .map((ct) => ({ documentId: ct.documentId })),
         goldDocIds,
       );
+      claimSupport = claimSupportRate(claims);
+      citationValid = citationValidRate(citations);
     }
 
     const failureLayer = retrievalOnly
@@ -382,6 +416,8 @@ export class EvaluationService {
       abstentionCorrect: absCorrect,
       answerCorrectness,
       citationAccuracy: citationAcc,
+      claimSupportRate: claimSupport,
+      citationValidRate: citationValid,
       latencyMs,
       estimatedCost,
     } as Prisma.InputJsonValue;
@@ -409,6 +445,8 @@ export class EvaluationService {
       abstentionCorrect: absCorrect,
       answerCorrectness,
       citationAccuracy: citationAcc,
+      claimSupportRate: claimSupport,
+      citationValidRate: citationValid,
       latencyMs,
       estimatedCost,
       model,
@@ -540,6 +578,8 @@ interface PerCase {
   abstentionCorrect: boolean | null;
   answerCorrectness: number | null;
   citationAccuracy: number | null;
+  claimSupportRate: number | null;
+  citationValidRate: number | null;
   latencyMs: number;
   estimatedCost: number;
   model: string | null;

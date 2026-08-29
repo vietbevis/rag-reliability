@@ -64,6 +64,7 @@ export class RagController {
         strategy: dto.strategy,
         rerank: dto.rerank,
         strict: dto.strict,
+        cite: dto.cite,
       },
       { rethrow: true },
     );

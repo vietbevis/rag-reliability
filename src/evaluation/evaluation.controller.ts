@@ -70,6 +70,19 @@ export class EvaluationController {
     });
   }
 
+  @Post('benchmark-citation')
+  @HttpCode(200)
+  @ApiOperation({
+    summary:
+      'Chạy dataset 2 lần (citation off → on), trả before/after + delta (PHASE 9 §29)',
+  })
+  benchmarkCitation(@Body() dto: BenchmarkVariantDto) {
+    return this.evaluation.benchmarkCitation({
+      datasetName: dto.datasetName,
+      topK: dto.topK,
+    });
+  }
+
   @Get('runs')
   @ApiOperation({ summary: 'Liệt kê các run (lọc theo datasetName)' })
   async listRuns(@Query('datasetName') datasetName?: string) {

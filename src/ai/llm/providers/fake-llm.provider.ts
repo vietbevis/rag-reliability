@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { ZodType } from 'zod';
 import type { TokenUsage } from '../../../common/types';
+import { properNouns } from '../../../common/utils/text.util';
 import { LlmProvider } from '../llm-provider.enum';
 import type {
   ChatMessage,
@@ -252,24 +253,19 @@ function fakeArray(
   ) {
     return /\[2\]/.test(ctx.sourceText) ? [1, 2] : [1];
   }
+  if (fieldName === 'claims') {
+    // Tách answer (sau nhãn "CÂU TRẢ LỜI:") thành câu → mỗi câu 1 claim.
+    const body = ctx.sourceText.replace(/^[^\n:]*:\s*/, '').trim();
+    return body
+      .split(/(?<=[.!?…])\s+/)
+      .map((s) => s.trim())
+      .filter((s) => s.length >= 3)
+      .slice(0, 10)
+      .map((text) => ({ text }));
+  }
   // Mặc định: mảng rỗng (claims, citationIds... — an toàn).
   void element;
   return [];
-}
-
-/** NER thô: cụm 1-4 từ bắt đầu bằng chữ hoa (kể cả tiếng Việt có dấu). */
-export function properNouns(text: string): string[] {
-  const matches =
-    text.match(/\p{Lu}[\p{L}]*(?:\s+\p{Lu}[\p{L}]*){0,3}/gu) ?? [];
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const m of matches) {
-    const t = m.trim();
-    if (t.length < 2 || seen.has(t.toLowerCase())) continue;
-    seen.add(t.toLowerCase());
-    out.push(t);
-  }
-  return out;
 }
 
 function usage(messages: ChatMessage[], output: string): TokenUsage {

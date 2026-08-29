@@ -20,6 +20,9 @@ import { RetrievalService } from './retrieval/retrieval.service';
 import { ContextBuilderService } from './context/context-builder.service';
 import { ContextValidatorService } from './context/context-validator.service';
 import { AnswerGenerationService } from './grounding/answer-generation.service';
+import { ClaimExtractorService } from './grounding/claim-extractor.service';
+import { EvidenceMatcherService } from './grounding/evidence-matcher.service';
+import { CitationService } from './grounding/citation.service';
 import { RagPipelineService } from './pipeline/rag-pipeline.service';
 import { RagController } from './rag.controller';
 
@@ -55,6 +58,9 @@ import { RagController } from './rag.controller';
     ContextBuilderService,
     ContextValidatorService,
     AnswerGenerationService,
+    ClaimExtractorService,
+    EvidenceMatcherService,
+    CitationService,
     RagPipelineService,
   ],
   exports: [

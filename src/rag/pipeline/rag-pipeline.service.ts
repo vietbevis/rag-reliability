@@ -6,6 +6,7 @@ import type {
   RagStatus,
   RetrievalFilters,
   RetrievedChunk,
+  VerifiedClaim,
 } from '../../common/types';
 import {
   Prisma,
@@ -18,6 +19,9 @@ import { RetrievalService } from '../retrieval/retrieval.service';
 import { ContextBuilderService } from '../context/context-builder.service';
 import { ContextValidatorService } from '../context/context-validator.service';
 import { AnswerGenerationService } from '../grounding/answer-generation.service';
+import { ClaimExtractorService } from '../grounding/claim-extractor.service';
+import { EvidenceMatcherService } from '../grounding/evidence-matcher.service';
+import { CitationService } from '../grounding/citation.service';
 
 export interface RagQueryRequest {
   query: string;
@@ -28,6 +32,8 @@ export interface RagQueryRequest {
   rerank?: boolean;
   /** Ghi đè `RAG_STRICT_GROUNDING` cho request này (benchmark before/after). */
   strict?: boolean;
+  /** Ghi đè `RAG_CITATION_ENABLED` — tách claim + đối chiếu evidence + citation. */
+  cite?: boolean;
 }
 
 export interface RagQueryOptions {
@@ -46,7 +52,7 @@ export interface RagQueryResult {
   status: RagStatus | 'ERROR';
   answer: string | null;
   citations: Citation[];
-  claims: [];
+  claims: VerifiedClaim[];
   faithfulness: null;
   retrieval: {
     strategy: string;
@@ -93,6 +99,7 @@ const ABSTAIN_ANSWER =
 export class RagPipelineService {
   private readonly logger = new Logger(RagPipelineService.name);
   private readonly rerankCfg: AppConfig['rerank'];
+  private readonly citationCfg: AppConfig['citation'];
 
   constructor(
     private readonly prisma: PrismaService,
@@ -101,9 +108,13 @@ export class RagPipelineService {
     private readonly contextBuilder: ContextBuilderService,
     private readonly contextValidator: ContextValidatorService,
     private readonly generation: AnswerGenerationService,
+    private readonly claimExtractor: ClaimExtractorService,
+    private readonly evidenceMatcher: EvidenceMatcherService,
+    private readonly citation: CitationService,
     config: ConfigService<AppConfig, true>,
   ) {
     this.rerankCfg = config.get('rerank', { infer: true });
+    this.citationCfg = config.get('citation', { infer: true });
   }
 
   async query(
@@ -193,6 +204,7 @@ export class RagPipelineService {
       let provider: string | null = null;
       let model: string | null = null;
       let citations: Citation[] = [];
+      let claims: VerifiedClaim[] = [];
 
       if (!validation.proceed) {
         status = 'INSUFFICIENT_EVIDENCE';
@@ -218,10 +230,26 @@ export class RagPipelineService {
           regenerated: gen.regenerated,
           conflictNote: gen.conflictNote,
         };
-        citations =
-          status === 'INSUFFICIENT_EVIDENCE'
-            ? []
-            : this.baselineCitations(context.chunks, gen.citedIndexes);
+
+        if (status === 'INSUFFICIENT_EVIDENCE') {
+          citations = [];
+        } else if (req.cite ?? this.citationCfg.enabled) {
+          // --- Citation cấp claim (PHASE 9, §24-25, §29) -----------------
+          const cite = await this.runCitation(
+            gen.answer,
+            gen.citedIndexes,
+            context.chunks,
+          );
+          citations = cite.citations;
+          claims = cite.claims;
+          usage.inputTokens += cite.usage.inputTokens;
+          usage.outputTokens += cite.usage.outputTokens;
+          usage.estimatedCost += cite.usage.estimatedCost;
+          trace.citation = cite.trace;
+        } else {
+          // Baseline P4: map thô usedContext → chunk, không tách claim.
+          citations = this.baselineCitations(context.chunks, gen.citedIndexes);
+        }
       }
 
       const latencyMs = Date.now() - t0;
@@ -234,9 +262,11 @@ export class RagPipelineService {
           model,
           usage,
           trace: trace as Prisma.InputJsonValue,
+          claims: claims as unknown as Prisma.InputJsonValue,
           latencyMs,
         },
       });
+      await this.persistCitations(ragQuery.id, citations, context.chunks);
 
       return {
         id: ragQuery.id,
@@ -244,7 +274,7 @@ export class RagPipelineService {
         status,
         answer,
         citations,
-        claims: [],
+        claims,
         faithfulness: null,
         retrieval: {
           strategy: retrieval.strategy,
@@ -312,9 +342,62 @@ export class RagPipelineService {
   }
 
   /**
+   * PHASE 9: answer → claim (LLM) → evidence (so khớp từ vựng, thuần) → citation
+   * do backend quản lý (§29). Không map được claim → citation `valid: false`.
+   */
+  private async runCitation(
+    answer: string,
+    citedIndexes: number[],
+    chunks: RetrievedChunk[],
+  ): Promise<{
+    citations: Citation[];
+    claims: VerifiedClaim[];
+    usage: { inputTokens: number; outputTokens: number; estimatedCost: number };
+    trace: Record<string, unknown>;
+  }> {
+    const extraction = await this.claimExtractor.extract(answer);
+    const usedChunkIds = citedIndexes
+      .map((i) => chunks[i - 1]?.chunkId)
+      .filter((id): id is string => !!id);
+
+    const evidence = this.evidenceMatcher.match(extraction.claims, chunks, {
+      usedContextChunkIds: usedChunkIds,
+    });
+    const evByClaim = new Map(evidence.map((e) => [e.claimId, e]));
+
+    const built = await this.citation.build(extraction.claims, evidence, chunks);
+
+    const claims: VerifiedClaim[] = extraction.claims.map((c) => {
+      const e = evByClaim.get(c.id);
+      return {
+        id: c.id,
+        text: c.text,
+        supported: e?.supported ?? false,
+        verdict: e?.verdict ?? 'UNSUPPORTED',
+        evidenceChunkIds: e?.evidenceChunkIds ?? [],
+      };
+    });
+
+    return {
+      citations: built.citations,
+      claims,
+      usage: {
+        inputTokens: extraction.usage.inputTokens,
+        outputTokens: extraction.usage.outputTokens,
+        estimatedCost: extraction.usage.estimatedCost,
+      },
+      trace: {
+        claimCount: claims.length,
+        supportedClaims: claims.filter((c) => c.supported).length,
+        extractionMethod: extraction.method,
+        ...built.stats,
+      },
+    };
+  }
+
+  /**
    * Citation baseline (PHASE 4): map trực tiếp chỉ số context LLM nói đã dùng →
-   * chunk → document. Chưa xác minh claim (PHASE 8-9). `valid` = LLM có nêu và
-   * chỉ số hợp lệ; không suy diễn thêm.
+   * chunk → document. Không tách claim. `valid` = LLM có nêu và chỉ số hợp lệ.
    */
   private baselineCitations(
     chunks: RetrievedChunk[],
@@ -326,12 +409,46 @@ export class RagPipelineService {
       .map((c) => ({
         claimId: '',
         claimText: '',
+        kind: 'chunk' as const,
         documentId: c.documentId,
         chunkId: c.chunkId,
         page: c.page,
         section: c.section,
         valid: true,
       }));
+  }
+
+  /**
+   * Lưu `Citation` (audit §29). FK `documentId`/`chunkId` chỉ ghi khi trỏ tới
+   * chunk có trong ngữ cảnh (đảm bảo tồn tại trong Postgres) — citation quan hệ
+   * lấy chunkId từ Neo4j có thể không khớp, khi đó để null nhưng vẫn giữ
+   * sourceEntity/targetEntity.
+   */
+  private async persistCitations(
+    ragQueryId: string,
+    citations: Citation[],
+    contextChunks: RetrievedChunk[],
+  ): Promise<void> {
+    if (citations.length === 0) return;
+    const validChunkIds = new Set(contextChunks.map((c) => c.chunkId));
+    const validDocIds = new Set(contextChunks.map((c) => c.documentId));
+
+    await this.prisma.citation.createMany({
+      data: citations.map((c) => ({
+        ragQueryId,
+        claimId: c.claimId,
+        claimText: c.claimText,
+        kind: c.kind,
+        documentId: validDocIds.has(c.documentId) ? c.documentId : null,
+        chunkId: validChunkIds.has(c.chunkId) ? c.chunkId : null,
+        page: c.page ?? null,
+        section: c.section ?? null,
+        sourceEntity: c.sourceEntity ?? null,
+        targetEntity: c.targetEntity ?? null,
+        relationType: c.relationType ?? null,
+        valid: c.valid,
+      })),
+    });
   }
 }
 

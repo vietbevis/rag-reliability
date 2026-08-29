@@ -62,6 +62,13 @@ export interface AppConfig {
     minGroundingRatio: number;
     regenerateOnUngrounded: boolean;
   };
+  citation: {
+    enabled: boolean;
+    minOverlap: number;
+    maxPerClaim: number;
+    relationshipCitations: boolean;
+    minAnswerTokens: number;
+  };
   rerank: {
     enabled: boolean;
     provider: 'none' | 'fake' | 'llm';
@@ -193,6 +200,13 @@ export function loadConfiguration(): AppConfig {
       abstainMinRelevance: env.RAG_ABSTAIN_MIN_RELEVANCE,
       minGroundingRatio: env.RAG_MIN_GROUNDING_RATIO,
       regenerateOnUngrounded: env.RAG_REGENERATE_ON_UNGROUNDED,
+    },
+    citation: {
+      enabled: env.RAG_CITATION_ENABLED,
+      minOverlap: env.CITATION_MIN_OVERLAP,
+      maxPerClaim: env.CITATION_MAX_PER_CLAIM,
+      relationshipCitations: env.CITATION_RELATIONSHIP_ENABLED,
+      minAnswerTokens: env.CITATION_MIN_ANSWER_TOKENS,
     },
     rerank: {
       enabled: env.RERANK_ENABLED,

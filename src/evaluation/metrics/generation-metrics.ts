@@ -53,6 +53,28 @@ export function citationAccuracy(
   return round(hits / citations.length);
 }
 
+/**
+ * Tỉ lệ citation hợp lệ (`valid = true`) — phần citation mà backend map được
+ * claim → nguồn cụ thể (§29). Không có citation → null (không đo được).
+ */
+export function citationValidRate(
+  citations: readonly { valid: boolean }[],
+): number | null {
+  if (citations.length === 0) return null;
+  return round(citations.filter((c) => c.valid).length / citations.length);
+}
+
+/**
+ * Tỉ lệ claim của câu trả lời được ít nhất một citation hợp lệ chống lưng
+ * (PROMPT §24-25). 0 claim → null. Proxy cho faithfulness (bản đầy đủ = P10).
+ */
+export function claimSupportRate(
+  claims: readonly { supported: boolean }[],
+): number | null {
+  if (claims.length === 0) return null;
+  return round(claims.filter((c) => c.supported).length / claims.length);
+}
+
 export interface CaseOutcome {
   answerable: boolean;
   status: AnswerStatus;

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { LlmProvider } from '../llm-provider.enum';
-import { FakeLlmProvider, properNouns } from './fake-llm.provider';
+import { properNouns } from '../../../common/utils/text.util';
+import { FakeLlmProvider } from './fake-llm.provider';
 
 const svc = new FakeLlmProvider();
 
@@ -40,7 +41,7 @@ describe('FakeLlmProvider', () => {
         'PARTIALLY_GROUNDED',
         'INSUFFICIENT_EVIDENCE',
       ]),
-      claims: z.array(z.string()),
+      claims: z.array(z.object({ text: z.string() })),
       citationIds: z.array(z.string()),
     });
     const r = await svc.chatStructured(
@@ -50,7 +51,7 @@ describe('FakeLlmProvider', () => {
     expect(() => schema.parse(r.data)).not.toThrow();
     expect(r.data.answer).toContain('[fake]');
     expect(r.data.status).toBe('GROUNDED');
-    expect(r.data.claims).toEqual([]);
+    expect(r.data.claims.length).toBeGreaterThanOrEqual(1);
   });
 
   it('chatStructured: số có ràng buộc min không sinh giá trị vi phạm schema', async () => {

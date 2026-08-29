@@ -6,6 +6,9 @@ import type { RetrievedChunk } from '../../common/types';
 import { ContextBuilderService } from '../context/context-builder.service';
 import { ContextValidatorService } from '../context/context-validator.service';
 import { AnswerGenerationService } from '../grounding/answer-generation.service';
+import { ClaimExtractorService } from '../grounding/claim-extractor.service';
+import { EvidenceMatcherService } from '../grounding/evidence-matcher.service';
+import { CitationService } from '../grounding/citation.service';
 import { RetrievalService } from '../retrieval/retrieval.service';
 import { RerankerService } from '../../ai/reranking/reranker.service';
 import { RagPipelineService } from './rag-pipeline.service';
@@ -39,14 +42,18 @@ function build(
     minChunks?: number;
     retrievalError?: string;
     rerank?: boolean;
+    cite?: boolean;
+    claims?: Array<{ id: string; text: string }>;
   } = {},
 ) {
   const ragQueryCreate = jest
     .fn()
     .mockResolvedValue({ id: 'rq-1', query: 'q' });
   const ragQueryUpdate = jest.fn().mockResolvedValue({});
+  const citationCreateMany = jest.fn().mockResolvedValue({ count: 0 });
   const prisma = {
     ragQuery: { create: ragQueryCreate, update: ragQueryUpdate },
+    citation: { createMany: citationCreateMany },
   } as unknown as PrismaService;
 
   const retrieval = {
@@ -70,6 +77,7 @@ function build(
       minRelevance: 0,
     },
     rerank: { enabled: opts.rerank ?? false },
+    citation: { enabled: opts.cite ?? false },
   });
   const contextBuilder = new ContextBuilderService(
     new TokenCounterService(),
@@ -114,6 +122,25 @@ function build(
         }),
   } as unknown as AnswerGenerationService;
 
+  const extractMock = jest.fn().mockResolvedValue({
+    claims: opts.claims ?? [{ id: 'c1', text: opts.genResult?.answer ?? 'Câu trả lời.' }],
+    provider: 'fake',
+    model: 'fake-llm-v1',
+    usage: { inputTokens: 5, outputTokens: 3, totalTokens: 8, estimatedCost: 0 },
+    latencyMs: 1,
+    method: 'llm',
+  });
+  const claimExtractor = {
+    extract: extractMock,
+  } as unknown as ClaimExtractorService;
+  const evidenceMatcher = new EvidenceMatcherService(config);
+  const citation = new CitationService(
+    { enabled: false, isConnected: false } as unknown as ConstructorParameters<
+      typeof CitationService
+    >[0],
+    config,
+  );
+
   return {
     svc: new RagPipelineService(
       prisma,
@@ -122,10 +149,15 @@ function build(
       contextBuilder,
       contextValidator,
       generation,
+      claimExtractor,
+      evidenceMatcher,
+      citation,
       config,
     ),
     rerankMock,
     ragQueryUpdate,
+    citationCreateMany,
+    extractMock,
     generate: generation.generate as jest.Mock,
   };
 }
@@ -308,5 +340,102 @@ describe('RagPipelineService (PHASE 4 baseline)', () => {
         data: expect.objectContaining({ status: 'INSUFFICIENT_EVIDENCE' }),
       }),
     );
+  });
+});
+
+describe('RagPipelineService (PHASE 9 citation)', () => {
+  const supportChunk = (id: string): RetrievedChunk => ({
+    chunkId: id,
+    documentId: 'doc-1',
+    content:
+      'Sinh viên được phép bảo lưu kết quả học tập tối đa hai học kỳ liên tiếp ' +
+      'và phải nộp đơn xin bảo lưu trước ít nhất mười lăm ngày.',
+    score: 0.9,
+    source: 'vector',
+    section: 'Điều 5',
+    metadata: {},
+  });
+
+  it('cite=true → tách claim, đối chiếu evidence, trả claims + citations backend', async () => {
+    const { svc, extractMock, citationCreateMany } = build({
+      cite: true,
+      retrievedChunks: [supportChunk('k1')],
+      genResult: {
+        answer:
+          'Sinh viên được bảo lưu tối đa hai học kỳ liên tiếp và phải nộp ' +
+          'đơn xin bảo lưu trước ít nhất mười lăm ngày.',
+        status: 'GROUNDED',
+        citedIndexes: [1],
+      },
+      claims: [
+        { id: 'c1', text: 'Sinh viên được bảo lưu tối đa hai học kỳ liên tiếp.' },
+        { id: 'c2', text: 'Phải nộp đơn xin bảo lưu trước ít nhất mười lăm ngày.' },
+      ],
+    });
+    const r = await svc.query({ query: 'q' });
+
+    expect(extractMock).toHaveBeenCalled();
+    expect(r.claims).toHaveLength(2);
+    expect(r.claims[0]).toMatchObject({ id: 'c1', supported: true });
+    expect(r.citations.length).toBeGreaterThanOrEqual(1);
+    expect(r.citations.every((c) => c.claimId.startsWith('c'))).toBe(true);
+    expect(r.citations[0]!.kind).toBe('chunk');
+    expect(citationCreateMany).toHaveBeenCalled();
+    expect(
+      (r.trace.citation as { supportedClaims: number }).supportedClaims,
+    ).toBe(2);
+  });
+
+  it('cite=false (mặc định spec) → baseline: claims rỗng, citation map thô', async () => {
+    const { svc, extractMock } = build({
+      genResult: { answer: 'Câu trả lời.', status: 'GROUNDED', citedIndexes: [1] },
+    });
+    const r = await svc.query({ query: 'q' });
+    expect(extractMock).not.toHaveBeenCalled();
+    expect(r.claims).toEqual([]);
+    expect(r.citations).toHaveLength(1);
+    expect(r.citations[0]!.claimId).toBe('');
+  });
+
+  it('cite=true nhưng INSUFFICIENT_EVIDENCE → không tách claim, claims + citations rỗng', async () => {
+    const { svc, extractMock } = build({
+      cite: true,
+      genResult: {
+        answer: 'x',
+        status: 'INSUFFICIENT_EVIDENCE',
+        citedIndexes: [],
+      },
+    });
+    const r = await svc.query({ query: 'q' });
+    expect(extractMock).not.toHaveBeenCalled();
+    expect(r.claims).toEqual([]);
+    expect(r.citations).toEqual([]);
+  });
+
+  it('cite=true: claim không có chunk hỗ trợ → citation valid=false', async () => {
+    const { svc } = build({
+      cite: true,
+      retrievedChunks: [supportChunk('k1')],
+      genResult: { answer: 'Một khẳng định.', status: 'GROUNDED', citedIndexes: [1] },
+      claims: [
+        { id: 'c1', text: 'Trường có phân hiệu tại Singapore từ năm 2030.' },
+      ],
+    });
+    const r = await svc.query({ query: 'q' });
+    expect(r.claims[0]!.supported).toBe(false);
+    expect(r.citations).toHaveLength(1);
+    expect(r.citations[0]!.valid).toBe(false);
+  });
+
+  it('cite=true: usage cộng thêm token của bước tách claim', async () => {
+    const { svc } = build({
+      cite: true,
+      retrievedChunks: [supportChunk('k1')],
+      genResult: { answer: 'Sinh viên bảo lưu hai học kỳ.', status: 'GROUNDED', citedIndexes: [1] },
+      claims: [{ id: 'c1', text: 'Sinh viên bảo lưu hai học kỳ liên tiếp.' }],
+    });
+    const r = await svc.query({ query: 'q' });
+    // generation inputTokens 20 + extract inputTokens 5
+    expect(r.usage.inputTokens).toBe(25);
   });
 });

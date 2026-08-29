@@ -88,6 +88,15 @@ export class RagQueryDto {
   @ToBoolean()
   @IsBoolean()
   strict?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Ghi đè RAG_CITATION_ENABLED — tách claim + đối chiếu evidence + citation backend.',
+  })
+  @IsOptional()
+  @ToBoolean()
+  @IsBoolean()
+  cite?: boolean;
 }
 
 export class RagSearchDto extends RagQueryDto {}
