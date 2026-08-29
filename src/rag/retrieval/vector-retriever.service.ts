@@ -63,7 +63,9 @@ export class VectorRetrieverService implements Retriever {
     let embeddingTokens = 0;
     let estimatedCost = 0;
     try {
-      const res = await this.embeddings.embed(options.query);
+      const res = await this.embeddings.embed(options.query, {
+        inputType: 'query',
+      });
       queryVector = res.vector;
       embeddingTokens = res.usage.totalTokens;
       estimatedCost = res.usage.estimatedCost;

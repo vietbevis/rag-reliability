@@ -11,7 +11,7 @@ describe('validateEnv', () => {
   it('chấp nhận cấu hình hợp lệ và áp giá trị mặc định', () => {
     const env = validateEnv({ ...base });
     expect(env.PORT).toBe(3000);
-    expect(env.EMBEDDING_DIMENSION).toBe(1536);
+    expect(env.EMBEDDING_DIMENSION).toBe(1024);
     expect(env.QUALITY_THRESHOLD).toBe(0.7);
     expect(env.SWAGGER_ENABLED).toBe(true);
   });

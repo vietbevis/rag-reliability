@@ -106,7 +106,7 @@ export class ChunkEmbeddingService {
 
     const batch = await this.embeddings.embedBatch(
       chunks.map((c) => c.content),
-      providerOverride,
+      { provider: providerOverride, inputType: 'passage' },
     );
     if (batch.vectors.length !== chunks.length) {
       throw new IngestionError(

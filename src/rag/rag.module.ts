@@ -4,6 +4,7 @@ import { ChunkQualityService } from './chunking/chunk-quality.service';
 import { ChunkerFactoryService } from './chunking/chunker-factory.service';
 import { ChunkingService } from './chunking/chunking.service';
 import { FixedSizeChunkerService } from './chunking/fixed-size-chunker.service';
+import { SemanticChunkerService } from './chunking/semantic-chunker.service';
 import { StructureAwareChunkerService } from './chunking/structure-aware-chunker.service';
 import { ChunkEmbeddingService } from './embedding/chunk-embedding.service';
 import { VectorSchemaService } from './embedding/vector-schema.service';
@@ -47,6 +48,7 @@ import { RagController } from './rag.controller';
     IngestionService,
     StructureAwareChunkerService,
     FixedSizeChunkerService,
+    SemanticChunkerService,
     ChunkerFactoryService,
     ChunkQualityService,
     ChunkingService,

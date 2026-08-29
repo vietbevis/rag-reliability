@@ -33,6 +33,7 @@ import {
   type CaseOutcome,
 } from './metrics/generation-metrics';
 import { AnswerJudgeService } from './metrics/answer-judge.service';
+import { bootstrapCI } from './metrics/statistics';
 import type { RetrievalStrategy } from '../rag/retrieval/retrieval.service';
 
 export type EvalMode = 'retrieval' | 'full';
@@ -308,12 +309,9 @@ export class EvaluationService {
     datasetName: string;
     topK?: number;
   }): Promise<BenchmarkComparison> {
-    return this.benchmarkVariant(
-      opts.datasetName,
-      opts.topK,
-      'cite',
-      (on) => ({ cite: on }),
-    );
+    return this.benchmarkVariant(opts.datasetName, opts.topK, 'cite', (on) => ({
+      cite: on,
+    }));
   }
 
   /** Benchmark faithfulness verification (PHASE 10) before/after. */
@@ -443,7 +441,7 @@ export class EvaluationService {
     const cost = summary.metrics.totalCost ?? 0;
 
     const qualityScore =
-      Math.round(((faith * 0.4 + correct * 0.4 + citeAcc * 0.2) || 0) * 10000) /
+      Math.round((faith * 0.4 + correct * 0.4 + citeAcc * 0.2 || 0) * 10000) /
       10000;
 
     let assessment = 'Hiệu năng cân bằng';
@@ -752,6 +750,7 @@ export class EvaluationService {
       unanswerableCount: outcomes.length - answerable.length,
       retrievalEvaluated: withGold.length,
       passRate: meanBool(outcomes.map((o) => o.passed)),
+      ...passRateCI(outcomes),
       recallAt5: retrMean((r) => r.recallAtK),
       precisionAt5: retrMean((r) => r.precisionAtK),
       mrr: retrMean((r) => r.mrr),
@@ -771,9 +770,7 @@ export class EvaluationService {
       citationAccuracy: meanIgnoringNull(
         outcomes.map((o) => o.citationAccuracy),
       ),
-      faithfulness: meanIgnoringNull(
-        outcomes.map((o) => o.faithfulness),
-      ),
+      faithfulness: meanIgnoringNull(outcomes.map((o) => o.faithfulness)),
       claimLevelHallucinationRate: meanIgnoringNull(
         outcomes.map((o) => o.claimLevelHallucinationRate),
       ),
@@ -823,6 +820,22 @@ function invert(m: Map<string, string>): Map<string, string> {
 function mean(values: number[]): number {
   if (values.length === 0) return 0;
   return round(values.reduce((a, b) => a + b, 0) / values.length);
+}
+
+/**
+ * Khoảng tin cậy 95% (bootstrap) cho passRate — báo cáo sai số mẫu bên cạnh
+ * điểm trung bình (docs/audit/EVALUATION_REVIEW.md §4.3).
+ */
+function passRateCI(outcomes: PerCase[]): Record<string, number | null> {
+  const ci = bootstrapCI(
+    outcomes.map((o) => (o.passed ? 1 : 0)),
+    { seed: 20260829 },
+  );
+  return {
+    passRateCI95Low: ci?.low ?? null,
+    passRateCI95High: ci?.high ?? null,
+    passRateMarginOfError: ci?.marginOfError ?? null,
+  };
 }
 
 function round(n: number): number {
