@@ -206,7 +206,8 @@ curl -s -XPOST localhost:3000/ai/providers/test -H 'content-type: application/js
 
 Model thay thế: LLM `qwen3:8b` / `llama3:8b`; embedding `bge-m3` (1024d, không
 cần tiền tố) hoặc `nomic-embed-text` (768d — phải đổi `EMBEDDING_DIMENSION=768`
-+ migration mới).
+
+- migration mới).
 
 ---
 
@@ -241,11 +242,11 @@ Giới hạn upload: **25 MB**/file. Định dạng không hỗ trợ → `400 U
 `@firecrawl/anydoc` chuyển mọi định dạng về **Markdown GFM**, bảng → bảng GFM
 (`| cột | cột |`). Đã kiểm thử end-to-end (ingest → chunk → retrieval → RAG):
 
-| Nguồn | Bảng | Ghi chú |
-|---|---|---|
-| **DOCX / XLSX / PPTX** (OOXML) | ✅ chính xác | OOXML có cấu trúc bảng tường minh; heading (`#`) giữ đúng nếu file dùng style Heading. |
-| **PDF native-text, bảng có kẻ ô** | ✅ tái tạo tốt | anydoc dựng lại bảng từ vị trí text + đường kẻ. Bảng không kẻ ô / merge cell / nhiều cột phức tạp có thể lệch. |
-| **PDF scan (ảnh)** | ❌ → `NEEDS_OCR` | Cần `FIRECRAWL_API_KEY` (OCR hosted) hoặc `ANYDOC_OCR=hosted`. |
+| Nguồn                             | Bảng             | Ghi chú                                                                                                        |
+| --------------------------------- | ---------------- | -------------------------------------------------------------------------------------------------------------- |
+| **DOCX / XLSX / PPTX** (OOXML)    | ✅ chính xác     | OOXML có cấu trúc bảng tường minh; heading (`#`) giữ đúng nếu file dùng style Heading.                         |
+| **PDF native-text, bảng có kẻ ô** | ✅ tái tạo tốt   | anydoc dựng lại bảng từ vị trí text + đường kẻ. Bảng không kẻ ô / merge cell / nhiều cột phức tạp có thể lệch. |
+| **PDF scan (ảnh)**                | ❌ → `NEEDS_OCR` | Cần `FIRECRAWL_API_KEY` (OCR hosted) hoặc `ANYDOC_OCR=hosted`.                                                 |
 
 Chunker `structure` (mặc định) giữ **nguyên một bảng trong một chunk** nếu ≤
 `CHUNK_MAX_TOKENS` (512), kèm breadcrumb điều khoản. Bảng lớn hơn bị cắt theo
@@ -284,15 +285,15 @@ curl -H 'content-type: application/json' -d '{
 
 Body `POST /rag/query` (các cờ đều tuỳ chọn, mặc định lấy từ `.env`):
 
-| Trường | Ý nghĩa |
-|---|---|
-| `query` | câu hỏi (bắt buộc) |
-| `topK` | số chunk vào context |
-| `strategy` | `vector` \| `keyword` \| `graph` \| `hybrid` |
-| `rerank` | ghi đè `RERANK_ENABLED` |
-| `strict` | ghi đè `RAG_STRICT_GROUNDING` |
-| `cite` | ghi đè `RAG_CITATION_ENABLED` |
-| `faithfulness` | ghi đè `RAG_FAITHFULNESS_ENABLED` |
+| Trường         | Ý nghĩa                                      |
+| -------------- | -------------------------------------------- |
+| `query`        | câu hỏi (bắt buộc)                           |
+| `topK`         | số chunk vào context                         |
+| `strategy`     | `vector` \| `keyword` \| `graph` \| `hybrid` |
+| `rerank`       | ghi đè `RERANK_ENABLED`                      |
+| `strict`       | ghi đè `RAG_STRICT_GROUNDING`                |
+| `cite`         | ghi đè `RAG_CITATION_ENABLED`                |
+| `faithfulness` | ghi đè `RAG_FAITHFULNESS_ENABLED`            |
 
 Response: `{ id, status, answer, citations[], claims[], faithfulness, retrieval,
 provider, model, usage, latencyMs, trace }`.
@@ -316,13 +317,13 @@ corpus + khai báo case:
 npm run eval:datasets:gen     # → scripts/gen-eval-datasets.mjs
 ```
 
-| File | Case | Loại |
-|---|---:|---|
-| `answerable.jsonl` | 57 | DIRECT_RETRIEVAL, SEMANTIC_QUERY, EXACT_IDENTIFIER |
-| `multi-hop.jsonl` | 18 | MULTI_HOP (nối 2-3 tài liệu) |
-| `unanswerable.jsonl` | 15 | ngoài phạm vi corpus (mục tiêu: abstain) |
-| `adversarial.jsonl` | 15 | tiền đề sai / số bịa / điều kiện không tồn tại |
-| `conflicting.jsonl` | 6 | hai văn bản mâu thuẫn |
+| File                 | Case | Loại                                               |
+| -------------------- | ---: | -------------------------------------------------- |
+| `answerable.jsonl`   |   57 | DIRECT_RETRIEVAL, SEMANTIC_QUERY, EXACT_IDENTIFIER |
+| `multi-hop.jsonl`    |   18 | MULTI_HOP (nối 2-3 tài liệu)                       |
+| `unanswerable.jsonl` |   15 | ngoài phạm vi corpus (mục tiêu: abstain)           |
+| `adversarial.jsonl`  |   15 | tiền đề sai / số bịa / điều kiện không tồn tại     |
+| `conflicting.jsonl`  |    6 | hai văn bản mâu thuẫn                              |
 
 ```bash
 # Chỉ retrieval metrics (nhanh, KHÔNG gọi LLM)
@@ -365,28 +366,28 @@ PostgreSQL 16 + pgvector HNSW cosine; chạy local (macOS, GPU); `.env` mặc đ
 
 ### Tổng hợp 5 dataset (111 case)
 
-| Dataset | N | passRate (95% CI) | Recall@5 | MRR | NDCG@5 | Ctx Precision | Ctx Recall | Abstention | Answer Correctness | Citation Acc | **Faithfulness** | Claim Halluc. | Halluc. proxy | Latency P50 |
-|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
-| **answerable** | 57 | 0.77 (0.67–0.88) | **0.991** | **1.00** | **0.984** | 0.982 | **1.00** | 1.00 | **0.877** | 0.668 | **0.983** | 0.018 | **0.00** | 17.8s |
-| **multi-hop** | 18 | 0.44 (0.22–0.67) | 0.926 | 0.972 | 0.904 | 0.928 | 0.944 | 0.778 | 0.472 | 0.515 | 0.964 | 0.036 | 0.056 | 18.3s |
-| **conflicting** | 6 | **1.00** | **1.00** | 0.833 | 0.871 | 0.806 | **1.00** | 1.00 | 0.667 | 0.689 | 0.833 | 0.167 | 0.00 | 31.8s |
-| **adversarial** | 15 | 0.87 (0.67–1.0) | — | — | — | — | — | **0.867** | — | — | 0.750 | 0.25 | 0.133 | 6.6s |
-| **unanswerable** | 15 | **1.00** | — | — | — | — | — | **1.00** | — | — | — | — | **0.00** | 10.3s |
+| Dataset          |   N | passRate (95% CI) |  Recall@5 |      MRR |    NDCG@5 | Ctx Precision | Ctx Recall | Abstention | Answer Correctness | Citation Acc | **Faithfulness** | Claim Halluc. | Halluc. proxy | Latency P50 |
+| ---------------- | --: | ----------------: | --------: | -------: | --------: | ------------: | ---------: | ---------: | -----------------: | -----------: | ---------------: | ------------: | ------------: | ----------: |
+| **answerable**   |  57 |  0.77 (0.67–0.88) | **0.991** | **1.00** | **0.984** |         0.982 |   **1.00** |       1.00 |          **0.877** |        0.668 |        **0.983** |         0.018 |      **0.00** |       17.8s |
+| **multi-hop**    |  18 |  0.44 (0.22–0.67) |     0.926 |    0.972 |     0.904 |         0.928 |      0.944 |      0.778 |              0.472 |        0.515 |            0.964 |         0.036 |         0.056 |       18.3s |
+| **conflicting**  |   6 |          **1.00** |  **1.00** |    0.833 |     0.871 |         0.806 |   **1.00** |       1.00 |              0.667 |        0.689 |            0.833 |         0.167 |          0.00 |       31.8s |
+| **adversarial**  |  15 |   0.87 (0.67–1.0) |         — |        — |         — |             — |          — |  **0.867** |                  — |            — |            0.750 |          0.25 |         0.133 |        6.6s |
+| **unanswerable** |  15 |          **1.00** |         — |        — |         — |             — |          — |   **1.00** |                  — |            — |                — |             — |      **0.00** |       10.3s |
 
 `—` = không áp dụng (dataset abstain-target không có `expectedDocuments`).
 
 ### So với bản audit gốc (agy, N=18, "low statistical confidence")
 
-| Chỉ số | Audit gốc | Sau khắc phục | Ghi chú |
-|---|---|---|---|
-| Faithfulness (answerable) | **0.00** | **0.983** | Bug P0-1 contradiction detector — đã sửa |
-| Claim-level hallucination (answerable) | 0.667 | 0.018 | như trên |
-| MRR (answerable) | 0.467 | **1.00** | e5-large + tiền tố query/passage (trước: OpenAI 1536d) |
-| NDCG@5 (answerable) | 0.599 | **0.984** | như trên |
-| Recall@5 (conflicting) | **0.00** | **1.00** | Dedup deadlock — đã sửa |
-| Abstention (adversarial) | 0.75 (N=4) | 0.867 (N=15) | |
-| Abstention (unanswerable) | 1.00 (N=4) | 1.00 (N=15) | |
-| Hallucination proxy (answerable) | — | **0.00** | |
+| Chỉ số                                 | Audit gốc  | Sau khắc phục | Ghi chú                                                |
+| -------------------------------------- | ---------- | ------------- | ------------------------------------------------------ |
+| Faithfulness (answerable)              | **0.00**   | **0.983**     | Bug P0-1 contradiction detector — đã sửa               |
+| Claim-level hallucination (answerable) | 0.667      | 0.018         | như trên                                               |
+| MRR (answerable)                       | 0.467      | **1.00**      | e5-large + tiền tố query/passage (trước: OpenAI 1536d) |
+| NDCG@5 (answerable)                    | 0.599      | **0.984**     | như trên                                               |
+| Recall@5 (conflicting)                 | **0.00**   | **1.00**      | Dedup deadlock — đã sửa                                |
+| Abstention (adversarial)               | 0.75 (N=4) | 0.867 (N=15)  |                                                        |
+| Abstention (unanswerable)              | 1.00 (N=4) | 1.00 (N=15)   |                                                        |
+| Hallucination proxy (answerable)       | —          | **0.00**      |                                                        |
 
 ### Điểm yếu còn lại (giới hạn model, không phải bug)
 
@@ -450,36 +451,36 @@ npm run prisma:deploy          # áp migration
 
 ## Lệnh tra cứu nhanh
 
-| Lệnh | Việc |
-|---|---|
-| `npm run start:dev` | watch mode |
-| `npm run build` | `nest build` |
-| `npm run typecheck` | `tsc --noEmit` (strict, không `any`) |
-| `npm run lint` | ESLint `--fix` |
-| `npm test` | unit test (Jest ESM) |
-| `npm run test:e2e` | e2e + integration (cần PostgreSQL chạy) |
-| `npm run prisma:generate` | sinh Prisma Client vào `src/generated/prisma` |
-| `npm run prisma:deploy` | `prisma migrate deploy` (production) |
-| `npm run prisma:migrate` | `prisma migrate dev` (dev) |
-| `npm run prisma:studio` | Prisma Studio |
-| `npm run eval:datasets:gen` | sinh lại golden dataset JSONL |
-| `npm run evaluate:retrieval` | retrieval metrics (nhanh) |
-| `npm run evaluate` | eval đầy đủ + so baseline |
-| `npm run docker:up` / `docker:down` | quản lý stack |
+| Lệnh                                | Việc                                          |
+| ----------------------------------- | --------------------------------------------- |
+| `npm run start:dev`                 | watch mode                                    |
+| `npm run build`                     | `nest build`                                  |
+| `npm run typecheck`                 | `tsc --noEmit` (strict, không `any`)          |
+| `npm run lint`                      | ESLint `--fix`                                |
+| `npm test`                          | unit test (Jest ESM)                          |
+| `npm run test:e2e`                  | e2e + integration (cần PostgreSQL chạy)       |
+| `npm run prisma:generate`           | sinh Prisma Client vào `src/generated/prisma` |
+| `npm run prisma:deploy`             | `prisma migrate deploy` (production)          |
+| `npm run prisma:migrate`            | `prisma migrate dev` (dev)                    |
+| `npm run prisma:studio`             | Prisma Studio                                 |
+| `npm run eval:datasets:gen`         | sinh lại golden dataset JSONL                 |
+| `npm run evaluate:retrieval`        | retrieval metrics (nhanh)                     |
+| `npm run evaluate`                  | eval đầy đủ + so baseline                     |
+| `npm run docker:up` / `docker:down` | quản lý stack                                 |
 
 ---
 
 ## Xử lý sự cố
 
-| Triệu chứng | Nguyên nhân & xử lý |
-|---|---|
-| Khởi động cảnh báo `EMBEDDING_DIMENSION không khớp cột vector(N)` | Chạy `npm run prisma:deploy`. Nếu đổi model khác số chiều → cần migration mới đổi `vector(N)` + tạo lại HNSW. |
-| `POST /documents` trả `REJECTED` "trùng lặp" cho file mới | Bản trùng trước đó kẹt ở EMBEDDING và **còn mới** (< 15'). Đợi hết `INGESTION_STALE_AFTER_MS` hoặc `POST /documents/:id/embed` trên bản cũ. Bản mồ côi quá hạn tự được thu hồi. |
-| Keyword search trả 0 kết quả | Đã sửa: câu hỏi tự nhiên được `toKeywordQuery()` bỏ từ nghi vấn + nối `or`. Kiểm tra `GET /rag/search` với `strategy:"keyword"`. |
-| `/rag/query` trả `429` | Chạm rate limit (`RATE_LIMIT_RAG_LIMIT=20`/phút). Tăng biến hoặc `RATE_LIMIT_ENABLED=false` cho dev. |
-| `status: ERROR`, `error: "...LLM..."` | LLM/embedding provider down. Response vẫn 200. Kiểm tra `ollama ps`, `curl localhost:11434/v1/models`. |
-| eval `⚠ corpus chưa sẵn sàng` | Provider embedding chưa cấu hình khi seed → doc dừng ở CHUNKING. Cấu hình `EMBEDDING_PROVIDER` rồi chạy lại. |
-| e2e fail `vector dimension mismatch` | Test DB chưa migrate. `npm run prisma:deploy` lên DB test. |
+| Triệu chứng                                                       | Nguyên nhân & xử lý                                                                                                                                                             |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Khởi động cảnh báo `EMBEDDING_DIMENSION không khớp cột vector(N)` | Chạy `npm run prisma:deploy`. Nếu đổi model khác số chiều → cần migration mới đổi `vector(N)` + tạo lại HNSW.                                                                   |
+| `POST /documents` trả `REJECTED` "trùng lặp" cho file mới         | Bản trùng trước đó kẹt ở EMBEDDING và **còn mới** (< 15'). Đợi hết `INGESTION_STALE_AFTER_MS` hoặc `POST /documents/:id/embed` trên bản cũ. Bản mồ côi quá hạn tự được thu hồi. |
+| Keyword search trả 0 kết quả                                      | Đã sửa: câu hỏi tự nhiên được `toKeywordQuery()` bỏ từ nghi vấn + nối `or`. Kiểm tra `GET /rag/search` với `strategy:"keyword"`.                                                |
+| `/rag/query` trả `429`                                            | Chạm rate limit (`RATE_LIMIT_RAG_LIMIT=20`/phút). Tăng biến hoặc `RATE_LIMIT_ENABLED=false` cho dev.                                                                            |
+| `status: ERROR`, `error: "...LLM..."`                             | LLM/embedding provider down. Response vẫn 200. Kiểm tra `ollama ps`, `curl localhost:11434/v1/models`.                                                                          |
+| eval `⚠ corpus chưa sẵn sàng`                                     | Provider embedding chưa cấu hình khi seed → doc dừng ở CHUNKING. Cấu hình `EMBEDDING_PROVIDER` rồi chạy lại.                                                                    |
+| e2e fail `vector dimension mismatch`                              | Test DB chưa migrate. `npm run prisma:deploy` lên DB test.                                                                                                                      |
 
 ---
 

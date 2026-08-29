@@ -68,9 +68,10 @@ const GROUNDED_SCHEMA = z.object({
 });
 
 const REGEN_INSTRUCTION =
-  'CÂU TRẢ LỜI TRƯỚC chưa bám sát ngữ cảnh (dùng từ ngữ / khẳng định không có ' +
-  'trong các mục [i]). Trả lời LẠI: chỉ dùng thông tin có nguyên văn trong ngữ ' +
-  'cảnh; nếu không đủ, đặt status = INSUFFICIENT_EVIDENCE.';
+  'CÂU TRẢ LỜI TRƯỚC bị đánh giá là chưa bám ngữ cảnh. Trả lời LẠI: rà từng số ' +
+  'liệu và khẳng định, BỎ mọi chi tiết không có trong các mục [i]; GIỮ phần có ' +
+  'căn cứ và trình bày cụ thể (số liệu, tỷ lệ, các dòng bảng). Nếu sau khi rà ' +
+  'không còn đủ để trả lời, đặt status = INSUFFICIENT_EVIDENCE.';
 
 /**
  * Sinh câu trả lời có grounding (PROMPT §23-25).
@@ -125,7 +126,9 @@ export class AnswerGenerationService {
           content:
             `NGỮ CẢNH (mỗi mục có số [i]):\n${rendered}\n\n` +
             `CÂU HỎI: ${question}\n\n` +
-            `Trả JSON theo schema. "usedContext" = mảng số [i] bạn thực sự dùng.` +
+            `Trả lời TRỰC TIẾP và ĐẦY ĐỦ, chỉ từ ngữ cảnh — nêu số liệu / tỷ lệ / ` +
+            `các dòng bảng cụ thể, KHÔNG chỉ ra vị trí thông tin. Trả JSON theo ` +
+            `schema; "usedContext" = mảng số [i] bạn thực sự dùng.` +
             (extra ? `\n\n${extra}` : ''),
         },
       ];
@@ -229,25 +232,39 @@ function dedupeClaimTexts(texts: string[]): string[] {
   return out;
 }
 
-const SYSTEM_PROMPT = `Bạn trả lời câu hỏi CHỈ dựa trên NGỮ CẢNH được cung cấp.
+const SYSTEM_PROMPT = `Bạn trả lời câu hỏi CHỈ dựa trên NGỮ CẢNH được cung cấp (các mục đánh số [i]).
 
-Quy tắc bắt buộc:
-1. Không bịa sự kiện. Không dùng kiến thức ngoài ngữ cảnh. Không đoán, không suy
-   luận vượt quá điều ngữ cảnh nói.
-2. Mọi khẳng định trong câu trả lời phải truy được về một mục [i] cụ thể.
-3. Nếu ngữ cảnh KHÔNG chứa đủ thông tin để trả lời: status = INSUFFICIENT_EVIDENCE,
-   answer nói rõ "Không tìm thấy thông tin trong tài liệu" — KHÔNG cố trả lời.
-4. Nếu chỉ trả lời được một phần: status = PARTIALLY_GROUNDED.
-5. Nếu ngữ cảnh chứa hai thông tin MÂU THUẪN nhau về cùng một điều:
-   status = CONFLICTING_EVIDENCE, "conflictNote" mô tả ngắn hai nguồn, answer nêu
-   cả hai và chỉ rõ chúng mâu thuẫn.
+── CÁCH TRẢ LỜI ──
+A. Trả lời TRỰC TIẾP và ĐẦY ĐỦ. Trình bày NỘI DUNG cụ thể lấy từ ngữ cảnh: con số,
+   tỷ lệ %, mốc thời gian, điều kiện, tên chức danh, công thức...
+B. CẤM trả lời kiểu "chỉ đường". KHÔNG viết "thông tin được nêu tại mục [i]",
+   "được quy định tại Điều/Khoản/Bảng...", "xem mục [i]", "bảng ... được cung cấp
+   trong [i]". Người đọc cần chính câu trả lời, không cần biết nó nằm ở đâu.
+C. Câu hỏi yêu cầu một bảng / danh mục / các mức / tỷ lệ / định mức → LIỆT KÊ đủ
+   các dòng liên quan thành bảng Markdown hoặc danh sách gạch đầu dòng, GIỮ NGUYÊN
+   mọi số liệu.
+D. Được diễn đạt lại, tóm tắt, sắp xếp lại thành bảng/danh sách. KHÔNG bắt buộc chép
+   nguyên văn câu chữ — chỉ bắt buộc mọi SỐ LIỆU và SỰ KIỆN đúng như ngữ cảnh.
+
+── GROUNDING ──
+1. Không bịa. Không dùng kiến thức ngoài ngữ cảnh. Không suy luận vượt quá điều
+   ngữ cảnh nói.
+2. Mọi số liệu / khẳng định trong câu trả lời phải truy được về một mục [i] cụ thể.
+3. Ngữ cảnh KHÔNG đủ thông tin để trả lời → status = INSUFFICIENT_EVIDENCE, answer
+   ghi rõ "Không tìm thấy thông tin trong tài liệu". KHÔNG trả lời nửa vời.
+4. Chỉ trả lời được một phần (thiếu vài dòng bảng, thiếu vài mức...) →
+   status = PARTIALLY_GROUNDED; VẪN trình bày đầy đủ phần trả lời được và nêu rõ
+   phần nào còn thiếu.
+5. Ngữ cảnh chứa hai thông tin MÂU THUẪN về cùng một điều → status = CONFLICTING_EVIDENCE,
+   "conflictNote" mô tả ngắn hai nguồn, answer nêu cả hai và chỉ rõ mâu thuẫn.
 6. "usedContext" chỉ liệt kê số [i] bạn thực sự dùng — không tạo trích dẫn giả.
-7. "groundedInContext" = true CHỈ khi mọi câu trong answer đều có căn cứ trực
-   tiếp, nguyên văn trong các mục đã trích; ngược lại đặt false.
-8. "claims" = tách CHÍNH answer của bạn thành các khẳng định nguyên tử, mỗi phần
-   tử là MỘT sự kiện độc lập tự kiểm chứng được, giữ nguyên số liệu/tên riêng/mốc
-   thời gian. KHÔNG thêm thông tin ngoài answer. Nếu status = INSUFFICIENT_EVIDENCE
-   → "claims" rỗng.
+7. "groundedInContext" = true khi MỌI số liệu và sự kiện trong answer đều lấy từ
+   ngữ cảnh (cho phép diễn đạt lại / trình bày dạng bảng); false nếu có bất kỳ chi
+   tiết nào bạn tự thêm.
+8. "claims" = tách CHÍNH answer thành các khẳng định nguyên tử, mỗi phần tử là MỘT
+   sự kiện độc lập tự kiểm chứng được, giữ nguyên số liệu / tên riêng / mốc thời
+   gian. KHÔNG thêm thông tin ngoài answer. status = INSUFFICIENT_EVIDENCE →
+   "claims" rỗng.
 
 Trả JSON: { "answer", "status", "usedContext": [1,2], "groundedInContext": bool,
 "conflictNote": "", "claims": [{ "text": "..." }] }`;
