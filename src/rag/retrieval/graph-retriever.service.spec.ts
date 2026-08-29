@@ -9,6 +9,7 @@ function build(
   opts: {
     enabled?: boolean;
     seedKeys?: string[];
+    linkError?: 'neo4j_unavailable';
     relRows?: Array<{ chunkId: string; score: number }>;
     mentionRows?: Array<{ chunkId: string }>;
     pgRows?: unknown[];
@@ -31,10 +32,11 @@ function build(
 
   const linker = {
     link: jest.fn().mockResolvedValue({
-      seedKeys: opts.seedKeys ?? ['k1'],
+      seedKeys: opts.linkError ? [] : (opts.seedKeys ?? ['k1']),
       linkedNames: ['E1'],
-      method: 'substring',
+      method: opts.linkError ? 'none' : 'substring',
       usage: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
+      error: opts.linkError,
     }),
   } as unknown as GraphEntityLinkerService;
 
@@ -134,5 +136,35 @@ describe('GraphRetrieverService', () => {
     // lần 4: circuit mở → skipped, không gọi Neo4j nữa
     const r4 = await svc.retrieve({ query: 'q', topK: 5 });
     expect(r4.trace.skipped).toBe('circuit_open');
+  });
+
+  it('linker báo neo4j_unavailable → trace.error + tính vào circuit (KHÔNG là no_seed_entity)', async () => {
+    const { svc } = build({ linkError: 'neo4j_unavailable' });
+    const r = await svc.retrieve({ query: 'q', topK: 5 });
+    expect(r.trace.error).toBe('graph_retrieval_failed');
+    expect(r.trace.reason).toBeUndefined();
+  });
+
+  it('circuit reset khi thành công sau vài lỗi (chưa đủ ngưỡng)', async () => {
+    const failing = build({ neo4jThrows: true });
+    await failing.svc.retrieve({ query: 'q', topK: 5 });
+    await failing.svc.retrieve({ query: 'q', topK: 5 });
+    // 2 lỗi, chưa mở. 1 lần thành công (no seed) → reset.
+    (
+      failing.svc as unknown as { linker: GraphEntityLinkerService }
+    ).linker.link = jest.fn().mockResolvedValue({
+      seedKeys: [],
+      linkedNames: [],
+      method: 'none',
+      usage: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
+    });
+    const ok = await failing.svc.retrieve({ query: 'q', topK: 5 });
+    expect(ok.trace.reason).toBe('no_seed_entity');
+    // sau reset: 1 lỗi nữa KHÔNG đủ mở circuit (đếm lại từ 0)
+    (
+      failing.svc as unknown as { linker: GraphEntityLinkerService }
+    ).linker.link = jest.fn().mockRejectedValue(new Error('x'));
+    const afterReset = await failing.svc.retrieve({ query: 'q', topK: 5 });
+    expect(afterReset.trace.skipped).toBeUndefined();
   });
 });

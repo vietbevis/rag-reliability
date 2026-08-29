@@ -47,23 +47,36 @@ export class KeywordRetrieverService implements Retriever {
 
     const where = this.buildWhere(options);
 
-    const rows = await this.prisma.$queryRaw<Row[]>`
-      SELECT c."id", c."documentId", c."content", c."heading", c."section",
-             c."page", c."metadata",
-             ts_rank(to_tsvector('simple', c."content"),
-                     websearch_to_tsquery('simple', ${options.query})) AS rank
-      FROM "DocumentChunk" c
-      JOIN "Document" d ON d."id" = c."documentId"
-      WHERE ${where}
-      ORDER BY rank DESC
-      LIMIT ${options.topK}
-    `;
+    let rows: Row[];
+    try {
+      // Cột generated `contentTsv` (migration phase6_tsvector) — tránh tính
+      // `to_tsvector` hai lần và dùng GIN index trực tiếp.
+      rows = await this.prisma.$queryRaw<Row[]>`
+        SELECT c."id", c."documentId", c."content", c."heading", c."section",
+               c."page", c."metadata",
+               ts_rank(c."contentTsv",
+                       websearch_to_tsquery('simple', ${options.query})) AS rank
+        FROM "DocumentChunk" c
+        JOIN "Document" d ON d."id" = c."documentId"
+        WHERE ${where}
+        ORDER BY rank DESC
+        LIMIT ${options.topK}
+      `;
+    } catch (err) {
+      // Hợp đồng Retriever: KHÔNG ném — trả rỗng + trace.error để fusion tiếp
+      // với nguồn khác (PROMPT §54).
+      this.logger.warn(`Keyword query lỗi: ${(err as Error).message}`);
+      return emptyResult({ error: 'keyword_db_failed' });
+    }
 
+    // Chuẩn hoá score theo batch (ts_rank tuyệt đối rất nhỏ ~0.05 → nếu để
+    // nguyên sẽ bị ContextValidator từ chối & chìm trong weighted fusion).
+    const maxRank = Math.max(...rows.map((r) => Number(r.rank)), 1e-9);
     const chunks: RetrievedChunk[] = rows.map((r) => ({
       chunkId: r.id,
       documentId: r.documentId,
       content: r.content,
-      score: this.toScore(Number(r.rank)),
+      score: this.toScore(Number(r.rank), maxRank),
       source: 'keyword',
       heading: r.heading ?? undefined,
       section: r.section ?? undefined,
@@ -88,7 +101,7 @@ export class KeywordRetrieverService implements Retriever {
 
   private buildWhere(options: RetrieveOptions): Prisma.Sql {
     const parts: Prisma.Sql[] = [
-      Prisma.sql`to_tsvector('simple', c."content") @@ websearch_to_tsquery('simple', ${options.query})`,
+      Prisma.sql`c."contentTsv" @@ websearch_to_tsquery('simple', ${options.query})`,
       Prisma.sql`d."status" = 'COMPLETED'::"DocumentStatus"`,
     ];
     const f = options.filters;
@@ -105,11 +118,12 @@ export class KeywordRetrieverService implements Retriever {
   }
 
   /**
-   * Chuẩn hoá ts_rank (không có trần trên) về khoảng [0,1].
-   * Công thức: rank / (rank + 1).
+   * Chuẩn hoá ts_rank về [0,1] theo BATCH: `rank / maxRank`. Kết quả khớp tốt
+   * nhất của lượt tìm ≈ 1.0 (nhất quán với cách vector/graph chuẩn hoá tương
+   * đối), rank tuyệt đối rất nhỏ không còn làm score chìm.
    */
-  private toScore(rank: number): number {
-    const normalized = rank > 0 ? rank / (rank + 1) : 0;
-    return Math.max(0, Math.min(1, Number(normalized.toFixed(6))));
+  private toScore(rank: number, maxRank: number): number {
+    if (rank <= 0) return 0;
+    return Math.max(0, Math.min(1, Number((rank / maxRank).toFixed(6))));
   }
 }

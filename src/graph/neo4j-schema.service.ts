@@ -18,6 +18,8 @@ export class Neo4jSchemaService implements OnModuleInit {
     'CREATE INDEX entity_docids IF NOT EXISTS FOR (e:Entity) ON (e.documentIds)',
     'CREATE INDEX rel_docids IF NOT EXISTS FOR ()-[r:RELATED]-() ON (r.documentIds)',
     'CREATE INDEX chunk_docid IF NOT EXISTS FOR (c:Chunk) ON (c.documentId)',
+    // Fulltext để entity linking (P6) tìm ứng viên theo token, không quét toàn bộ.
+    'CREATE FULLTEXT INDEX entity_name_fts IF NOT EXISTS FOR (e:Entity) ON EACH [e.name]',
   ];
 
   constructor(private readonly neo4j: Neo4jService) {}

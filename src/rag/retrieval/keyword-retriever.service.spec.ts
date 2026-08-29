@@ -47,12 +47,10 @@ describe('KeywordRetrieverService', () => {
     expect(r.chunks[0]!.page).toBe(2);
     expect(r.chunks[0]!.metadata).toEqual({ strategy: 'fixed', rank: 0.8 });
 
-    // Score chuẩn hoá [0,1] theo công thức rank / (rank + 1)
-    expect(r.chunks[0]!.score).toBeCloseTo(0.8 / 1.8, 4);
-    expect(r.chunks[1]!.score).toBeCloseTo(0.2 / 1.2, 4);
+    // Score chuẩn hoá [0,1] theo BATCH (rank / maxRank) — top ≈ 1.0
+    expect(r.chunks[0]!.score).toBe(1); // 0.8 / 0.8
+    expect(r.chunks[1]!.score).toBeCloseTo(0.25, 4); // 0.2 / 0.8
     expect(r.chunks[0]!.score).toBeGreaterThan(r.chunks[1]!.score);
-    expect(r.chunks[0]!.score).toBeLessThanOrEqual(1);
-    expect(r.chunks[0]!.score).toBeGreaterThanOrEqual(0);
 
     expect(r.embeddingTokens).toBe(0);
     expect(r.estimatedCost).toBe(0);
@@ -110,10 +108,10 @@ describe('KeywordRetrieverService', () => {
     expect(queryRaw).not.toHaveBeenCalled();
   });
 
-  it('lỗi DB -> để ném ra ngoài', async () => {
+  it('lỗi DB -> KHÔNG ném (hợp đồng Retriever), trả trace.error', async () => {
     const { svc } = build({ queryRawThrows: true });
-    await expect(svc.retrieve({ query: 'câu hỏi', topK: 5 })).rejects.toThrow(
-      'DB connection failed',
-    );
+    const r = await svc.retrieve({ query: 'câu hỏi', topK: 5 });
+    expect(r.chunks).toEqual([]);
+    expect(r.trace.error).toBe('keyword_db_failed');
   });
 });

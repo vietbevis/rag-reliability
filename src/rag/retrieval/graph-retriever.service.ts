@@ -72,6 +72,21 @@ export class GraphRetrieverService implements Retriever {
 
     try {
       const link = await this.linker.link(options.query);
+
+      // Neo4j chết ở bước linking = lỗi hạ tầng (KHÔNG phải "câu hỏi không có
+      // thực thể"). Tính vào circuit-breaker, báo error (§54).
+      if (link.error) {
+        this.onFailure();
+        return {
+          ...emptyResult({
+            error: 'graph_retrieval_failed',
+            detail: link.error,
+          }),
+          estimatedCost: link.usage.estimatedCost,
+          latencyMs: Date.now() - started,
+        };
+      }
+
       if (link.seedKeys.length === 0) {
         this.onSuccess();
         return {

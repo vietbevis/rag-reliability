@@ -96,6 +96,10 @@ model DocumentChunk {
   page         Int?
   qualityScore Float?
   metadata     Json     @default("{}")
+  /// Cột GENERATED (`to_tsvector('simple', content)`) do SQL migration
+  /// `phase6_tsvector` tạo — keyword retrieval (P6). Prisma chỉ theo dõi sự tồn
+  /// tại; mọi truy vấn FTS đi qua `$queryRaw`.
+  contentTsv   Unsupported("tsvector")?
   createdAt    DateTime @default(now())
 
   embeddings Embedding[]

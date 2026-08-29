@@ -47,6 +47,15 @@ export function fuse(
 
   const acc = new Map<string, Accum>();
 
+  // Trần điểm LÝ THUYẾT (một chunk đứng #1 ở MỌI nguồn) — chuẩn hoá theo cái này
+  // để "mọi kết quả đều yếu" KHÔNG bị thổi lên 1.0 (giữ tín hiệu cho
+  // ContextValidator). KHÁC với chia cho max của batch hiện tại.
+  let theoreticalMax = 0;
+  for (const out of nonEmpty) {
+    const w = config.weights[out.source] ?? 1;
+    theoreticalMax += config.method === 'rrf' ? w / (config.rrfK + 1) : w;
+  }
+
   for (const out of nonEmpty) {
     const w = config.weights[out.source] ?? 1;
     // Xếp hạng nội bộ nguồn theo score giảm dần (rank bắt đầu từ 1).
@@ -75,13 +84,17 @@ export function fuse(
     });
   }
 
-  const fused = [...acc.values()]
+  return [...acc.values()]
+    .sort((a, b) => b.score - a.score)
+    .slice(0, topK)
     .map((e) => {
       const source: RetrievalSource =
         e.sources.size > 1 ? 'hybrid' : ([...e.sources][0] ?? e.chunk.source);
-      const fusedChunk: RetrievedChunk = {
+      return {
         ...e.chunk,
-        score: round(e.score),
+        score: clamp01(
+          round(theoreticalMax > 0 ? e.score / theoreticalMax : 0),
+        ),
         source,
         metadata: {
           ...e.chunk.metadata,
@@ -89,22 +102,11 @@ export function fuse(
             method: config.method,
             fromSources: [...e.sources],
             perSource: e.perSource,
+            rawScore: round(e.score),
           },
         },
       };
-      return { fusedChunk, raw: e.score };
-    })
-    .sort((a, b) => b.raw - a.raw)
-    .slice(0, topK)
-    .map((x) => x.fusedChunk);
-
-  // Chuẩn hoá score hợp nhất về [0,1] để đồng nhất với các stage sau
-  // (ContextValidator so ngưỡng relevance). Chia cho score cao nhất.
-  const max = fused[0]?.score ?? 0;
-  if (max > 0) {
-    for (const c of fused) c.score = round(c.score / max);
-  }
-  return fused;
+    });
 }
 
 function clamp01(n: number): number {

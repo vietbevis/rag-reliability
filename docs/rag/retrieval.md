@@ -97,37 +97,36 @@ không được làm hỏng truy vấn).
 
 1. **Full-text search với cấu hình 'simple'**:
    PostgreSQL không tích hợp sẵn bộ phân tích từ tiếng Việt (Vietnamese dictionary/stemmer). Dùng cấu hình `'simple'` để thực hiện tokenize + lowercase nguyên bản, đảm bảo khớp chính xác các từ tố, thuật ngữ kỹ thuật, mã văn bản.
-2. **Index GIN**:
-   Migration PHASE 6 tạo GIN index trên biểu thức `to_tsvector('simple', "content")` của bảng `DocumentChunk` để tăng tốc độ truy vấn:
+2. **Cột generated + Index GIN** (migration `phase6_tsvector`):
    ```sql
-   CREATE INDEX IF NOT EXISTS "DocumentChunk_content_fts_idx"
-     ON "DocumentChunk" USING GIN (to_tsvector('simple', "content"));
+   ALTER TABLE "DocumentChunk" ADD COLUMN "contentTsv" tsvector
+     GENERATED ALWAYS AS (to_tsvector('simple', "content")) STORED;
+   CREATE INDEX "DocumentChunk_contentTsv_idx"
+     ON "DocumentChunk" USING GIN ("contentTsv");
    ```
-3. **Truy vấn với `$queryRaw`**:
-   Dùng `websearch_to_tsquery('simple', $query)` để chuyển câu hỏi người dùng thành `tsquery` an toàn (hỗ trợ toán tử tìm kiếm web cơ bản, không throw lỗi cú pháp) và `ts_rank` để chấm điểm mức độ liên quan:
+   Cột generated → `to_tsvector` KHÔNG tính lại mỗi row (SELECT ts_rank + WHERE
+   @@), và GIN index dùng trực tiếp trên cột. Prisma: `Unsupported("tsvector")?`.
+3. **Truy vấn với `$queryRaw`** — `websearch_to_tsquery('simple', $query)` +
+   `ts_rank(c."contentTsv", ...)`:
    ```sql
-   SELECT c."id", c."documentId", c."content", c."heading", c."section",
-          c."page", c."metadata",
-          ts_rank(to_tsvector('simple', c."content"),
-                  websearch_to_tsquery('simple', $query)) AS rank
-   FROM "DocumentChunk" c
-   JOIN "Document" d ON d."id" = c."documentId"
-   WHERE to_tsvector('simple', c."content") @@ websearch_to_tsquery('simple', $query)
+   SELECT ..., ts_rank(c."contentTsv", websearch_to_tsquery('simple', $query)) AS rank
+   FROM "DocumentChunk" c JOIN "Document" d ON d."id" = c."documentId"
+   WHERE c."contentTsv" @@ websearch_to_tsquery('simple', $query)
      AND d."status" = 'COMPLETED'::"DocumentStatus"
      [AND c."documentId" IN (...) | d."source" IN (...) | c."metadata" ->> $k = $v]
-   ORDER BY rank DESC
-   LIMIT $topK
+   ORDER BY rank DESC LIMIT $topK
    ```
+   `$queryRaw` bọc try/catch → lỗi DB trả `emptyResult({ error: 'keyword_db_failed' })`
+   (hợp đồng Retriever, §54).
 4. **Khi nào keyword thắng vector (PROMPT §17)**:
    - Truy vấn chứa **mã văn bản**, số hiệu quyết định (ví dụ: `123/QĐ-ĐHQG`, `Nghị định 45/2020`). Embedding model thường bị trôi vector hoặc xem các mã số như token ngẫu nhiên, trong khi keyword search khớp chính xác 100%.
    - **Tên riêng**, từ viết tắt, mã môn học, tên quy chuẩn hiếm gặp.
    - Khi embedding provider chưa sẵn sàng hoặc gặp sự cố mạng/hạn mức, keyword search trên Postgres vẫn chạy ổn định (zero external dependency).
-5. **Chuẩn hoá điểm `score`**:
-   `ts_rank` không có trần trên cố định (giá trị phụ thuộc vào tần suất từ xuất hiện trong chunk). Chuẩn hoá về thang đo $[0, 1]$ thông qua hàm đơn điệu:
-   $$\text{score} = \frac{\text{rank}}{\text{rank} + 1}$$
-   - Đảm bảo $\text{score} \in [0, 1)$, $\text{rank} = 0 \Rightarrow \text{score} = 0$.
-   - Giữ nguyên thứ tự xếp hạng (rank cao $\Rightarrow$ score cao).
-   - Dễ dàng hợp nhất với điểm cosine similarity của Vector Retriever qua thuật toán Fusion (RRF / Weighted).
+5. **Chuẩn hoá điểm `score`** — `ts_rank` tuyệt đối rất nhỏ (~0.01–0.08). Chuẩn
+   hoá **theo batch**: `score = rank / max(rank trong lượt)`. Kết quả khớp tốt
+   nhất ≈ 1.0 (nhất quán với cách vector/graph chuẩn hoá tương đối), rank tuyệt
+   đối nhỏ không còn làm score chìm khi weighted fusion / khi `ContextValidator`
+   so ngưỡng ở strategy `keyword` đơn lẻ.
 6. **Xử lý query đặc biệt**:
    Nếu câu query rỗng hoặc toàn ký tự đặc biệt (không chứa ký tự chữ/số nào), service trả về ngay `emptyResult({ reason: 'empty_tsquery' })` mà không cần gọi database.
 
@@ -138,10 +137,15 @@ không được làm hỏng truy vấn).
 khi `GRAPH_RAG_ENABLED=true`. Luồng (graph-rag.md §4):
 
 1. **Entity linking** (`GraphEntityLinkerService`, 3 tầng, dừng ở tầng đầu có kết quả):
-   1. **substring** — tên `Entity` là chuỗi con (chuẩn hoá) của query. Rẻ, không LLM.
+   1. **fulltext** — Neo4j fulltext index `entity_name_fts` (`db.index.fulltext.
+      queryNodes`) lấy ứng viên theo token, rồi **hậu lọc** trong TS: tên (chuẩn
+      hoá) phải là chuỗi con của query VÀ (đa từ HOẶC ≥6 ký tự) — chặn
+      false-positive từ ngắn kiểu "Nam", "Ban", "Văn". Rẻ, không LLM.
    2. alias (`EntityAlias`) — **hoãn** (chưa có bảng).
    3. **LLM** (`GRAPH_LINK_USE_LLM=true`) — rút danh sách thực thể từ query bằng
       structured output, khớp lại `toLower(Entity.name)`.
+   Neo4j LỖI ở bất kỳ tầng nào → `error: 'neo4j_unavailable'` → GraphRetriever
+   tính vào circuit-breaker + báo `trace.error` (KHÔNG nhầm với `no_seed_entity`).
 2. **Traversal** — `MATCH (s)-[:RELATED*1..GRAPH_MAX_HOPS]-(:Entity)`, loại đỉnh
    `degree > GRAPH_MAX_ENTITY_DEGREE` (chống nổ trên hub entity), sắp theo tổng
    `weight` đường đi, `LIMIT GRAPH_RETRIEVAL_TOP_K`. `hops/topK/maxDegree` nội suy
@@ -164,8 +168,10 @@ khi `GRAPH_RAG_ENABLED=true`. Luồng (graph-rag.md §4):
 - Chunk trùng `chunkId` giữa các nguồn → cộng điểm, `source='hybrid'`,
   `metadata.fusion` ghi rank/score từng nguồn (trace).
 - Chỉ 1 nguồn có kết quả → pass-through (không đổi score/source).
-- Score hợp nhất chuẩn hoá lại về [0,1] (chia cho đỉnh) để đồng nhất với
-  `ContextValidator`.
+- Score hợp nhất chuẩn hoá về [0,1] bằng cách chia cho **trần LÝ THUYẾT** (một
+  chunk đứng #1 ở MỌI nguồn): RRF `Σ w_r/(k+1)`, weighted `Σ w_r`. KHÔNG chia cho
+  max của batch — nếu không "mọi kết quả đều rác" sẽ bị thổi lên 1.0 và lọt qua
+  `ContextValidator` gây hallucination. `metadata.fusion.rawScore` giữ điểm thô.
 
 `RetrievalService` chạy các retriever của `strategy` **song song** (`Promise.all`);
 chỉ set `error` toàn cục (→ 502) khi **mọi** nguồn được chọn đều lỗi hạ tầng.

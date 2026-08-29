@@ -154,4 +154,59 @@ describe('RetrievalService (PHASE 6 — strategy + fusion)', () => {
       chunks: [chunk('a', 0.9)],
     });
   });
+
+  it('hybrid: 1 retriever NÉM (vi phạm hợp đồng) → cô lập, nguồn khác vẫn chạy', async () => {
+    const config = mockConfigService({
+      rag: { retrievalTopK: 20 },
+      retrieval: { strategy: 'hybrid' },
+    });
+    const vector = {
+      retrieve: jest.fn().mockRejectedValue(new Error('boom')),
+    } as unknown as VectorRetrieverService;
+    const keyword = {
+      retrieve: jest.fn().mockResolvedValue(res([chunk('b', 0.8, 'keyword')])),
+    } as unknown as KeywordRetrieverService;
+    const graph = {
+      retrieve: jest.fn().mockResolvedValue(res([])),
+    } as unknown as GraphRetrieverService;
+    const prisma = {
+      retrievalLog: { create: jest.fn().mockResolvedValue({}) },
+    } as unknown as PrismaService;
+
+    const svc = new RetrievalService(prisma, vector, keyword, graph, config);
+    const r = await svc.retrieve({ query: 'q' });
+    expect(r.chunks.length).toBeGreaterThan(0); // keyword vẫn có kết quả
+    expect(r.error).toBeUndefined(); // 1/3 fail, không phải toàn bộ
+  });
+
+  it('fusion weighted: dùng score chuẩn hoá * trọng số', async () => {
+    const config = mockConfigService({
+      rag: { retrievalTopK: 20 },
+      retrieval: {
+        strategy: 'hybrid',
+        fusion: {
+          method: 'weighted',
+          rrfK: 60,
+          weights: { vector: 2, keyword: 0.1, graph: 0.1 },
+        },
+      },
+    });
+    const vector = {
+      retrieve: jest.fn().mockResolvedValue(res([chunk('a', 0.4)])),
+    } as unknown as VectorRetrieverService;
+    const keyword = {
+      retrieve: jest.fn().mockResolvedValue(res([chunk('b', 0.9, 'keyword')])),
+    } as unknown as KeywordRetrieverService;
+    const graph = {
+      retrieve: jest.fn().mockResolvedValue(res([])),
+    } as unknown as GraphRetrieverService;
+    const prisma = {
+      retrievalLog: { create: jest.fn().mockResolvedValue({}) },
+    } as unknown as PrismaService;
+
+    const svc = new RetrievalService(prisma, vector, keyword, graph, config);
+    const r = await svc.retrieve({ query: 'q' });
+    // a: 2·0.4 = 0.8 ; b: 0.1·0.9 = 0.09 → a đứng đầu
+    expect(r.chunks[0]!.chunkId).toBe('a');
+  });
 });

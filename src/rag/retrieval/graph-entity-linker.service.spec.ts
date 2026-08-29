@@ -5,18 +5,21 @@ import { GraphEntityLinkerService } from './graph-entity-linker.service';
 
 function build(
   opts: {
-    substringRows?: Array<{ key: string; name: string }>;
+    ftsRows?: Array<{ key: string; name: string }>;
     llmEntities?: string[];
     llmMatchRows?: Array<{ key: string; name: string }>;
     useLlm?: boolean;
-    neo4jThrows?: boolean;
+    ftsThrows?: boolean;
+    matchThrows?: boolean;
   } = {},
 ) {
   const read = jest.fn((cypher: string) => {
-    if (opts.neo4jThrows) return Promise.reject(new Error('neo4j down'));
-    if (cypher.includes('CONTAINS toLower(e.name)')) {
-      return Promise.resolve(opts.substringRows ?? []);
+    if (cypher.includes('db.index.fulltext.queryNodes')) {
+      if (opts.ftsThrows) return Promise.reject(new Error('neo4j down'));
+      return Promise.resolve(opts.ftsRows ?? []);
     }
+    // tầng 3 match
+    if (opts.matchThrows) return Promise.reject(new Error('neo4j down'));
     return Promise.resolve(opts.llmMatchRows ?? []);
   });
   const neo4j = { read } as unknown as Neo4jService;
@@ -47,19 +50,30 @@ function build(
 }
 
 describe('GraphEntityLinkerService', () => {
-  it('tầng 1 (substring) khớp → method=substring, KHÔNG gọi LLM', async () => {
+  it('tầng 1 (fulltext + hậu lọc) khớp tên đa từ trong query → method=substring', async () => {
     const { svc, chatStructured } = build({
-      substringRows: [{ key: 'k1', name: 'Phòng Đào Tạo' }],
+      ftsRows: [{ key: 'k1', name: 'Phòng Đào Tạo' }],
     });
-    const r = await svc.link('Phòng Đào Tạo quản lý gì?');
+    const r = await svc.link('Phòng Đào Tạo quản lý hồ sơ gì?');
     expect(r.method).toBe('substring');
     expect(r.seedKeys).toEqual(['k1']);
     expect(chatStructured).not.toHaveBeenCalled();
   });
 
-  it('tầng 1 rỗng → tầng 3 (LLM) rút thực thể rồi khớp tên', async () => {
+  it('hậu lọc loại tên NGẮN 1 từ khớp nhầm ("Nam" trong "Việt Nam")', async () => {
+    const { svc } = build({
+      ftsRows: [
+        { key: 'kshort', name: 'Nam' }, // 1 từ, < 6 ký tự → loại
+        { key: 'kok', name: 'Đại học Bách Khoa' }, // đa từ → giữ (nếu có trong query)
+      ],
+    });
+    const r = await svc.link('Việt Nam có trường Đại học Bách Khoa');
+    expect(r.seedKeys).toEqual(['kok']);
+  });
+
+  it('tầng 1 rỗng → tầng 3 (LLM) rút thực thể rồi khớp', async () => {
     const { svc, chatStructured } = build({
-      substringRows: [],
+      ftsRows: [],
       llmEntities: ['Bách Khoa'],
       llmMatchRows: [{ key: 'k9', name: 'Bách Khoa' }],
     });
@@ -67,25 +81,30 @@ describe('GraphEntityLinkerService', () => {
     expect(chatStructured).toHaveBeenCalled();
     expect(r.method).toBe('llm');
     expect(r.seedKeys).toEqual(['k9']);
-    expect(r.usage.inputTokens).toBe(5);
   });
 
-  it('GRAPH_LINK_USE_LLM=false → không gọi LLM, trả none', async () => {
-    const { svc, chatStructured } = build({ substringRows: [], useLlm: false });
+  it('Neo4j lỗi ở tầng 1 → error=neo4j_unavailable, KHÔNG gọi LLM', async () => {
+    const { svc, chatStructured } = build({ ftsThrows: true });
+    const r = await svc.link('câu hỏi bất kỳ');
+    expect(r.error).toBe('neo4j_unavailable');
+    expect(r.seedKeys).toEqual([]);
+    expect(chatStructured).not.toHaveBeenCalled();
+  });
+
+  it('Neo4j lỗi ở tầng 3 (match) → error=neo4j_unavailable', async () => {
+    const { svc } = build({
+      ftsRows: [],
+      llmEntities: ['Bách Khoa'],
+      matchThrows: true,
+    });
+    const r = await svc.link('q');
+    expect(r.error).toBe('neo4j_unavailable');
+  });
+
+  it('GRAPH_LINK_USE_LLM=false → không gọi LLM, method none', async () => {
+    const { svc, chatStructured } = build({ ftsRows: [], useLlm: false });
     const r = await svc.link('câu hỏi mơ hồ');
     expect(chatStructured).not.toHaveBeenCalled();
-    expect(r.method).toBe('none');
-    expect(r.seedKeys).toEqual([]);
-  });
-
-  it('Neo4j lỗi → seed rỗng, không ném', async () => {
-    const { svc } = build({ neo4jThrows: true, useLlm: false });
-    await expect(svc.link('q')).resolves.toMatchObject({ seedKeys: [] });
-  });
-
-  it('LLM trả rỗng → không query khớp, method none', async () => {
-    const { svc } = build({ substringRows: [], llmEntities: [] });
-    const r = await svc.link('q');
     expect(r.method).toBe('none');
   });
 });

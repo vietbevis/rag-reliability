@@ -98,12 +98,30 @@ export class RetrievalService {
     const results = await Promise.all(
       sources.map(async (source) => {
         const retriever = this.registry[source]!;
-        const res = await retriever.retrieve({
-          query: req.query,
-          topK,
-          filters: req.filters,
-        });
-        return { source, res };
+        try {
+          const res = await retriever.retrieve({
+            query: req.query,
+            topK,
+            filters: req.filters,
+          });
+          return { source, res };
+        } catch (err) {
+          // Retriever KHÔNG được ném (hợp đồng) — nếu vẫn ném, cô lập lỗi để
+          // các nguồn khác trong hybrid vẫn chạy (§54).
+          this.logger.warn(
+            `Retriever "${source}" ném lỗi (vi phạm hợp đồng): ${(err as Error).message}`,
+          );
+          return {
+            source,
+            res: {
+              chunks: [],
+              latencyMs: 0,
+              embeddingTokens: 0,
+              estimatedCost: 0,
+              trace: { error: `${source}_threw` },
+            },
+          };
+        }
       }),
     );
 

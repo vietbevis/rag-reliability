@@ -79,17 +79,24 @@ export class VectorRetrieverService implements Retriever {
     const where = this.buildWhere(options, model);
     const distanceOp = Prisma.raw(this.distanceOp);
 
-    const rows = await this.prisma.$queryRaw<Row[]>`
-      SELECT c."id", c."documentId", c."content", c."heading", c."section",
-             c."page", c."metadata",
-             e."embedding" ${distanceOp} ${vecLiteral}::vector AS distance
-      FROM "Embedding" e
-      JOIN "DocumentChunk" c ON c."id" = e."chunkId"
-      JOIN "Document" d ON d."id" = c."documentId"
-      WHERE ${where}
-      ORDER BY distance ASC
-      LIMIT ${options.topK}
-    `;
+    let rows: Row[];
+    try {
+      rows = await this.prisma.$queryRaw<Row[]>`
+        SELECT c."id", c."documentId", c."content", c."heading", c."section",
+               c."page", c."metadata",
+               e."embedding" ${distanceOp} ${vecLiteral}::vector AS distance
+        FROM "Embedding" e
+        JOIN "DocumentChunk" c ON c."id" = e."chunkId"
+        JOIN "Document" d ON d."id" = c."documentId"
+        WHERE ${where}
+        ORDER BY distance ASC
+        LIMIT ${options.topK}
+      `;
+    } catch (err) {
+      // Hợp đồng Retriever: KHÔNG ném (§54) — để fusion tiếp với nguồn khác.
+      this.logger.warn(`Vector query lỗi: ${(err as Error).message}`);
+      return emptyResult({ error: 'vector_db_failed' });
+    }
 
     const chunks: RetrievedChunk[] = rows.map((r) => ({
       chunkId: r.id,

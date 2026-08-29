@@ -236,7 +236,7 @@ export class RagPipelineService {
         claims: [],
         faithfulness: null,
         retrieval: {
-          strategy: 'vector',
+          strategy: req.strategy ?? 'vector',
           chunkCount: 0,
           topScore: null,
           chunks: [],

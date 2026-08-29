@@ -13,6 +13,12 @@ export interface EntityLinkResult {
   linkedNames: string[];
   method: 'substring' | 'llm' | 'none';
   usage: { inputTokens: number; outputTokens: number; estimatedCost: number };
+  /**
+   * Set khi truy vấn Neo4j LỖI (không phải "không khớp"). GraphRetriever PHẢI
+   * coi đây là lỗi hạ tầng: tính vào circuit-breaker, trả `trace.error` (§54) —
+   * KHÔNG được nhầm với `no_seed_entity`.
+   */
+  error?: 'neo4j_unavailable';
 }
 
 const QUERY_ENTITIES_SCHEMA = z.object({
@@ -25,11 +31,13 @@ const EMPTY_USAGE = { inputTokens: 0, outputTokens: 0, estimatedCost: 0 };
  * Nối câu hỏi → thực thể trong graph (graph-rag.md §0, "Entity linking khi truy
  * vấn"). 3 tầng, dừng ở tầng đầu tiên có kết quả:
  *
- *   1. Tên thực thể là chuỗi con (chuẩn hoá) của query — rẻ, không LLM.
+ *   1. Fulltext index `entity_name_fts` lấy ứng viên + hậu lọc "tên xuất hiện
+ *      trong query, đa từ / đủ dài" — rẻ, không LLM.
  *   2. Alias (bảng `EntityAlias`) — HOÃN sang sau (chưa có bảng).
  *   3. LLM rút danh sách thực thể từ query, khớp lại với `Entity.name`.
  *
- * Neo4j chết → trả seed rỗng (GraphRetriever sẽ trả []). Không ném.
+ * KHÔNG ném. Neo4j LỖI (khác "không khớp") → `error: 'neo4j_unavailable'` để
+ * GraphRetriever tính vào circuit-breaker và báo lỗi hạ tầng (§54).
  */
 @Injectable()
 export class GraphEntityLinkerService {
@@ -45,8 +53,17 @@ export class GraphEntityLinkerService {
   }
 
   async link(query: string): Promise<EntityLinkResult> {
-    // Tầng 1 — chuỗi con.
-    const bySubstring = await this.matchBySubstring(query);
+    // Tầng 1 — fulltext trên Entity.name + hậu lọc "tên xuất hiện trong query".
+    const bySubstring = await this.matchByName(query);
+    if (bySubstring.error) {
+      return {
+        seedKeys: [],
+        linkedNames: [],
+        method: 'none',
+        usage: EMPTY_USAGE,
+        error: bySubstring.error,
+      };
+    }
     if (bySubstring.seedKeys.length) {
       return { ...bySubstring, method: 'substring', usage: EMPTY_USAGE };
     }
@@ -54,6 +71,15 @@ export class GraphEntityLinkerService {
     // Tầng 3 — LLM rút thực thể rồi khớp tên.
     if (this.useLlm) {
       const byLlm = await this.matchByLlm(query);
+      if (byLlm.error) {
+        return {
+          seedKeys: [],
+          linkedNames: [],
+          method: 'none',
+          usage: byLlm.usage,
+          error: byLlm.error,
+        };
+      }
       if (byLlm.seedKeys.length) return { ...byLlm, method: 'llm' };
     }
 
@@ -65,28 +91,43 @@ export class GraphEntityLinkerService {
     };
   }
 
-  private async matchBySubstring(
-    query: string,
-  ): Promise<{ seedKeys: string[]; linkedNames: string[] }> {
+  /**
+   * Tầng 1: fulltext index `entity_name` trên Neo4j (`db.index.fulltext.
+   * queryNodes`) lấy ứng viên, rồi HẬU LỌC trong TS: tên (chuẩn hoá) phải là
+   * chuỗi con của query VÀ (đa từ HOẶC đủ dài) — chặn false-positive từ ngắn
+   * kiểu "Nam", "Ban", "Văn" khớp mọi câu tiếng Việt.
+   */
+  private async matchByName(query: string): Promise<{
+    seedKeys: string[];
+    linkedNames: string[];
+    error?: 'neo4j_unavailable';
+  }> {
     const q = norm(query);
+    const lucene = toLucene(query);
+    if (!lucene) return { seedKeys: [], linkedNames: [] };
     try {
       const rows = await this.neo4j.read<{ key: string; name: string }>(
-        `MATCH (e:Entity)
-         WHERE size(e.name) >= 3 AND toLower($q) CONTAINS toLower(e.name)
-         RETURN e.key AS key, e.name AS name
-         ORDER BY size(e.name) DESC
-         LIMIT 20`,
-        { q },
+        `CALL db.index.fulltext.queryNodes('entity_name_fts', $lucene)
+         YIELD node, score
+         RETURN node.key AS key, node.name AS name
+         ORDER BY score DESC
+         LIMIT 50`,
+        { lucene },
       );
+      const kept = rows.filter((r) => {
+        const n = norm(r.name);
+        const words = n.split(' ').length;
+        return q.includes(n) && (words >= 2 || n.length >= 6);
+      });
       return {
-        seedKeys: rows.map((r) => r.key),
-        linkedNames: rows.map((r) => r.name),
+        seedKeys: [...new Set(kept.map((r) => r.key))].slice(0, 20),
+        linkedNames: kept.map((r) => r.name),
       };
     } catch (err) {
       this.logger.warn(
-        `Entity linking (substring) lỗi: ${(err as Error).message}`,
+        `Entity linking (fulltext) lỗi: ${(err as Error).message}`,
       );
-      return { seedKeys: [], linkedNames: [] };
+      return { seedKeys: [], linkedNames: [], error: 'neo4j_unavailable' };
     }
   }
 
@@ -94,6 +135,7 @@ export class GraphEntityLinkerService {
     seedKeys: string[];
     linkedNames: string[];
     usage: EntityLinkResult['usage'];
+    error?: 'neo4j_unavailable';
   }> {
     const messages: ChatMessage[] = [
       {
@@ -146,11 +188,29 @@ export class GraphEntityLinkerService {
       };
     } catch (err) {
       this.logger.warn(`Entity linking (match) lỗi: ${(err as Error).message}`);
-      return { seedKeys: [], linkedNames: [], usage };
+      return {
+        seedKeys: [],
+        linkedNames: [],
+        usage,
+        error: 'neo4j_unavailable',
+      };
     }
   }
 }
 
 function norm(s: string): string {
   return s.toLowerCase().normalize('NFC').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Query người dùng → chuỗi Lucene an toàn cho `db.index.fulltext.queryNodes`:
+ * bỏ ký tự đặc biệt Lucene, mỗi từ ≥2 ký tự thành một term OR.
+ */
+function toLucene(query: string): string {
+  const terms = query
+    .replace(/[+\-!(){}[\]^"~*?:\\/&|]/g, ' ')
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 2);
+  return terms.join(' OR ');
 }

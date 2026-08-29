@@ -52,17 +52,31 @@ describe('fuse', () => {
     });
   });
 
-  it('score hợp nhất chuẩn hoá về [0,1] (đỉnh = 1)', () => {
+  it('chunk #1 ở MỌI nguồn → score = 1 (đạt trần lý thuyết)', () => {
     const out: RetrieverOutput[] = [
       { source: 'vector', chunks: [c('a', 0.9), c('b', 0.5)] },
       { source: 'graph', chunks: [c('a', 0.8, 'graph')] },
     ];
     const r = fuse(out, RRF, 10);
+    expect(r[0]!.chunkId).toBe('a');
     expect(r[0]!.score).toBe(1);
+  });
+
+  it('MỌI kết quả yếu (mỗi nguồn 1 chunk rác) → score KHÔNG bị thổi lên 1.0', () => {
+    // a chỉ ở vector (rank 1/1 nguồn), b chỉ ở keyword — không chunk nào ở cả 2
+    const out: RetrieverOutput[] = [
+      { source: 'vector', chunks: [c('a', 0.03)] },
+      { source: 'keyword', chunks: [c('b', 0.01, 'keyword')] },
+    ];
+    const r = fuse(out, RRF, 10);
+    // trần lý thuyết = 2·(1/(60+1)); mỗi chunk chỉ đạt 1·(1/61) → score ≈ 0.5
     for (const x of r) {
-      expect(x.score).toBeGreaterThanOrEqual(0);
-      expect(x.score).toBeLessThanOrEqual(1);
+      expect(x.score).toBeLessThan(0.6);
+      expect(x.score).toBeGreaterThan(0);
     }
+    expect(r[0]!.metadata.fusion).toMatchObject({
+      rawScore: expect.any(Number),
+    });
   });
 
   it('weighted: dùng score chuẩn hoá * trọng số', () => {
