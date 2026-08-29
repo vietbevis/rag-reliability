@@ -25,6 +25,7 @@ từ chối khi không có"_. Retrieval kéo về chunk chưa đủ — còn ph�
 query (+ strategy, rerank, strict)
   → RetrievalService.retrieve                     # P4 vector · P6 keyword/graph/hybrid/fusion
   → (RERANK_ENABLED) RerankerService.rerank       # P7
+  → (RAG_TABLE_EXPANSION_ENABLED) TableExpansionService.expand  # P4 — kéo đủ mảnh bảng bị cắt
   → ContextBuilderService.build                   # dedup · sort · token budget
   → ContextValidatorService.validate(strict)      # §22
       ├─ proceed = false → abstain (KHÔNG gọi LLM), INSUFFICIENT_EVIDENCE
@@ -111,6 +112,7 @@ lọc `[1, nContext]`, bỏ trùng, sắp tăng.
 | --- | --- | --- |
 | answer khớp mẫu abstention (`looksLikeAbstention`) | → `INSUFFICIENT_EVIDENCE` | cả non-strict |
 | status GROUNDED/PARTIALLY nhưng `usedContext` rỗng | → `INSUFFICIENT_EVIDENCE` | cả non-strict |
+| [strict] answer kiểu "chỉ đường" (`looksLikePointerAnswer`) — chỉ trỏ vị trí thông tin thay vì trích nội dung | GROUNDED→`PARTIALLY_GROUNDED` + **sinh lại 1 lần** (chỉ dẫn riêng `POINTER_REGEN_INSTRUCTION`) | strict |
 | [strict] GROUNDED nhưng `groundedInContext = false` | → `PARTIALLY_GROUNDED` | strict |
 | [strict] answer ≥ 5 token nội dung và `lexicalGroundingRatio(answer, context) < RAG_MIN_GROUNDING_RATIO` | GROUNDED→`PARTIALLY_GROUNDED` + **sinh lại 1 lần** (`RAG_REGENERATE_ON_UNGROUNDED`) | strict |
 
@@ -121,6 +123,13 @@ không đề cập thời hạn"_ LÀ câu trả lời đúng):
   _"tôi không biết"_, `insufficient_evidence`…) — match ở mọi độ dài.
 - **WEAK** (_"không có thông tin"_, _"ngữ cảnh không đề cập"_…) — chỉ match khi
   answer **≤ 25 từ**, tức không kèm nội dung thực chất.
+
+`looksLikePointerAnswer` chỉ bắt khi CẢ ba đúng, để không phạt oan câu trả lời
+thực có kèm dẫn nguồn (_"Theo Điều 25, sinh viên được bảo lưu 2 học kỳ"_): answer
+**≤ 45 từ**, **không có số liệu nội dung** (số thứ tự _"Bảng 3"_, _"Mục [2]"_ bị
+loại trước khi kiểm), và có cụm trỏ vị trí (_"được nêu tại"_, _"xem mục"_,
+_"được quy định tại Bảng…"_) kèm danh từ cấu trúc, hoặc trỏ thẳng `[i]`. SYSTEM_PROMPT
+§B cấm kiểu trả lời này; hậu kiểm là lớp chặn khi model yếu vẫn vi phạm.
 
 `lexicalGroundingRatio` = tỉ lệ token nội dung (bỏ stopword) của answer xuất hiện
 trong context — proxy thô cho "answer dùng từ ngữ có trong ngữ cảnh". **Bỏ qua

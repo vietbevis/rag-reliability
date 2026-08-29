@@ -176,6 +176,28 @@ khi `GRAPH_RAG_ENABLED=true`. Luồng (graph-rag.md §4):
 `RetrievalService` chạy các retriever của `strategy` **song song** (`Promise.all`);
 chỉ set `error` toàn cục (→ 502) khi **mọi** nguồn được chọn đều lỗi hạ tầng.
 
+## Table expansion (PHASE 4 — `TableExpansionService`)
+
+Vấn đề: bảng GFM lớn bị chunker cắt thành nhiều mảnh (mỗi mảnh lặp lại header,
+mang chung `metadata.tableGroup` — xem `chunking.md`). Vector/keyword thường chỉ
+kéo về 1–2 mảnh khớp nhất → câu hỏi kiểu _"liệt kê các mức / tỷ lệ / định mức"_
+bị trả lời thiếu và gắn nhãn `PARTIALLY_GROUNDED` oan.
+
+`TableExpansionService.expand(chunks)` chạy trong `RagPipelineService` **sau
+rerank, trước ContextBuilder**:
+
+- với mỗi chunk kết quả có `metadata.tableGroup`, truy Postgres lấy **mọi mảnh
+  còn lại** cùng `(documentId, tableGroup)` của tài liệu `COMPLETED`;
+- mảnh bổ sung nhận `score = score(mảnh kích hoạt) − 1e-4` → nằm liền ngay dưới
+  mảnh gốc khi ContextBuilder sắp theo score, cùng lọt/không lọt ngân sách token;
+- đánh dấu `metadata.tableExpanded = true`; giữ `source` của mảnh kích hoạt;
+- trần `RAG_TABLE_EXPANSION_MAX_CHUNKS` (mặc định 8) chặn phình context;
+- lỗi DB khi bổ sung → **không ném**, trả nguyên kết quả gốc (§54).
+
+Cờ: `RAG_TABLE_EXPANSION_ENABLED` (mặc định `true`). `trace.tableExpansion` ghi
+`{ enabled, groups, added, capped }`. KHÔNG áp dụng cho `POST /rag/search` (raw
+retrieval) — chỉ pipeline sinh câu trả lời.
+
 ## API
 
 ### `POST /rag/search` — chỉ retrieval, KHÔNG gọi LLM (§40)

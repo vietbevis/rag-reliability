@@ -101,3 +101,30 @@ function classifyBlock(lines: string[]): BlockType {
   if (first.startsWith('>')) return 'quote';
   return 'paragraph';
 }
+
+/**
+ * Có phải văn bản chứa một bảng GFM (dòng ô `| ... |` + dòng phân cách
+ * `| --- | --- |`)? Dùng để đánh dấu chunk có bảng cho retrieval bảng (P4) —
+ * câu hỏi kiểu "liệt kê các mức / tỷ lệ" cần đủ mọi dòng bảng, không chỉ vài dòng.
+ */
+export function containsGfmTable(text: string): boolean {
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length - 1; i++) {
+    const header = lines[i]?.trim() ?? '';
+    if (header.startsWith('|') && isTableSeparatorRow(lines[i + 1] ?? '')) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Dòng phân cách bảng GFM: `| --- | :--: |` — mỗi ô chỉ gồm `-` và tuỳ chọn `:`. */
+function isTableSeparatorRow(line: string): boolean {
+  const cells = line
+    .trim()
+    .replace(/^\||\|$/g, '')
+    .split('|')
+    .map((c) => c.trim())
+    .filter((c) => c.length > 0);
+  return cells.length >= 1 && cells.every((c) => /^:?-+:?$/.test(c));
+}

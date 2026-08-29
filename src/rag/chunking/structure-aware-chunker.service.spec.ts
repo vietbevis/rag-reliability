@@ -105,6 +105,37 @@ describe('StructureAwareChunkerService', () => {
         c.content.indexOf('| --- | --- | --- | --- |'),
       ).toBeGreaterThanOrEqual(0);
     }
+
+    // P4: mọi mảnh của cùng bảng bị cắt mang chung tableGroup + hasTable.
+    const groups = new Set(
+      tableChunks.map((c) => c.metadata.tableGroup as string | undefined),
+    );
+    expect(groups.size).toBe(1);
+    expect([...groups][0]).toMatch(/^tg\d+$/);
+    for (const c of tableChunks) {
+      expect(c.metadata.hasTable).toBe(true);
+      expect(c.metadata.splitReason).toBe('block-oversized-split');
+    }
+  });
+
+  it('bảng GFM nhỏ (gọn 1 chunk) -> hasTable = true, KHÔNG có tableGroup', async () => {
+    const md = [
+      '# Học bổng',
+      '## Mức',
+      '| Loại | Tỷ lệ |',
+      '| --- | --- |',
+      '| A | 100% |',
+      '| B | 70% |',
+    ].join('\n');
+    const chunks = await make({ maxTokens: 200 }).split({
+      markdown: md,
+      text: '',
+    });
+    const tableChunk = chunks.find((c) =>
+      c.content.includes('| Loại | Tỷ lệ |'),
+    );
+    expect(tableChunk?.metadata.hasTable).toBe(true);
+    expect(tableChunk?.metadata.tableGroup).toBeUndefined();
   });
 
   it('fallback sang text thô khi không có markdown', async () => {

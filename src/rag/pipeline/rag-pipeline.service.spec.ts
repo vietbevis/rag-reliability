@@ -11,6 +11,7 @@ import { EvidenceMatcherService } from '../grounding/evidence-matcher.service';
 import { CitationService } from '../grounding/citation.service';
 import { FaithfulnessService } from '../grounding/faithfulness.service';
 import { RetrievalService } from '../retrieval/retrieval.service';
+import { TableExpansionService } from '../retrieval/table-expansion.service';
 import { RerankerService } from '../../ai/reranking/reranker.service';
 import { LlmService } from '../../ai/llm/llm.service';
 import { LlmFactoryService } from '../../ai/llm/llm-factory.service';
@@ -97,6 +98,13 @@ function build(
   );
   const contextValidator = new ContextValidatorService(config);
 
+  // Mặc định pass-through; test riêng cho expansion nằm ở table-expansion.service.spec.
+  const tableExpansion = {
+    expand: jest.fn((chunks: RetrievedChunk[]) =>
+      Promise.resolve({ chunks, trace: { enabled: false } }),
+    ),
+  } as unknown as TableExpansionService;
+
   const rerankMock = jest.fn(
     (_q: string, chunks: RetrievedChunk[], k: number) =>
       Promise.resolve({
@@ -170,6 +178,7 @@ function build(
       prisma,
       retrieval,
       reranker,
+      tableExpansion,
       contextBuilder,
       contextValidator,
       generation,
@@ -183,6 +192,7 @@ function build(
     ragQueryUpdate,
     citationCreateMany,
     extractMock,
+    tableExpansionMock: tableExpansion.expand as jest.Mock,
     generate: generation.generate as jest.Mock,
   };
 }
@@ -214,6 +224,28 @@ describe('RagPipelineService (PHASE 4 baseline)', () => {
         }),
       }),
     );
+  });
+
+  it('retrieval bảng: expand() chạy sau rerank/trước context, ghi trace.tableExpansion', async () => {
+    const { svc, tableExpansionMock } = build({
+      genResult: {
+        answer: 'Hai học kỳ.',
+        status: 'GROUNDED',
+        citedIndexes: [1],
+      },
+    });
+    tableExpansionMock.mockResolvedValueOnce({
+      chunks: [chunk('a', 0.9), chunk('b', 0.8), chunk('a-t2', 0.7)],
+      trace: { enabled: true, groups: 1, added: 1 },
+    });
+    const r = await svc.query({ query: 'liệt kê các mức học bổng' });
+    expect(tableExpansionMock).toHaveBeenCalledTimes(1);
+    expect(r.trace).toEqual(
+      expect.objectContaining({
+        tableExpansion: { enabled: true, groups: 1, added: 1 },
+      }),
+    );
+    expect(r.retrieval.chunkCount).toBe(3);
   });
 
   it('không đủ evidence (0 chunk) -> INSUFFICIENT_EVIDENCE, KHÔNG gọi LLM', async () => {

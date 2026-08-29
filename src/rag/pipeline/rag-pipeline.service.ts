@@ -20,6 +20,7 @@ import type { AppConfig } from '../../config/configuration';
 import { sanitizeTrace } from '../../common/observability/trace-sanitizer.util';
 import { RerankerService } from '../../ai/reranking/reranker.service';
 import { RetrievalService } from '../retrieval/retrieval.service';
+import { TableExpansionService } from '../retrieval/table-expansion.service';
 import { ContextBuilderService } from '../context/context-builder.service';
 import { ContextValidatorService } from '../context/context-validator.service';
 import { AnswerGenerationService } from '../grounding/answer-generation.service';
@@ -110,6 +111,7 @@ export class RagPipelineService {
     private readonly prisma: PrismaService,
     private readonly retrieval: RetrievalService,
     private readonly reranker: RerankerService,
+    private readonly tableExpansion: TableExpansionService,
     private readonly contextBuilder: ContextBuilderService,
     private readonly contextValidator: ContextValidatorService,
     private readonly generation: AnswerGenerationService,
@@ -197,6 +199,12 @@ export class RagPipelineService {
       } else {
         trace.rerank = { enabled: rerankOn };
       }
+
+      // Retrieval bảng (P4): kéo lại đủ mọi mảnh của một bảng GFM bị cắt khi 1
+      // mảnh lọt vào kết quả — trước ContextBuilder để cùng chịu ngân sách token.
+      const expansion = await this.tableExpansion.expand(workingChunks);
+      workingChunks = expansion.chunks;
+      trace.tableExpansion = expansion.trace;
 
       const context = this.contextBuilder.build(workingChunks);
       trace.context = {

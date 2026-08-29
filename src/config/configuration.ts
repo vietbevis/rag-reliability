@@ -72,6 +72,8 @@ export interface AppConfig {
     minRelevance: number;
     minChunks: number;
     temperature: number;
+    tableExpansion: boolean;
+    tableExpansionMaxChunks: number;
   };
   grounding: {
     strict: boolean;
@@ -242,6 +244,8 @@ export function loadConfiguration(): AppConfig {
       minRelevance: env.RAG_MIN_RELEVANCE,
       minChunks: env.RAG_MIN_CHUNKS,
       temperature: env.RAG_TEMPERATURE,
+      tableExpansion: env.RAG_TABLE_EXPANSION_ENABLED,
+      tableExpansionMaxChunks: env.RAG_TABLE_EXPANSION_MAX_CHUNKS,
     },
     grounding: {
       strict: env.RAG_STRICT_GROUNDING,

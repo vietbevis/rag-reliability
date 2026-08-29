@@ -18,6 +18,7 @@ import { KeywordRetrieverService } from './retrieval/keyword-retriever.service';
 import { GraphEntityLinkerService } from './retrieval/graph-entity-linker.service';
 import { GraphRetrieverService } from './retrieval/graph-retriever.service';
 import { RetrievalService } from './retrieval/retrieval.service';
+import { TableExpansionService } from './retrieval/table-expansion.service';
 import { ContextBuilderService } from './context/context-builder.service';
 import { ContextValidatorService } from './context/context-validator.service';
 import { AnswerGenerationService } from './grounding/answer-generation.service';
@@ -59,6 +60,7 @@ import { RagController } from './rag.controller';
     GraphEntityLinkerService,
     GraphRetrieverService,
     RetrievalService,
+    TableExpansionService,
     ContextBuilderService,
     ContextValidatorService,
     AnswerGenerationService,

@@ -8,6 +8,7 @@ import type {
   RawChunk,
 } from './chunking.interface';
 import {
+  containsGfmTable,
   parseMarkdownSections,
   type MdBlock,
   type MdSection,
@@ -52,9 +53,12 @@ export class StructureAwareChunkerService implements ChunkingStrategy {
     const source = input.markdown?.trim() || input.text;
     const sections = parseMarkdownSections(source);
     const chunks: RawChunk[] = [];
+    // Bộ đếm nhóm bảng, xuyên suốt document: mỗi bảng GFM bị cắt thành nhiều
+    // mảnh mang chung `metadata.tableGroup` để retrieval kéo lại đủ mọi dòng (P4).
+    const tableGroup = { n: 0 };
 
     for (const section of sections) {
-      const sectionChunks = this.chunkSection(section);
+      const sectionChunks = this.chunkSection(section, tableGroup);
       for (const sc of sectionChunks) {
         const merged = this.tryMergeWithPrevious(chunks, sc, section);
         if (!merged) chunks.push(sc);
@@ -66,7 +70,10 @@ export class StructureAwareChunkerService implements ChunkingStrategy {
 
   // --- section -> chunks --------------------------------------------------
 
-  private chunkSection(section: MdSection): RawChunk[] {
+  private chunkSection(
+    section: MdSection,
+    tableGroup: { n: number },
+  ): RawChunk[] {
     const heading = section.headingPath.at(-1);
     const breadcrumb = section.headingPath.join(' > ') || undefined;
     const base = (): RawChunk => ({
@@ -95,10 +102,18 @@ export class StructureAwareChunkerService implements ChunkingStrategy {
     for (const block of section.blocks) {
       if (this.tokens.count(block.text) > this.bounds.max) {
         flush('section-packed');
-        for (const piece of this.splitOversizedBlock(block)) {
+        const pieces = this.splitOversizedBlock(block);
+        // Bảng bị cắt >1 mảnh → gán chung tableGroup để retrieval bổ sung sibling.
+        const group =
+          block.type === 'table' && pieces.length > 1
+            ? `tg${(tableGroup.n += 1)}`
+            : undefined;
+        for (const piece of pieces) {
           const chunk = base();
           chunk.content = piece;
           chunk.metadata.splitReason = 'block-oversized-split';
+          if (block.type === 'table') chunk.metadata.hasTable = true;
+          if (group) chunk.metadata.tableGroup = group;
           out.push(chunk);
         }
         continue;
@@ -207,13 +222,19 @@ export class StructureAwareChunkerService implements ChunkingStrategy {
   }
 
   private finalize(chunk: RawChunk, sequence: number): RawChunk {
+    const content = chunk.content.trim();
+    // Đánh dấu MỌI chunk chứa bảng GFM (kể cả bảng nhỏ nằm gọn cùng block khác)
+    // — dùng cho trace + heuristic retrieval bảng (P4).
+    const hasTable =
+      chunk.metadata.hasTable === true || containsGfmTable(content);
     return {
       ...chunk,
-      content: chunk.content.trim(),
+      content,
       metadata: {
         ...chunk.metadata,
         sequence,
-        tokenCount: this.tokens.count(chunk.content),
+        tokenCount: this.tokens.count(content),
+        ...(hasTable ? { hasTable: true } : {}),
       },
     };
   }

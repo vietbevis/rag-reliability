@@ -1,5 +1,6 @@
 import {
   looksLikeAbstention,
+  looksLikePointerAnswer,
   contentTokens,
   lexicalGroundingRatio,
   resolveGroundingStatus,
@@ -72,6 +73,50 @@ describe('grounding-checks', () => {
       for (const answer of validButLong) {
         expect(looksLikeAbstention(answer)).toBe(false);
       }
+    });
+  });
+
+  describe('looksLikePointerAnswer', () => {
+    it('nhận diện câu trả lời chỉ trỏ vị trí thông tin', () => {
+      const pointers = [
+        'Thông tin về các mức học bổng được quy định tại Mục [2] của ngữ cảnh.',
+        'Danh mục các khoản thu được nêu tại Bảng trong mục [1].',
+        'Xem chi tiết tại Mục [3].',
+        'Các điều kiện xét tốt nghiệp được trình bày trong bảng ở trên.',
+        'Nội dung này được nêu trong mục [2].',
+        'Tại [2] có nêu rõ toàn bộ quy trình.',
+      ];
+      for (const answer of pointers) {
+        expect(looksLikePointerAnswer(answer)).toBe(true);
+      }
+    });
+
+    it('KHÔNG phạt oan câu trả lời thực có kèm dẫn nguồn hoặc số liệu', () => {
+      const valid = [
+        'Theo Điều 25, sinh viên được bảo lưu kết quả học tập tối đa hai học kỳ.',
+        'Học bổng gồm ba mức: loại A 100%, loại B 70%, loại C 50% học phí.',
+        'Sinh viên phải nộp đơn theo mẫu quy định tại phòng đào tạo kèm lệ phí 50.000 đồng.',
+        'Thời hạn phúc khảo là 7 ngày kể từ ngày công bố điểm, theo quy định tại Điều 10.',
+        'Ngữ cảnh chỉ cung cấp 3 trong số các mức phụ cấp; các mức còn lại không có trong tài liệu.',
+      ];
+      for (const answer of valid) {
+        expect(looksLikePointerAnswer(answer)).toBe(false);
+      }
+    });
+
+    it('KHÔNG nhận diện khi câu trả lời dài (có nội dung thực chất)', () => {
+      const longAnswer =
+        'Điều kiện xét tốt nghiệp được quy định trong quy chế đào tạo bao gồm ' +
+        'các yêu cầu về việc hoàn thành chương trình học, không còn học phần nào ' +
+        'bị điểm F, đạt chuẩn đầu ra ngoại ngữ và tin học theo khung năng lực do ' +
+        'nhà trường ban hành, đồng thời không trong thời gian bị kỷ luật ở mức ' +
+        'đình chỉ học tập hoặc đang bị truy cứu trách nhiệm hình sự theo quy định.';
+      expect(looksLikePointerAnswer(longAnswer)).toBe(false);
+    });
+
+    it('chuỗi rỗng → false', () => {
+      expect(looksLikePointerAnswer('')).toBe(false);
+      expect(looksLikePointerAnswer('   ')).toBe(false);
     });
   });
 
@@ -224,6 +269,53 @@ describe('grounding-checks', () => {
         const res = resolveGroundingStatus(input);
         expect(res).toEqual({
           status: 'CONFLICTING_EVIDENCE',
+          downgraded: false,
+          regenerate: false,
+        });
+      });
+    });
+
+    describe('nhánh c2: [strict] câu trả lời kiểu "chỉ đường"', () => {
+      const pointerAnswer =
+        'Các mức học bổng được nêu tại Bảng trong mục [2] của ngữ cảnh.';
+
+      it('hạ GROUNDED xuống PARTIALLY_GROUNDED + regenerate khi strict = true', () => {
+        const res = resolveGroundingStatus({
+          ...baseInput,
+          llmStatus: 'GROUNDED',
+          answer: pointerAnswer,
+          strict: true,
+        });
+        expect(res).toEqual({
+          status: 'PARTIALLY_GROUNDED',
+          downgraded: true,
+          regenerate: true,
+          reason: 'pointer_answer',
+        });
+      });
+
+      it('giữ PARTIALLY_GROUNDED (downgraded = false) + regenerate khi strict = true', () => {
+        const res = resolveGroundingStatus({
+          ...baseInput,
+          llmStatus: 'PARTIALLY_GROUNDED',
+          answer: pointerAnswer,
+          strict: true,
+        });
+        expect(res.status).toBe('PARTIALLY_GROUNDED');
+        expect(res.downgraded).toBe(false);
+        expect(res.regenerate).toBe(true);
+        expect(res.reason).toBe('pointer_answer');
+      });
+
+      it('KHÔNG can thiệp khi strict = false', () => {
+        const res = resolveGroundingStatus({
+          ...baseInput,
+          llmStatus: 'GROUNDED',
+          answer: pointerAnswer,
+          strict: false,
+        });
+        expect(res).toEqual({
+          status: 'GROUNDED',
           downgraded: false,
           regenerate: false,
         });

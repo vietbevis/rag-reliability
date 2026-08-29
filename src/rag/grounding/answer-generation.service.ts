@@ -73,6 +73,13 @@ const REGEN_INSTRUCTION =
   'căn cứ và trình bày cụ thể (số liệu, tỷ lệ, các dòng bảng). Nếu sau khi rà ' +
   'không còn đủ để trả lời, đặt status = INSUFFICIENT_EVIDENCE.';
 
+const POINTER_REGEN_INSTRUCTION =
+  'CÂU TRẢ LỜI TRƯỚC chỉ TRỎ vị trí thông tin ("được nêu tại...", "xem mục...") ' +
+  'mà không nêu nội dung. Trả lời LẠI: trích/diễn đạt lại CHÍNH nội dung từ các ' +
+  'mục [i] — đầy đủ số liệu, tỷ lệ, các dòng bảng, điều kiện, chức danh. TUYỆT ĐỐI ' +
+  'không viết "xem mục", "được nêu tại", "được quy định tại". Nếu ngữ cảnh không ' +
+  'chứa nội dung đó, đặt status = INSUFFICIENT_EVIDENCE.';
+
 /**
  * Sinh câu trả lời có grounding (PROMPT §23-25).
  *
@@ -153,7 +160,11 @@ export class AnswerGenerationService {
       this.logger.debug(
         `Sinh lại 1 lần (grounding yếu: ${resolved.reason ?? '?'})`,
       );
-      data = await runOnce(REGEN_INSTRUCTION);
+      const instruction =
+        resolved.reason === 'pointer_answer'
+          ? POINTER_REGEN_INSTRUCTION
+          : REGEN_INSTRUCTION;
+      data = await runOnce(instruction);
       regenerated = true;
       resolved = this.resolve(data, strict, rendered);
     }

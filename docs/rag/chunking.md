@@ -30,6 +30,11 @@ Markdown (anydoc) -> parseMarkdownSections
 `splitReason` trong metadata: `section-fit` · `section-packed` ·
 `block-oversized-split` · `small-section-merged` · `fixed-window`.
 
+**Metadata bảng (P4 — retrieval bảng):** chunk chứa bảng GFM mang `hasTable: true`.
+Bảng lớn bị cắt thành nhiều mảnh (`block-oversized-split`) mang chung
+`tableGroup: "tg<n>"` (bộ đếm xuyên suốt document) — để `TableExpansionService`
+kéo lại đủ mọi mảnh khi 1 mảnh lọt context (xem `retrieval.md`).
+
 > Text gửi qua field `text` mặc định coi là `text/markdown` (plain text là tập
 > con hợp lệ của Markdown) để chunker structure tận dụng được `#` heading.
 > File `.txt` thật vẫn là plaintext → chunker structure coi toàn bộ là 1 section

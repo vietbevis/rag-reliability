@@ -235,6 +235,42 @@ describe('AnswerGenerationService', () => {
     expect(r.usage.inputTokens).toBe(20); // cộng dồn cả 2 lần
   });
 
+  it('strict + câu trả lời "chỉ đường" → sinh lại 1 lần, lấy câu trả lời có nội dung', async () => {
+    const { llm, calls } = llmReturning(
+      {
+        answer:
+          'Các mức học bổng được nêu tại Bảng trong mục [1] của ngữ cảnh.',
+        status: 'GROUNDED',
+        usedContext: [1],
+        groundedInContext: true,
+        conflictNote: '',
+      },
+      {
+        answer:
+          'Học bổng gồm ba mức theo ngữ cảnh: loại A 100%, loại B 70%, loại C 50% học phí.',
+        status: 'GROUNDED',
+        usedContext: [1],
+        groundedInContext: true,
+        conflictNote: '',
+      },
+    );
+    const svc = build({
+      llm,
+      grounding: {
+        strict: true,
+        minGroundingRatio: 0,
+        regenerateOnUngrounded: true,
+      },
+    });
+    const r = await svc.generate(
+      'Các mức học bổng là bao nhiêu?',
+      context(['Học bổng: loại A 100%, loại B 70%, loại C 50% học phí.']),
+    );
+    expect(calls()).toBe(2);
+    expect(r.regenerated).toBe(true);
+    expect(r.answer).toContain('100%');
+  });
+
   it('strict + regenerateOnUngrounded=false → KHÔNG sinh lại', async () => {
     const { llm, calls } = llmReturning({
       answer: 'Từ ngữ xa lạ hoàn toàn.',

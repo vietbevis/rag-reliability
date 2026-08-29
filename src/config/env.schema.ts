@@ -188,6 +188,16 @@ export const envSchema = z
     RAG_MIN_RELEVANCE: numeric({ min: 0, max: 1, default: 0 }),
     RAG_MIN_CHUNKS: numeric({ int: true, min: 0, max: 50, default: 1 }),
     RAG_TEMPERATURE: numeric({ min: 0, max: 2, default: 0 }),
+    // Retrieval bảng (P4): khi một mảnh của bảng bị cắt (`metadata.tableGroup`)
+    // lọt vào context, kéo về các mảnh còn lại của bảng đó để LLM thấy đủ mọi
+    // dòng (câu hỏi "liệt kê các mức / tỷ lệ" hay bị PARTIALLY_GROUNDED oan).
+    RAG_TABLE_EXPANSION_ENABLED: boolish(true),
+    RAG_TABLE_EXPANSION_MAX_CHUNKS: numeric({
+      int: true,
+      min: 0,
+      max: 50,
+      default: 8,
+    }),
 
     // ---- Grounded generation + abstention (PHASE 8) --------------------
     // Master toggle. TẮT = hành vi baseline P4 (giữ hallucination đo được §35).
