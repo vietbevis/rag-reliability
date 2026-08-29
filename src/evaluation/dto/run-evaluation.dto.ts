@@ -126,3 +126,44 @@ export class RunExperimentDto {
   @Max(200)
   topK?: number;
 }
+
+/** Body cho `POST /evaluation/benchmark-strategies` (PHASE 13). */
+export class BenchmarkStrategiesDto {
+  @ApiProperty({ description: 'Tên dataset để so sánh các chiến lược' })
+  @IsString()
+  @MinLength(1)
+  datasetName!: string;
+
+  @ApiPropertyOptional({
+    enum: ['retrieval', 'full'],
+    default: 'retrieval',
+    description: 'Chế độ đánh giá: chỉ retrieval hoặc full pipeline',
+  })
+  @IsOptional()
+  @IsIn(['retrieval', 'full'])
+  mode?: 'retrieval' | 'full';
+
+  @ApiPropertyOptional({ minimum: 1, maximum: 200 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  topK?: number;
+}
+
+/** Body cho `POST /evaluation/benchmark-providers` (PHASE 13). */
+export class BenchmarkProvidersDto {
+  @ApiProperty({ description: 'Tên dataset để benchmark provider' })
+  @IsString()
+  @MinLength(1)
+  datasetName!: string;
+
+  @ApiPropertyOptional({ minimum: 1, maximum: 200 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  topK?: number;
+}

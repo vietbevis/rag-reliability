@@ -14,6 +14,8 @@ import { EvaluationService } from './evaluation.service';
 import { BenchmarkService } from './benchmark.service';
 import { ExperimentRunnerService } from './experiments/experiment-runner.service';
 import {
+  BenchmarkProvidersDto,
+  BenchmarkStrategiesDto,
   BenchmarkVariantDto,
   RunEvaluationDto,
   RunExperimentDto,
@@ -96,6 +98,33 @@ export class EvaluationController {
   })
   benchmarkFaithfulness(@Body() dto: BenchmarkVariantDto) {
     return this.evaluation.benchmarkFaithfulness({
+      datasetName: dto.datasetName,
+      topK: dto.topK,
+    });
+  }
+
+  @Post('benchmark-strategies')
+  @HttpCode(200)
+  @ApiOperation({
+    summary:
+      'Đối sánh 4 chiến lược truy hồi: vector vs keyword vs graph vs hybrid (PHASE 13)',
+  })
+  benchmarkStrategies(@Body() dto: BenchmarkStrategiesDto) {
+    return this.evaluation.benchmarkStrategies({
+      datasetName: dto.datasetName,
+      mode: dto.mode,
+      topK: dto.topK,
+    });
+  }
+
+  @Post('benchmark-providers')
+  @HttpCode(200)
+  @ApiOperation({
+    summary:
+      'Đánh giá hiệu năng và Tradeoff Quality vs Cost vs Latency của Provider (PHASE 13)',
+  })
+  benchmarkProviders(@Body() dto: BenchmarkProvidersDto) {
+    return this.evaluation.benchmarkProviders({
       datasetName: dto.datasetName,
       topK: dto.topK,
     });

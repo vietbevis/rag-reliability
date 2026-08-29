@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../app.module';
+import { EvaluationService } from '../evaluation.service';
 import {
   ExperimentRunnerService,
   STANDARD_EXPERIMENTS,
@@ -42,6 +43,40 @@ async function main(): Promise<void> {
           DefaultDataset: e.defaultDataset,
         })),
       );
+      await app.close();
+      process.exit(0);
+    }
+
+    if (flags.has('--strategies')) {
+      const evaluation = app.get(EvaluationService);
+      const dataset = datasetName ?? 'answerable';
+      logger.log(`Chạy benchmark 4 chiến lược retrieval trên dataset "${dataset}"...`);
+      const stratRes = await evaluation.benchmarkStrategies({
+        datasetName: dataset,
+        mode: 'retrieval',
+      });
+      console.log(`\n=== ĐỐI SÁNH CHIẾN LƯỢC RETRIEVAL (Vector vs Keyword vs Graph vs Hybrid) ===`);
+      console.log(`Dataset: ${stratRes.datasetName} | Mode: ${stratRes.mode}`);
+      console.table(stratRes.comparisonTable);
+      await app.close();
+      process.exit(0);
+    }
+
+    if (flags.has('--providers')) {
+      const evaluation = app.get(EvaluationService);
+      const dataset = datasetName ?? 'answerable';
+      logger.log(`Chạy benchmark Provider trên dataset "${dataset}"...`);
+      const provRes = await evaluation.benchmarkProviders({
+        datasetName: dataset,
+      });
+      console.log(`\n=== ĐỐI SÁNH PROVIDER & TRADEOFF QUALITY / COST / LATENCY ===`);
+      console.log(`Provider: ${provRes.currentProvider} | Model: ${provRes.currentModel}`);
+      console.log(`Đánh giá: ${provRes.tradeoffAnalysis.assessment}`);
+      console.table({
+        QualityScore: provRes.tradeoffAnalysis.qualityScore,
+        AvgLatencyMs: provRes.tradeoffAnalysis.avgLatencyMs,
+        TotalCost: provRes.tradeoffAnalysis.totalCost,
+      });
       await app.close();
       process.exit(0);
     }

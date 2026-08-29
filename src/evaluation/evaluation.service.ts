@@ -33,6 +33,7 @@ import {
   type CaseOutcome,
 } from './metrics/generation-metrics';
 import { AnswerJudgeService } from './metrics/answer-judge.service';
+import type { RetrievalStrategy } from '../rag/retrieval/retrieval.service';
 
 export type EvalMode = 'retrieval' | 'full';
 
@@ -42,6 +43,8 @@ export interface RunEvaluationOptions {
   isBaseline?: boolean;
   mode?: EvalMode;
   topK?: number;
+  /** Ghi đè chiến lược retrieval (`vector` | `keyword` | `graph` | `hybrid`) (PHASE 13). */
+  strategy?: RetrievalStrategy;
   /** Ghi đè `RERANK_ENABLED` cho run này (benchmark before/after — §36). */
   rerank?: boolean;
   /** Ghi đè `RAG_STRICT_GROUNDING` cho run này (§36). */
@@ -50,6 +53,38 @@ export interface RunEvaluationOptions {
   cite?: boolean;
   /** Ghi đè `RAG_FAITHFULNESS_ENABLED` cho run này (§36). */
   faithfulness?: boolean;
+}
+
+export interface StrategiesBenchmarkResult {
+  datasetName: string;
+  mode: EvalMode;
+  strategies: Array<{
+    strategy: RetrievalStrategy;
+    runId: string;
+    metrics: Record<string, number | null>;
+  }>;
+  comparisonTable: Array<{
+    metric: string;
+    vector: number | null;
+    keyword: number | null;
+    graph: number | null;
+    hybrid: number | null;
+    bestStrategy: string;
+  }>;
+}
+
+export interface ProvidersBenchmarkResult {
+  datasetName: string;
+  currentProvider: string;
+  currentModel: string | null;
+  runId: string;
+  metrics: Record<string, number | null>;
+  tradeoffAnalysis: {
+    qualityScore: number;
+    avgLatencyMs: number;
+    totalCost: number;
+    assessment: string;
+  };
 }
 
 export interface BenchmarkComparison {
@@ -123,6 +158,9 @@ export class EvaluationService {
         config: {
           mode,
           topK,
+          strategy:
+            opts.strategy ??
+            this.config.get('retrieval', { infer: true }).strategy,
           chunkingStrategy: this.config.get('chunking', { infer: true })
             .strategy,
           minRelevance: rag.minRelevance,
@@ -147,6 +185,7 @@ export class EvaluationService {
             datasetId: seed.datasetId,
             mode,
             topK,
+            strategy: opts.strategy,
             rerank: opts.rerank,
             strict: opts.strict,
             cite: opts.cite,
@@ -290,6 +329,149 @@ export class EvaluationService {
     );
   }
 
+  /**
+   * Benchmark 4 chiến lược truy hồi: vector vs keyword vs graph vs hybrid (PHASE 13).
+   * Đo lường: recall@5, precision@5, MRR, NDCG@5, contextPrecision, latencyMs, cost.
+   */
+  async benchmarkStrategies(opts: {
+    datasetName: string;
+    mode?: EvalMode;
+    topK?: number;
+  }): Promise<StrategiesBenchmarkResult> {
+    const strategies: RetrievalStrategy[] = [
+      'vector',
+      'keyword',
+      'graph',
+      'hybrid',
+    ];
+    const mode = opts.mode ?? 'retrieval';
+    const runs: Array<{
+      strategy: RetrievalStrategy;
+      runId: string;
+      metrics: Record<string, number | null>;
+    }> = [];
+
+    for (const strategy of strategies) {
+      const summary = await this.run({
+        datasetName: opts.datasetName,
+        mode,
+        topK: opts.topK,
+        strategy,
+        label: `${opts.datasetName}-strat-${strategy}-${stamp()}`,
+      });
+      runs.push({
+        strategy,
+        runId: summary.runId,
+        metrics: summary.metrics,
+      });
+    }
+
+    const metricKeys = [
+      'recallAt5',
+      'precisionAt5',
+      'mrr',
+      'ndcgAt5',
+      'contextPrecision',
+      'contextRecall',
+      'avgLatencyMs',
+      'totalCost',
+    ];
+
+    const getVal = (strat: RetrievalStrategy, key: string): number | null => {
+      const found = runs.find((r) => r.strategy === strat);
+      return found?.metrics[key] ?? null;
+    };
+
+    const comparisonTable = metricKeys.map((metric) => {
+      const vector = getVal('vector', metric);
+      const keyword = getVal('keyword', metric);
+      const graph = getVal('graph', metric);
+      const hybrid = getVal('hybrid', metric);
+
+      const values: Array<{ strat: string; val: number }> = [];
+      if (vector !== null) values.push({ strat: 'vector', val: vector });
+      if (keyword !== null) values.push({ strat: 'keyword', val: keyword });
+      if (graph !== null) values.push({ strat: 'graph', val: graph });
+      if (hybrid !== null) values.push({ strat: 'hybrid', val: hybrid });
+
+      let bestStrategy = 'N/A';
+      if (values.length > 0) {
+        if (metric === 'avgLatencyMs' || metric === 'totalCost') {
+          values.sort((a, b) => a.val - b.val);
+        } else {
+          values.sort((a, b) => b.val - a.val);
+        }
+        bestStrategy = values[0]?.strat ?? 'N/A';
+      }
+
+      return {
+        metric,
+        vector,
+        keyword,
+        graph,
+        hybrid,
+        bestStrategy,
+      };
+    });
+
+    return {
+      datasetName: opts.datasetName,
+      mode,
+      strategies: runs,
+      comparisonTable,
+    };
+  }
+
+  /**
+   * Benchmark đa Provider: đánh giá provider hiện tại và phân tích Tradeoff (PHASE 13).
+   */
+  async benchmarkProviders(opts: {
+    datasetName: string;
+    topK?: number;
+  }): Promise<ProvidersBenchmarkResult> {
+    const summary = await this.run({
+      datasetName: opts.datasetName,
+      mode: 'full',
+      topK: opts.topK,
+      label: `${opts.datasetName}-provider-${this.llm.activeProvider}-${stamp()}`,
+    });
+
+    const faith = summary.metrics.faithfulness ?? 0;
+    const correct = summary.metrics.answerCorrectness ?? 0;
+    const citeAcc = summary.metrics.citationAccuracy ?? 0;
+    const lat = summary.metrics.avgLatencyMs ?? 0;
+    const cost = summary.metrics.totalCost ?? 0;
+
+    const qualityScore =
+      Math.round(((faith * 0.4 + correct * 0.4 + citeAcc * 0.2) || 0) * 10000) /
+      10000;
+
+    let assessment = 'Hiệu năng cân bằng';
+    if (qualityScore >= 0.85 && lat < 1000) {
+      assessment = 'Xuất sắc: Chất lượng cao và độ trễ thấp';
+    } else if (qualityScore >= 0.85) {
+      assessment = 'Chất lượng cao, độ trễ tương đối';
+    } else if (lat < 500) {
+      assessment = 'Phản hồi rất nhanh, chất lượng chấp nhận được';
+    } else {
+      assessment = 'Cần tối ưu thêm prompt/context để tăng độ chính xác';
+    }
+
+    return {
+      datasetName: opts.datasetName,
+      currentProvider: summary.provider ?? this.llm.activeProvider,
+      currentModel: summary.model,
+      runId: summary.runId,
+      metrics: summary.metrics,
+      tradeoffAnalysis: {
+        qualityScore,
+        avgLatencyMs: lat,
+        totalCost: cost,
+        assessment,
+      },
+    };
+  }
+
   // --- một case --------------------------------------------------------
 
   private async evaluateCase(
@@ -299,6 +481,7 @@ export class EvaluationService {
       datasetId: string;
       mode: EvalMode;
       topK: number;
+      strategy?: RetrievalStrategy;
       rerank?: boolean;
       strict?: boolean;
       cite?: boolean;
@@ -320,7 +503,10 @@ export class EvaluationService {
     let status: AnswerStatus | null;
     let answer: string | null;
     let citations: Array<{ documentId: string; valid: boolean }>;
-    let claims: Array<{ supported: boolean; verdict?: 'SUPPORTED' | 'UNSUPPORTED' | 'CONTRADICTED' }>;
+    let claims: Array<{
+      supported: boolean;
+      verdict?: 'SUPPORTED' | 'UNSUPPORTED' | 'CONTRADICTED';
+    }>;
     let latencyMs: number;
     let estimatedCost: number;
     let model: string | null;
@@ -330,6 +516,7 @@ export class EvaluationService {
       const r = await this.retrieval.retrieve({
         query: c.question,
         topK: ctx.topK,
+        strategy: ctx.strategy,
         log: false,
       });
       retrievedChunks = r.chunks;
@@ -345,6 +532,7 @@ export class EvaluationService {
       const result = await this.pipeline.query({
         query: c.question,
         topK: ctx.topK,
+        strategy: ctx.strategy,
         rerank: ctx.rerank,
         strict: ctx.strict,
         cite: ctx.cite,

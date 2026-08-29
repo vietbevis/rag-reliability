@@ -39,7 +39,7 @@ Faithfulness tăng A→B, latency +C ms, cost +D%".
 | 10    | Faithfulness: claim extraction, evidence matching, contradiction, NLI verifier, root-cause classification   | ✅ Hoàn thành |
 | 11    | Evaluation framework: golden dataset, metrics, experiments, automated runner suite                          | ✅ Hoàn thành |
 | 12    | Regression (CI gate, multi-metric thresholds) + full-pipeline observability & trace sanitizer               | ✅ Hoàn thành |
-| 13    | Benchmark đa provider + **vector vs graph vs hybrid** (quality / cost / latency)                            | ⏳            |
+| 13    | Benchmark đa provider + **vector vs graph vs hybrid** (quality / cost / latency)                            | ✅ Hoàn thành |
 
 ## 3. Cấu trúc module
 
