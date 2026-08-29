@@ -1,344 +1,413 @@
 <!doctype html>
-<html lang="vi">
+<html lang="vi" class="dark">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>RAG Reliability — Test Console</title>
+    <title>RAG Reliability — Console</title>
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: [
+                '"IBM Plex Sans"',
+                'ui-sans-serif',
+                'system-ui',
+                'sans-serif',
+              ],
+              mono: [
+                '"JetBrains Mono"',
+                'ui-monospace',
+                'SFMono-Regular',
+                'monospace',
+              ],
+            },
+            colors: {
+              canvas: { DEFAULT: '#F8FAFC', dark: '#020617' },
+              card: { DEFAULT: '#FFFFFF', dark: '#0E1223' },
+              line: { DEFAULT: '#E2E8F0', dark: '#1E293B' },
+              ink: { DEFAULT: '#0F172A', dark: '#F8FAFC' },
+              soft: { DEFAULT: '#64748B', dark: '#94A3B8' },
+              brand: { DEFAULT: '#16A34A', dark: '#22C55E' },
+            },
+          },
+        },
+      };
+    </script>
     <style>
       :root {
-        --bg: #f6f7f9;
-        --panel: #fff;
-        --ink: #1c2430;
-        --muted: #66727f;
-        --border: #e3e7ec;
-        --accent: #2f6feb;
-        --accent-ink: #fff;
-        --ok: #1a7f45;
-        --warn: #b9770e;
-        --err: #c23b3b;
-        --code-bg: #0f1720;
-        --code-ink: #d7e0ea;
-        --chip: #eef1f5;
+        color-scheme: light dark;
       }
-      @media (prefers-color-scheme: dark) {
-        :root {
-          --bg: #0f141a;
-          --panel: #171d25;
-          --ink: #e6ebf1;
-          --muted: #9aa7b4;
-          --border: #2a323d;
-          --accent: #4b8bff;
-          --chip: #232b35;
-          --code-bg: #0b0f14;
-        }
-      }
-      * {
-        box-sizing: border-box;
+      html,
+      body {
+        height: 100%;
       }
       body {
-        margin: 0;
-        background: var(--bg);
-        color: var(--ink);
-        font:
-          14px/1.5 -apple-system,
-          BlinkMacSystemFont,
-          'Segoe UI',
-          Roboto,
-          sans-serif;
+        font-family: 'IBM Plex Sans', system-ui, sans-serif;
       }
-      header {
-        position: sticky;
-        top: 0;
-        z-index: 5;
-        background: var(--panel);
-        border-bottom: 1px solid var(--border);
-        padding: 10px 16px;
-        display: flex;
-        gap: 12px;
-        align-items: center;
-        flex-wrap: wrap;
+      ::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
       }
-      header h1 {
-        font-size: 15px;
-        margin: 0;
-        font-weight: 700;
+      ::-webkit-scrollbar-thumb {
+        background: #64748b55;
+        border-radius: 6px;
       }
-      header .sub {
-        color: var(--muted);
-        font-size: 12px;
+      .prose-answer {
+        white-space: pre-wrap;
+        word-break: break-word;
       }
-      .wrap {
-        max-width: 1180px;
-        margin: 0 auto;
-        padding: 16px;
-        display: grid;
-        grid-template-columns: 1fr;
-        gap: 14px;
-      }
-      @media (min-width: 960px) {
-        .wrap {
-          grid-template-columns: 1fr 1fr;
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          transition: none !important;
+          animation: none !important;
         }
       }
-      .card {
-        background: var(--panel);
-        border: 1px solid var(--border);
-        border-radius: 10px;
-        overflow: hidden;
-      }
-      .card > summary {
-        cursor: pointer;
-        padding: 12px 14px;
-        font-weight: 700;
+      details > summary {
         list-style: none;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
       }
-      .card > summary::-webkit-details-marker {
+      details > summary::-webkit-details-marker {
         display: none;
       }
-      .card > summary::after {
-        content: '▸';
-        color: var(--muted);
+      details[open] > summary .chev {
+        transform: rotate(180deg);
       }
-      .card[open] > summary::after {
-        content: '▾';
+      .chev {
+        transition: transform 0.15s ease;
       }
-      .card .body {
-        padding: 0 14px 14px;
-        display: grid;
-        gap: 14px;
+      .typing span {
+        animation: blink 1.2s infinite;
       }
-      .op {
-        border-top: 1px solid var(--border);
-        padding-top: 12px;
+      .typing span:nth-child(2) {
+        animation-delay: 0.2s;
       }
-      .op:first-child {
-        border-top: 0;
-        padding-top: 0;
+      .typing span:nth-child(3) {
+        animation-delay: 0.4s;
       }
-      .op h3 {
-        margin: 0 0 4px;
-        font-size: 13px;
-      }
-      .op .path {
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-        font-size: 12px;
-        color: var(--muted);
-      }
-      .method {
-        display: inline-block;
-        font-size: 11px;
-        font-weight: 700;
-        padding: 1px 6px;
-        border-radius: 5px;
-        background: var(--chip);
-        margin-right: 6px;
-      }
-      .m-GET {
-        color: var(--ok);
-      }
-      .m-POST {
-        color: var(--accent);
-      }
-      .m-DELETE {
-        color: var(--err);
-      }
-      .row {
-        display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
-        align-items: center;
-        margin-top: 8px;
-      }
-      label {
-        font-size: 12px;
-        color: var(--muted);
-        display: flex;
-        flex-direction: column;
-        gap: 3px;
-      }
-      input[type='text'],
-      input[type='number'],
-      textarea,
-      select {
-        background: var(--bg);
-        color: var(--ink);
-        border: 1px solid var(--border);
-        border-radius: 7px;
-        padding: 6px 8px;
-        font: inherit;
-        min-width: 120px;
-      }
-      textarea {
-        width: 100%;
-        min-height: 70px;
-        font-family: ui-monospace, Menlo, monospace;
-        font-size: 12px;
-      }
-      input[type='checkbox'] {
-        transform: translateY(1px);
-      }
-      .grow {
-        flex: 1;
-        min-width: 200px;
-      }
-      button {
-        background: var(--accent);
-        color: var(--accent-ink);
-        border: 0;
-        border-radius: 7px;
-        padding: 7px 12px;
-        font: inherit;
-        font-weight: 600;
-        cursor: pointer;
-      }
-      button.ghost {
-        background: var(--chip);
-        color: var(--ink);
-      }
-      button:active {
-        transform: translateY(1px);
-      }
-      .out {
-        margin-top: 8px;
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        overflow: hidden;
-        display: none;
-      }
-      .out.show {
-        display: block;
-      }
-      .out .meta {
-        padding: 5px 9px;
-        font-size: 12px;
-        display: flex;
-        gap: 10px;
-        align-items: center;
-        background: var(--chip);
-      }
-      .badge {
-        font-weight: 700;
-        padding: 0 6px;
-        border-radius: 5px;
-      }
-      .b-ok {
-        color: var(--ok);
-      }
-      .b-err {
-        color: var(--err);
-      }
-      .b-warn {
-        color: var(--warn);
-      }
-      pre {
-        margin: 0;
-        padding: 10px;
-        background: var(--code-bg);
-        color: var(--code-ink);
-        overflow: auto;
-        font-family: ui-monospace, Menlo, monospace;
-        font-size: 12px;
-        max-height: 460px;
-      }
-      .hint {
-        font-size: 12px;
-        color: var(--muted);
-      }
-      .pill {
-        background: var(--chip);
-        border-radius: 999px;
-        padding: 2px 9px;
-        font-size: 12px;
-      }
-      .statusbadge {
-        font-weight: 700;
-      }
-      a {
-        color: var(--accent);
-      }
-      .lastdoc {
-        font-size: 12px;
-      }
-      .lastdoc code {
-        background: var(--chip);
-        padding: 1px 5px;
-        border-radius: 4px;
+      @keyframes blink {
+        0%,
+        60%,
+        100% {
+          opacity: 0.25;
+        }
+        30% {
+          opacity: 1;
+        }
       }
     </style>
   </head>
-  <body>
-    <header>
-      <h1>RAG Reliability — Test Console</h1>
-      <span class="sub" id="pingState">…</span>
-      <label
-        style="
-          flex-direction: row;
-          align-items: center;
-          gap: 6px;
-          margin-left: auto;
-        "
+  <body
+    class="h-full bg-canvas text-ink dark:bg-canvas-dark dark:text-ink-dark antialiased"
+  >
+    <div class="flex h-full flex-col">
+      <!-- Header -->
+      <header
+        class="z-20 flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line px-4 py-2.5 dark:border-line-dark bg-card/80 dark:bg-card-dark/80 backdrop-blur"
       >
-        <span>Base URL</span>
-        <input type="text" id="baseUrl" style="min-width: 240px" />
-      </label>
-      <a href="/docs" target="_blank" class="pill">Swagger ↗</a>
-      <span class="lastdoc">doc gần nhất: <code id="lastDoc">—</code></span>
-    </header>
+        <div class="flex items-center gap-2">
+          <span
+            class="grid size-7 place-items-center rounded-md bg-brand text-white dark:bg-brand-dark dark:text-canvas-dark"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              class="size-4"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path d="M4 6h16M4 12h16M4 18h10" stroke-linecap="round" />
+            </svg>
+          </span>
+          <div class="leading-tight">
+            <div class="text-sm font-semibold">RAG Reliability</div>
+            <div class="text-[11px] text-soft dark:text-soft-dark">
+              test console
+            </div>
+          </div>
+        </div>
 
-    <div class="wrap" id="app"></div>
+        <nav
+          class="flex rounded-lg border border-line p-0.5 text-sm dark:border-line-dark"
+          id="tabs"
+        >
+          <button data-tab="chat" class="tab rounded-md px-3 py-1 font-medium">
+            Chat
+          </button>
+          <button data-tab="api" class="tab rounded-md px-3 py-1 font-medium">
+            API Console
+          </button>
+        </nav>
+
+        <div class="ml-auto flex items-center gap-2">
+          <span
+            id="ping"
+            class="hidden items-center gap-1.5 rounded-full border border-line px-2 py-1 text-[11px] dark:border-line-dark sm:flex"
+          >
+            <span id="pingDot" class="size-1.5 rounded-full bg-soft"></span
+            ><span id="pingText">…</span>
+          </span>
+          <label
+            class="hidden items-center gap-1.5 text-[11px] text-soft dark:text-soft-dark lg:flex"
+          >
+            base
+            <input
+              id="baseUrl"
+              type="text"
+              class="w-52 rounded-md border border-line bg-canvas px-2 py-1 font-mono text-[11px] dark:border-line-dark dark:bg-canvas-dark"
+            />
+          </label>
+          <a
+            href="/docs"
+            target="_blank"
+            class="rounded-md border border-line px-2 py-1 text-[11px] hover:bg-line/40 dark:border-line-dark dark:hover:bg-line-dark/40"
+            >Swagger</a
+          >
+          <button
+            id="themeBtn"
+            title="Đổi giao diện"
+            class="grid size-8 place-items-center rounded-md border border-line hover:bg-line/40 dark:border-line-dark dark:hover:bg-line-dark/40"
+          >
+            <svg
+              class="size-4 dark:hidden"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <circle cx="12" cy="12" r="4" />
+              <path
+                d="M12 2v2M12 20v2M4 12H2M22 12h-2M5 5l1.5 1.5M17.5 17.5 19 19M19 5l-1.5 1.5M6.5 17.5 5 19"
+                stroke-linecap="round"
+              />
+            </svg>
+            <svg
+              class="hidden size-4 dark:block"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+            >
+              <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" />
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- ================= CHAT ================= -->
+      <main id="view-chat" class="flex min-h-0 flex-1 flex-col">
+        <div
+          id="chatScroll"
+          class="mx-auto w-full max-w-3xl flex-1 overflow-y-auto px-4 py-6"
+        >
+          <div id="chatEmpty" class="mt-16 text-center">
+            <div
+              class="mx-auto grid size-12 place-items-center rounded-xl border border-line dark:border-line-dark"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                class="size-6 text-brand dark:text-brand-dark"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path
+                  d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </div>
+            <h1 class="mt-4 text-lg font-semibold">Hỏi knowledge base</h1>
+            <p class="mt-1 text-sm text-soft dark:text-soft-dark">
+              Trả lời bám ngữ cảnh, có citation + điểm faithfulness. Từ chối khi
+              không đủ căn cứ.
+            </p>
+            <div
+              class="mt-5 flex flex-wrap justify-center gap-2"
+              id="suggests"
+            ></div>
+          </div>
+          <div id="messages" class="space-y-5"></div>
+        </div>
+
+        <!-- Composer -->
+        <div
+          class="border-t border-line bg-card dark:border-line-dark dark:bg-card-dark"
+        >
+          <div class="mx-auto w-full max-w-3xl px-4 py-3">
+            <div
+              id="chatOpts"
+              class="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-soft dark:text-soft-dark"
+            >
+              <label class="flex items-center gap-1.5"
+                >chiến lược
+                <select
+                  id="cStrategy"
+                  class="rounded border border-line bg-canvas px-1.5 py-0.5 dark:border-line-dark dark:bg-canvas-dark"
+                >
+                  <option>vector</option>
+                  <option>keyword</option>
+                  <option>graph</option>
+                  <option>hybrid</option>
+                </select>
+              </label>
+              <label class="flex items-center gap-1.5"
+                >topK
+                <input
+                  id="cTopK"
+                  type="number"
+                  value="5"
+                  min="1"
+                  max="20"
+                  class="w-14 rounded border border-line bg-canvas px-1.5 py-0.5 dark:border-line-dark dark:bg-canvas-dark"
+                />
+              </label>
+              <label class="flex items-center gap-1.5"
+                ><input id="cRerank" type="checkbox" class="accent-brand" />
+                rerank</label
+              >
+              <label class="flex items-center gap-1.5"
+                ><input id="cStrict" type="checkbox" class="accent-brand" />
+                strict</label
+              >
+              <label class="flex items-center gap-1.5"
+                ><input
+                  id="cCite"
+                  type="checkbox"
+                  checked
+                  class="accent-brand"
+                />
+                citation</label
+              >
+              <label class="flex items-center gap-1.5"
+                ><input
+                  id="cFaith"
+                  type="checkbox"
+                  checked
+                  class="accent-brand"
+                />
+                faithfulness</label
+              >
+              <button
+                id="chatClear"
+                class="ml-auto rounded border border-line px-2 py-0.5 hover:bg-line/40 dark:border-line-dark dark:hover:bg-line-dark/40"
+              >
+                xoá hội thoại
+              </button>
+            </div>
+            <form id="chatForm" class="flex items-end gap-2">
+              <textarea
+                id="chatInput"
+                rows="1"
+                placeholder="Nhập câu hỏi… (Enter gửi, Shift+Enter xuống dòng)"
+                class="max-h-40 min-h-[44px] flex-1 resize-none rounded-xl border border-line bg-canvas px-3 py-2.5 text-sm outline-none placeholder:text-soft focus:border-brand dark:border-line-dark dark:bg-canvas-dark dark:placeholder:text-soft-dark dark:focus:border-brand-dark"
+              ></textarea>
+              <button
+                id="chatSend"
+                type="submit"
+                class="grid size-11 shrink-0 place-items-center rounded-xl bg-brand text-white transition hover:opacity-90 disabled:opacity-40 dark:bg-brand-dark dark:text-canvas-dark"
+              >
+                <svg
+                  class="size-5"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <path d="m5 12 14-7-4 14-3-6-7-1Z" stroke-linejoin="round" />
+                </svg>
+              </button>
+            </form>
+          </div>
+        </div>
+      </main>
+
+      <!-- ================= API CONSOLE ================= -->
+      <main id="view-api" class="hidden min-h-0 flex-1 overflow-y-auto">
+        <div
+          class="mx-auto grid w-full max-w-6xl grid-cols-1 gap-4 p-4 md:grid-cols-2"
+          id="app"
+        ></div>
+      </main>
+    </div>
 
     <script>
+      /* ------------------------------------------------------------------ utils */
       const $ = (s, r = document) => r.querySelector(s);
+      const $$ = (s, r = document) => [...r.querySelectorAll(s)];
       const el = (tag, attrs = {}, ...kids) => {
         const n = document.createElement(tag);
         for (const [k, v] of Object.entries(attrs)) {
           if (k === 'class') n.className = v;
           else if (k === 'html') n.innerHTML = v;
           else if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
-          else n.setAttribute(k, v);
+          else if (v != null) n.setAttribute(k, v);
         }
-        for (const kid of kids)
-          n.append(kid?.nodeType ? kid : document.createTextNode(kid ?? ''));
+        for (const kid of kids.flat())
+          if (kid != null)
+            n.append(kid.nodeType ? kid : document.createTextNode(kid));
         return n;
       };
+      const esc = (s) =>
+        String(s).replace(
+          /[&<>"]/g,
+          (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c],
+        );
 
-      const store = {
+      const LS = {
         get base() {
-          return localStorage.getItem('ragcon.base') || location.origin;
+          return localStorage.getItem('rc.base') || location.origin;
         },
         set base(v) {
-          localStorage.setItem('ragcon.base', v);
+          localStorage.setItem('rc.base', v);
+        },
+        get theme() {
+          return localStorage.getItem('rc.theme') || 'dark';
+        },
+        set theme(v) {
+          localStorage.setItem('rc.theme', v);
         },
         get lastDoc() {
-          return localStorage.getItem('ragcon.lastDoc') || '';
+          return localStorage.getItem('rc.doc') || '';
         },
         set lastDoc(v) {
-          localStorage.setItem('ragcon.lastDoc', v);
-          $('#lastDoc').textContent = v || '—';
+          localStorage.setItem('rc.doc', v);
+          paintLastDoc();
         },
         get lastRun() {
-          return localStorage.getItem('ragcon.lastRun') || '';
+          return localStorage.getItem('rc.run') || '';
         },
         set lastRun(v) {
-          localStorage.setItem('ragcon.lastRun', v);
+          localStorage.setItem('rc.run', v);
         },
         get lastQuery() {
-          return localStorage.getItem('ragcon.lastQuery') || '';
+          return localStorage.getItem('rc.q') || '';
         },
         set lastQuery(v) {
-          localStorage.setItem('ragcon.lastQuery', v);
+          localStorage.setItem('rc.q', v);
         },
       };
 
-      $('#baseUrl').value = store.base;
+      function applyTheme() {
+        const t = LS.theme;
+        document.documentElement.classList.toggle('dark', t === 'dark');
+      }
+      $('#themeBtn').addEventListener('click', () => {
+        LS.theme = LS.theme === 'dark' ? 'light' : 'dark';
+        applyTheme();
+      });
+      applyTheme();
+
+      $('#baseUrl').value = LS.base;
       $('#baseUrl').addEventListener('change', (e) => {
-        store.base = e.target.value.trim().replace(/\/$/, '');
+        LS.base = e.target.value.trim().replace(/\/+$/, '');
         ping();
       });
-      $('#lastDoc').textContent = store.lastDoc || '—';
 
       async function api(method, path, { body, form } = {}) {
         const t0 = performance.now();
@@ -348,15 +417,21 @@
           opts.headers['Content-Type'] = 'application/json';
           opts.body = JSON.stringify(body);
         }
-        let res, data, text;
         try {
-          res = await fetch(store.base + path, opts);
-          text = await res.text();
+          const res = await fetch(LS.base + path, opts);
+          const text = await res.text();
+          let data;
           try {
             data = JSON.parse(text);
           } catch {
             data = text;
           }
+          return {
+            ok: res.ok,
+            status: res.status,
+            ms: Math.round(performance.now() - t0),
+            data,
+          };
         } catch (e) {
           return {
             ok: false,
@@ -366,208 +441,382 @@
             netErr: true,
           };
         }
-        return {
-          ok: res.ok,
-          status: res.status,
-          ms: Math.round(performance.now() - t0),
-          data,
-        };
       }
 
       async function ping() {
-        const s = $('#pingState');
-        s.textContent = 'đang kiểm tra…';
+        const dot = $('#pingDot'),
+          txt = $('#pingText'),
+          box = $('#ping');
+        box.classList.remove('hidden');
+        box.classList.add('flex');
         const r = await api('GET', '/health/live');
-        s.innerHTML = r.ok
-          ? '<span class="badge b-ok">● online</span> ' + store.base
-          : '<span class="badge b-err">● offline</span> ' +
-            store.base +
-            ' — app chưa chạy?';
+        dot.className =
+          'size-1.5 rounded-full ' +
+          (r.ok ? 'bg-brand dark:bg-brand-dark' : 'bg-red-500');
+        txt.textContent = r.ok ? 'online' : 'offline';
       }
 
-      function renderResult(container, r) {
-        const box =
-          $('.out', container) ||
-          container.appendChild(el('div', { class: 'out' }));
-        box.classList.add('show');
-        box.innerHTML = '';
-        const cls = r.netErr
-          ? 'b-err'
-          : r.status < 300
-            ? 'b-ok'
-            : r.status < 500
-              ? 'b-warn'
-              : 'b-err';
-        box.append(
-          el(
-            'div',
-            { class: 'meta' },
-            el('span', { class: 'badge ' + cls }, String(r.status || 'ERR')),
-            el('span', {}, r.ms + ' ms'),
-            r.data && r.data.status
-              ? el('span', { class: 'pill statusbadge' }, r.data.status)
-              : '',
-          ),
-        );
-        const pretty =
-          typeof r.data === 'string' ? r.data : JSON.stringify(r.data, null, 2);
-        box.append(el('pre', {}, pretty));
-        return r;
-      }
-
-      /* ---------- section builder ---------- */
-      function section(title, ops) {
-        const card = el('details', { class: 'card' });
-        card.append(el('summary', {}, title));
-        const body = el('div', { class: 'body' });
-        card.append(body);
-        for (const op of ops) body.append(buildOp(op));
-        return card;
-      }
-
-      function buildOp(op) {
-        const wrap = el('div', { class: 'op' });
-        wrap.append(el('h3', {}, op.title));
-        wrap.append(
-          el(
-            'div',
-            { class: 'path' },
-            el('span', { class: 'method m-' + op.method }, op.method),
-            op.pathLabel || op.path,
-          ),
-        );
-        if (op.hint) wrap.append(el('div', { class: 'hint' }, op.hint));
-
-        const fields = {};
-        const rows = el('div', {});
-        for (const f of op.fields || []) {
-          const row = el('div', { class: 'row' });
-          if (f.type === 'checkbox') {
-            const cb = el('input', { type: 'checkbox' });
-            if (f.default) cb.checked = true;
-            fields[f.name] = cb;
-            row.append(
-              el(
-                'label',
-                { style: 'flex-direction:row;align-items:center;gap:6px' },
-                cb,
-                f.label || f.name,
-              ),
-            );
-          } else if (f.type === 'textarea') {
-            const ta = el('textarea', { placeholder: f.placeholder || '' });
-            if (f.default) ta.value = f.default;
-            fields[f.name] = ta;
-            const l = el('label', { class: 'grow' }, f.label || f.name);
-            l.append(ta);
-            row.append(l);
-          } else if (f.type === 'select') {
-            const sel = el('select', {});
-            for (const o of f.options)
-              sel.append(el('option', { value: o }, o));
-            if (f.default) sel.value = f.default;
-            fields[f.name] = sel;
-            const l = el('label', {}, f.label || f.name);
-            l.append(sel);
-            row.append(l);
-          } else if (f.type === 'file') {
-            const fi = el('input', { type: 'file' });
-            fields[f.name] = fi;
-            const l = el('label', {}, f.label || f.name);
-            l.append(fi);
-            row.append(l);
-          } else {
-            const inp = el('input', {
-              type: f.type === 'number' ? 'number' : 'text',
-              placeholder: f.placeholder || '',
-            });
-            if (f.default != null) inp.value = f.default;
-            if (f.grow) inp.className = 'grow';
-            fields[f.name] = inp;
-            const l = el(
-              f.grow ? 'label' : 'label',
-              { class: f.grow ? 'grow' : '' },
-              f.label || f.name,
-            );
-            l.append(inp);
-            row.append(l);
-            if (f.fillLast) {
-              row.append(
-                el(
-                  'button',
-                  {
-                    class: 'ghost',
-                    type: 'button',
-                    onclick: () => {
-                      inp.value =
-                        f.fillLast === 'doc'
-                          ? store.lastDoc
-                          : f.fillLast === 'run'
-                            ? store.lastRun
-                            : store.lastQuery;
-                    },
-                  },
-                  '⤺ gần nhất',
-                ),
-              );
-            }
-          }
-          rows.append(row);
-        }
-        wrap.append(rows);
-
-        const btnRow = el('div', { class: 'row' });
-        const btn = el('button', { type: 'button' }, op.button || 'Gửi');
-        btn.addEventListener('click', async () => {
-          btn.disabled = true;
-          btn.textContent = '…';
-          try {
-            const ctx = {};
-            for (const [k, node] of Object.entries(fields)) {
-              ctx[k] =
-                node.type === 'checkbox'
-                  ? node.checked
-                  : node.type === 'file'
-                    ? node.files[0] || null
-                    : node.value.trim();
-            }
-            const req = op.build(ctx);
-            const r = await api(req.method || op.method, req.path, {
-              body: req.body,
-              form: req.form,
-            });
-            renderResult(wrap, r);
-            if (op.after) op.after(r, ctx);
-          } finally {
-            btn.disabled = false;
-            btn.textContent = op.button || 'Gửi';
-          }
+      /* ------------------------------------------------------------------ tabs */
+      function setTab(name) {
+        $$('#tabs .tab').forEach((b) => {
+          const on = b.dataset.tab === name;
+          b.className =
+            'tab rounded-md px-3 py-1 font-medium ' +
+            (on
+              ? 'bg-brand text-white dark:bg-brand-dark dark:text-canvas-dark'
+              : 'text-soft hover:text-ink dark:text-soft-dark dark:hover:text-ink-dark');
         });
-        btnRow.append(btn);
-        wrap.append(btnRow);
-        wrap.append(el('div', { class: 'out' }));
-        return wrap;
+        $('#view-chat').classList.toggle('hidden', name !== 'chat');
+        $('#view-api').classList.toggle('hidden', name !== 'api');
+        localStorage.setItem('rc.tab', name);
+        if (name === 'api' && !$('#app').children.length) buildConsole();
+      }
+      $$('#tabs .tab').forEach((b) =>
+        b.addEventListener('click', () => setTab(b.dataset.tab)),
+      );
+
+      /* ================================================================= CHAT */
+      const STATUS_STYLE = {
+        GROUNDED:
+          'bg-brand/15 text-brand dark:bg-brand-dark/15 dark:text-brand-dark',
+        PARTIALLY_GROUNDED:
+          'bg-amber-500/15 text-amber-600 dark:text-amber-400',
+        INSUFFICIENT_EVIDENCE:
+          'bg-slate-500/15 text-slate-500 dark:text-slate-300',
+        CONFLICTING_EVIDENCE: 'bg-red-500/15 text-red-600 dark:text-red-400',
+        ERROR: 'bg-red-500/15 text-red-600 dark:text-red-400',
+      };
+      const VERDICT_STYLE = {
+        SUPPORTED: 'text-brand dark:text-brand-dark',
+        UNSUPPORTED: 'text-amber-600 dark:text-amber-400',
+        CONTRADICTED: 'text-red-600 dark:text-red-400',
+      };
+
+      const SUGGESTS = [
+        'Sinh viên được bảo lưu kết quả học tập tối đa mấy học kỳ?',
+        'Điều kiện tốt nghiệp loại giỏi là gì?',
+        'Vắng bao nhiêu phần trăm số tiết thì không được dự thi?',
+        'Giá thuê ký túc xá một tháng là bao nhiêu?',
+      ];
+      $('#suggests').append(
+        ...SUGGESTS.map((q) =>
+          el(
+            'button',
+            {
+              class:
+                'rounded-full border border-line px-3 py-1.5 text-xs text-soft transition hover:border-brand hover:text-ink dark:border-line-dark dark:text-soft-dark dark:hover:border-brand-dark dark:hover:text-ink-dark',
+              onclick: () => {
+                $('#chatInput').value = q;
+                sendChat();
+              },
+            },
+            q,
+          ),
+        ),
+      );
+
+      let chatBusy = false;
+      const messagesEl = $('#messages');
+
+      function scrollChat() {
+        const s = $('#chatScroll');
+        s.scrollTop = s.scrollHeight;
       }
 
-      /* ---------- helper: chỉ giữ field có giá trị (ValidationPipe forbidNonWhitelisted) ---------- */
-      const clean = (obj) => {
-        const o = {};
-        for (const [k, v] of Object.entries(obj)) {
-          if (v === '' || v === undefined || v === null) continue;
-          o[k] = v;
+      function bubbleUser(text) {
+        $('#chatEmpty')?.remove();
+        messagesEl.append(
+          el(
+            'div',
+            { class: 'flex justify-end' },
+            el(
+              'div',
+              {
+                class:
+                  'max-w-[85%] rounded-2xl rounded-br-md bg-brand px-3.5 py-2 text-sm text-white dark:bg-brand-dark dark:text-canvas-dark prose-answer',
+              },
+              text,
+            ),
+          ),
+        );
+        scrollChat();
+      }
+
+      function chip(txt, cls = '') {
+        return el(
+          'span',
+          {
+            class:
+              'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ' +
+              cls,
+          },
+          txt,
+        );
+      }
+
+      function foldable(label, node, count) {
+        const d = el('details', {
+          class: 'rounded-lg border border-line dark:border-line-dark',
+        });
+        d.append(
+          el(
+            'summary',
+            {
+              class:
+                'flex cursor-pointer items-center justify-between px-3 py-1.5 text-xs font-medium text-soft dark:text-soft-dark',
+            },
+            el('span', {}, label + (count != null ? ` (${count})` : '')),
+            el('svg', {
+              class: 'size-3.5',
+              viewBox: '0 0 24 24',
+              fill: 'none',
+              stroke: 'currentColor',
+              'stroke-width': '2',
+              html: '<path d="m6 9 6 6 6-6" stroke-linecap="round"/>',
+            }),
+          ),
+        );
+        d.append(
+          el(
+            'div',
+            { class: 'border-t border-line px-3 py-2 dark:border-line-dark' },
+            node,
+          ),
+        );
+        return d;
+      }
+
+      function renderAssistant(container, r) {
+        container.innerHTML = '';
+        const d = r.data || {};
+        if (r.netErr || (r.status >= 400 && !d.status)) {
+          container.append(
+            el(
+              'div',
+              { class: 'text-sm text-red-600 dark:text-red-400' },
+              `Lỗi ${r.status || ''}: ` +
+                (typeof d === 'string' ? d : JSON.stringify(d)),
+            ),
+          );
+          return;
         }
-        return o;
-      };
-      const num = (v) => (v === '' ? undefined : Number(v));
-      const strategies = ['vector', 'keyword', 'graph', 'hybrid'];
-      const datasets = [
+        const status = d.status || 'ERROR';
+        container.append(
+          el(
+            'div',
+            { class: 'prose-answer text-sm' },
+            d.answer || d.error || '(không có nội dung)',
+          ),
+        );
+
+        const meta = el('div', {
+          class: 'mt-2.5 flex flex-wrap items-center gap-1.5',
+        });
+        meta.append(
+          chip(
+            status.replace(/_/g, ' '),
+            STATUS_STYLE[status] || STATUS_STYLE.ERROR,
+          ),
+        );
+        if (d.faithfulness && d.faithfulness.score != null)
+          meta.append(
+            chip(
+              'faithfulness ' + d.faithfulness.score.toFixed(2),
+              d.faithfulness.grounded
+                ? STATUS_STYLE.GROUNDED
+                : STATUS_STYLE.PARTIALLY_GROUNDED,
+            ),
+          );
+        if (d.retrieval)
+          meta.append(
+            chip(
+              d.retrieval.strategy + ' · ' + d.retrieval.chunkCount + ' chunk',
+              'bg-line/60 text-soft dark:bg-line-dark/60 dark:text-soft-dark',
+            ),
+          );
+        meta.append(
+          chip(
+            (r.ms / 1000).toFixed(1) + 's',
+            'bg-line/60 text-soft dark:bg-line-dark/60 dark:text-soft-dark',
+          ),
+        );
+        if (d.model)
+          meta.append(
+            chip(
+              d.model,
+              'bg-line/60 text-soft dark:bg-line-dark/60 dark:text-soft-dark',
+            ),
+          );
+        container.append(meta);
+
+        const folds = el('div', { class: 'mt-2.5 space-y-1.5' });
+        if (d.citations && d.citations.length) {
+          const list = el('ul', { class: 'space-y-1 text-xs' });
+          d.citations.forEach((c) =>
+            list.append(
+              el(
+                'li',
+                { class: 'flex gap-2' },
+                el(
+                  'span',
+                  {
+                    class: c.valid
+                      ? 'text-brand dark:text-brand-dark'
+                      : 'text-red-500',
+                  },
+                  c.valid ? '✓' : '✕',
+                ),
+                el('span', {}, [
+                  c.claimText || c.section || c.documentId || 'chunk',
+                  c.section
+                    ? el(
+                        'span',
+                        { class: 'text-soft dark:text-soft-dark' },
+                        ' — ' + c.section,
+                      )
+                    : null,
+                  c.page != null
+                    ? el(
+                        'span',
+                        { class: 'text-soft dark:text-soft-dark' },
+                        ' · tr.' + c.page,
+                      )
+                    : null,
+                ]),
+              ),
+            ),
+          );
+          folds.append(foldable('Trích dẫn', list, d.citations.length));
+        }
+        if (d.claims && d.claims.length) {
+          const list = el('ul', { class: 'space-y-1 text-xs' });
+          d.claims.forEach((c) =>
+            list.append(
+              el(
+                'li',
+                { class: 'flex gap-2' },
+                el(
+                  'span',
+                  {
+                    class:
+                      'font-medium ' +
+                      (VERDICT_STYLE[c.verdict] || 'text-soft'),
+                  },
+                  c.verdict || (c.supported ? 'SUPPORTED' : 'UNSUPPORTED'),
+                ),
+                el('span', {}, c.text),
+              ),
+            ),
+          );
+          folds.append(foldable('Claims', list, d.claims.length));
+        }
+        if (d.trace)
+          folds.append(
+            foldable(
+              'Trace',
+              el(
+                'pre',
+                {
+                  class:
+                    'overflow-auto font-mono text-[11px] leading-relaxed text-soft dark:text-soft-dark',
+                  style: 'max-height:260px',
+                },
+                JSON.stringify(d.trace, null, 2),
+              ),
+            ),
+          );
+        if (d.id)
+          folds.append(
+            el(
+              'div',
+              { class: 'text-[11px] text-soft dark:text-soft-dark' },
+              'RagQuery: ' + d.id,
+            ),
+          );
+        if (folds.children.length) container.append(folds);
+      }
+
+      async function sendChat() {
+        const input = $('#chatInput');
+        const q = input.value.trim();
+        if (!q || chatBusy) return;
+        chatBusy = true;
+        $('#chatSend').disabled = true;
+        input.value = '';
+        input.style.height = 'auto';
+        bubbleUser(q);
+
+        const wrap = el('div', { class: 'flex' });
+        const body = el('div', {
+          class:
+            'max-w-[92%] rounded-2xl rounded-bl-md border border-line bg-card px-3.5 py-2.5 dark:border-line-dark dark:bg-card-dark',
+        });
+        body.append(
+          el(
+            'div',
+            { class: 'typing flex gap-1 py-1' },
+            el('span', { class: 'size-1.5 rounded-full bg-soft' }),
+            el('span', { class: 'size-1.5 rounded-full bg-soft' }),
+            el('span', { class: 'size-1.5 rounded-full bg-soft' }),
+          ),
+        );
+        wrap.append(body);
+        messagesEl.append(wrap);
+        scrollChat();
+
+        const payload = {
+          query: q,
+          strategy: $('#cStrategy').value,
+          topK: Number($('#cTopK').value) || 5,
+        };
+        if ($('#cRerank').checked) payload.rerank = true;
+        if ($('#cStrict').checked) payload.strict = true;
+        if ($('#cCite').checked) payload.cite = true;
+        if ($('#cFaith').checked) payload.faithfulness = true;
+
+        const r = await api('POST', '/rag/query', { body: payload });
+        if (r.data && r.data.id) LS.lastQuery = r.data.id;
+        renderAssistant(body, r);
+        scrollChat();
+        chatBusy = false;
+        $('#chatSend').disabled = false;
+        input.focus();
+      }
+
+      $('#chatForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        sendChat();
+      });
+      $('#chatInput').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          sendChat();
+        }
+      });
+      $('#chatInput').addEventListener('input', (e) => {
+        e.target.style.height = 'auto';
+        e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px';
+      });
+      $('#chatClear').addEventListener('click', () => {
+        messagesEl.innerHTML = '';
+        if (!$('#chatEmpty')) location.reload();
+      });
+
+      /* ================================================================= API CONSOLE */
+      const clean = (o) =>
+        Object.fromEntries(
+          Object.entries(o).filter(([, v]) => v !== '' && v != null),
+        );
+      const num = (v) => (v === '' || v == null ? undefined : Number(v));
+      const STRAT = ['vector', 'keyword', 'graph', 'hybrid'];
+      const DS = [
         'answerable',
         'multi-hop',
         'conflicting',
         'adversarial',
         'unanswerable',
       ];
-      const experiments = [
+      const EXP = [
         'exp-001',
         'exp-002',
         'exp-003',
@@ -576,679 +825,870 @@
         'exp-007',
       ];
 
-      /* ==================== SECTIONS ==================== */
-      const app = $('#app');
+      function paintLastDoc() {
+        $$('[data-lastdoc]').forEach(
+          (n) => (n.textContent = LS.lastDoc || '—'),
+        );
+      }
 
-      app.append(
-        section('① Hệ thống & Provider', [
-          {
-            title: 'Health check đầy đủ',
-            method: 'GET',
-            path: '/health',
-            build: () => ({ path: '/health' }),
-          },
-          {
-            title: 'Liveness',
-            method: 'GET',
-            path: '/health/live',
-            build: () => ({ path: '/health/live' }),
-          },
-          {
-            title: 'Danh sách provider AI (LLM + embedding + reranker)',
-            method: 'GET',
-            path: '/ai/providers',
-            build: () => ({ path: '/ai/providers' }),
-          },
-          {
-            title: 'Test kết nối một provider',
-            method: 'POST',
-            path: '/ai/providers/test',
-            fields: [
+      const F = {
+        ipt: (name, o = {}) => ({ name, type: o.type || 'text', ...o }),
+      };
+
+      const inputCls =
+        'rounded-md border border-line bg-canvas px-2 py-1.5 text-sm outline-none focus:border-brand dark:border-line-dark dark:bg-canvas-dark dark:focus:border-brand-dark';
+      const btnCls =
+        'inline-flex items-center gap-1.5 rounded-md bg-brand px-3 py-1.5 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-40 dark:bg-brand-dark dark:text-canvas-dark';
+      const ghostCls =
+        'rounded-md border border-line px-2 py-1 text-xs hover:bg-line/40 dark:border-line-dark dark:hover:bg-line-dark/40';
+
+      function field(f) {
+        const wrap = el('label', {
+          class:
+            'flex flex-col gap-1 text-[11px] font-medium text-soft dark:text-soft-dark ' +
+            (f.grow ? 'flex-1 min-w-[180px]' : ''),
+        });
+        wrap.append(f.label || f.name);
+        let node;
+        if (f.type === 'checkbox') {
+          node = el('input', {
+            type: 'checkbox',
+            class: 'accent-brand size-4',
+          });
+          if (f.default) node.checked = true;
+          return el(
+            'label',
+            { class: 'flex items-center gap-1.5 text-xs font-medium' },
+            node,
+            f.label || f.name,
+          );
+        } else if (f.type === 'textarea') {
+          node = el('textarea', {
+            rows: '3',
+            class: inputCls + ' resize-y font-mono text-xs',
+            placeholder: f.placeholder || '',
+          });
+          if (f.default) node.value = f.default;
+        } else if (f.type === 'select') {
+          node = el('select', { class: inputCls });
+          f.options.forEach((o) =>
+            node.append(el('option', { value: o }, o || '(mặc định)')),
+          );
+          if (f.default) node.value = f.default;
+        } else if (f.type === 'file') {
+          node = el('input', { type: 'file', class: 'text-xs' });
+        } else {
+          node = el('input', {
+            type: f.type === 'number' ? 'number' : 'text',
+            class: inputCls,
+            placeholder: f.placeholder || '',
+          });
+          if (f.default != null) node.value = f.default;
+        }
+        wrap._node = node;
+        wrap.append(node);
+        if (f.fillLast) {
+          const row = el('div', {
+            class:
+              'flex items-end gap-1.5 ' +
+              (f.grow ? 'flex-1 min-w-[180px]' : ''),
+          });
+          row.append(wrap);
+          row.append(
+            el(
+              'button',
               {
-                name: 'provider',
-                type: 'select',
-                options: ['custom', 'openai', 'gemini', 'anthropic', 'fake'],
-                default: 'custom',
+                type: 'button',
+                class: ghostCls,
+                onclick: () => {
+                  node.value =
+                    f.fillLast === 'doc'
+                      ? LS.lastDoc
+                      : f.fillLast === 'run'
+                        ? LS.lastRun
+                        : LS.lastQuery;
+                },
               },
-            ],
-            build: (c) => ({
+              'gần nhất',
+            ),
+          );
+          row._node = node;
+          return row;
+        }
+        return wrap;
+      }
+
+      function op(o) {
+        const box = el('div', {
+          class:
+            'border-t border-line pt-3 first:border-0 first:pt-0 dark:border-line-dark',
+        });
+        box.append(el('h3', { class: 'text-[13px] font-semibold' }, o.title));
+        box.append(
+          el(
+            'div',
+            {
+              class:
+                'mt-0.5 flex items-center gap-1.5 font-mono text-[11px] text-soft dark:text-soft-dark',
+            },
+            el(
+              'span',
+              {
+                class:
+                  'rounded px-1.5 py-0.5 font-semibold ' +
+                  (o.method === 'GET'
+                    ? 'bg-brand/15 text-brand dark:bg-brand-dark/15 dark:text-brand-dark'
+                    : o.method === 'DELETE'
+                      ? 'bg-red-500/15 text-red-500'
+                      : 'bg-sky-500/15 text-sky-600 dark:text-sky-400'),
+              },
+              o.method,
+            ),
+            o.path,
+          ),
+        );
+        if (o.hint)
+          box.append(
+            el(
+              'p',
+              { class: 'mt-1 text-[11px] text-soft dark:text-soft-dark' },
+              o.hint,
+            ),
+          );
+
+        const nodes = {};
+        const grid = el('div', {
+          class: 'mt-2 flex flex-wrap items-end gap-2',
+        });
+        (o.fields || []).forEach((f) => {
+          const fEl = field(f);
+          nodes[f.name] = fEl._node || fEl;
+          grid.append(fEl);
+        });
+        box.append(grid);
+
+        const out = el('div', {
+          class:
+            'mt-2 hidden overflow-hidden rounded-lg border border-line dark:border-line-dark',
+        });
+        const btn = el(
+          'button',
+          { type: 'button', class: btnCls + ' mt-2' },
+          el('svg', {
+            class: 'size-4',
+            viewBox: '0 0 24 24',
+            fill: 'none',
+            stroke: 'currentColor',
+            'stroke-width': '2',
+            html: '<path d="m5 12 14-7-4 14-3-6-7-1Z" stroke-linejoin="round"/>',
+          }),
+          o.button || 'Gửi',
+        );
+        btn.addEventListener('click', async () => {
+          btn.disabled = true;
+          const ctx = {};
+          for (const [k, n] of Object.entries(nodes))
+            ctx[k] =
+              n.type === 'checkbox'
+                ? n.checked
+                : n.type === 'file'
+                  ? n.files[0] || null
+                  : n.value.trim();
+          const req = o.build(ctx);
+          const r = await api(req.method || o.method, req.path, {
+            body: req.body,
+            form: req.form,
+          });
+          out.classList.remove('hidden');
+          out.innerHTML = '';
+          const sCls =
+            r.netErr || r.status >= 500
+              ? 'text-red-500'
+              : r.status >= 400
+                ? 'text-amber-500'
+                : 'text-brand dark:text-brand-dark';
+          out.append(
+            el(
+              'div',
+              {
+                class:
+                  'flex items-center gap-3 bg-line/40 px-2.5 py-1 text-[11px] dark:bg-line-dark/40',
+              },
+              el(
+                'span',
+                { class: 'font-mono font-semibold ' + sCls },
+                String(r.status || 'ERR'),
+              ),
+              el('span', {}, r.ms + ' ms'),
+              r.data && r.data.status
+                ? el(
+                    'span',
+                    {
+                      class:
+                        'rounded-full bg-line/60 px-2 dark:bg-line-dark/60',
+                    },
+                    r.data.status,
+                  )
+                : null,
+            ),
+          );
+          out.append(
+            el(
+              'pre',
+              {
+                class:
+                  'overflow-auto bg-[#0b0f14] p-2.5 font-mono text-[11px] leading-relaxed text-[#d7e0ea]',
+                style: 'max-height:420px',
+              },
+              typeof r.data === 'string'
+                ? r.data
+                : JSON.stringify(r.data, null, 2),
+            ),
+          );
+          if (o.after) o.after(r, ctx);
+          btn.disabled = false;
+        });
+        box.append(btn, out);
+        return box;
+      }
+
+      function card(title, ops) {
+        const d = el('details', {
+          class:
+            'overflow-hidden rounded-xl border border-line bg-card dark:border-line-dark dark:bg-card-dark',
+        });
+        d.append(
+          el(
+            'summary',
+            {
+              class:
+                'flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-semibold',
+            },
+            title,
+            el('svg', {
+              class: 'chev size-4 text-soft dark:text-soft-dark',
+              viewBox: '0 0 24 24',
+              fill: 'none',
+              stroke: 'currentColor',
+              'stroke-width': '2',
+              html: '<path d="m6 9 6 6 6-6" stroke-linecap="round"/>',
+            }),
+          ),
+        );
+        const body = el('div', {
+          class:
+            'space-y-3 border-t border-line px-4 py-3.5 dark:border-line-dark',
+        });
+        ops.forEach((o) => body.append(op(o)));
+        d.append(body);
+        return d;
+      }
+
+      function buildConsole() {
+        const app = $('#app');
+        app.append(
+          card('① Hệ thống & Provider', [
+            {
+              title: 'Health check đầy đủ',
+              method: 'GET',
+              path: '/health',
+              build: () => ({ path: '/health' }),
+            },
+            {
+              title: 'Liveness',
+              method: 'GET',
+              path: '/health/live',
+              build: () => ({ path: '/health/live' }),
+            },
+            {
+              title: 'Provider AI (LLM · embedding · reranker)',
+              method: 'GET',
+              path: '/ai/providers',
+              build: () => ({ path: '/ai/providers' }),
+            },
+            {
+              title: 'Test kết nối provider',
+              method: 'POST',
               path: '/ai/providers/test',
-              body: { provider: c.provider },
-            }),
-          },
-        ]),
-      );
+              fields: [
+                {
+                  name: 'provider',
+                  type: 'select',
+                  options: ['custom', 'openai', 'gemini', 'anthropic', 'fake'],
+                  default: 'custom',
+                },
+              ],
+              build: (c) => ({
+                path: '/ai/providers/test',
+                body: { provider: c.provider },
+              }),
+            },
+          ]),
 
-      app.append(
-        section('② Tài liệu — ingest & pipeline', [
-          {
-            title: 'Ingest văn bản trực tiếp (markdown)',
-            method: 'POST',
-            path: '/documents',
-            hint: 'Tự chạy PARSE→CLEAN→DEDUP→QUALITY→CHUNK→EMBED. Lưu id vào "doc gần nhất".',
-            fields: [
-              {
-                name: 'title',
-                type: 'text',
-                default: 'Quy chế thử nghiệm',
-                grow: true,
-              },
-              { name: 'source', type: 'text', default: 'console-test' },
-              {
-                name: 'text',
-                type: 'textarea',
-                default:
-                  '# Quy chế thử nghiệm\n\n## Điều 1. Thời gian bảo lưu\n\nSinh viên được phép bảo lưu kết quả học tập tối đa hai học kỳ liên tiếp trong toàn khoá học.\n\n## Điều 2. Thủ tục\n\nĐơn xin bảo lưu nộp cho phòng đào tạo trước ngày bắt đầu học kỳ ít nhất mười lăm ngày làm việc.',
-              },
-            ],
-            build: (c) => ({
+          card('② Tài liệu — ingest & pipeline', [
+            {
+              title: 'Ingest văn bản (markdown)',
+              method: 'POST',
               path: '/documents',
-              body: { title: c.title, source: c.source, text: c.text },
-            }),
-            after: (r) => {
-              if (r.data && r.data.document && r.data.document.id)
-                store.lastDoc = r.data.document.id;
+              hint: 'PARSE→CLEAN→DEDUP→QUALITY→CHUNK→EMBED. Lưu id vào "gần nhất".',
+              fields: [
+                {
+                  name: 'title',
+                  type: 'text',
+                  default: 'Quy chế thử nghiệm',
+                  grow: true,
+                },
+                { name: 'source', type: 'text', default: 'console-test' },
+                {
+                  name: 'text',
+                  type: 'textarea',
+                  grow: true,
+                  default:
+                    '# Quy chế thử nghiệm\n\n## Điều 1. Thời gian bảo lưu\n\nSinh viên được phép bảo lưu kết quả học tập tối đa hai học kỳ liên tiếp trong toàn khoá học.\n\n## Điều 2. Thủ tục\n\nĐơn xin bảo lưu nộp cho phòng đào tạo trước ngày bắt đầu học kỳ ít nhất mười lăm ngày làm việc.',
+                },
+              ],
+              build: (c) => ({
+                path: '/documents',
+                body: { title: c.title, source: c.source, text: c.text },
+              }),
+              after: (r) => {
+                if (r.data?.document?.id) LS.lastDoc = r.data.document.id;
+              },
             },
-          },
-
-          {
-            title: 'Upload file (pdf / docx / xlsx / pptx / csv / html / md)',
-            method: 'POST',
-            path: '/documents',
-            fields: [
-              { name: 'file', type: 'file' },
-              {
-                name: 'title',
-                type: 'text',
-                default: '',
-                placeholder: '(tuỳ chọn)',
+            {
+              title: 'Upload file (pdf/docx/xlsx/pptx/csv/html/md)',
+              method: 'POST',
+              path: '/documents',
+              fields: [
+                { name: 'file', type: 'file' },
+                { name: 'title', type: 'text', placeholder: '(tuỳ chọn)' },
+                { name: 'source', type: 'text', default: 'console-upload' },
+              ],
+              build: (c) => {
+                const fd = new FormData();
+                if (c.file) fd.append('file', c.file);
+                if (c.title) fd.append('title', c.title);
+                if (c.source) fd.append('source', c.source);
+                return { path: '/documents', form: fd };
               },
-              { name: 'source', type: 'text', default: 'console-upload' },
-            ],
-            build: (c) => {
-              const fd = new FormData();
-              if (c.file) fd.append('file', c.file);
-              if (c.title) fd.append('title', c.title);
-              if (c.source) fd.append('source', c.source);
-              return { path: '/documents', form: fd };
+              after: (r) => {
+                if (r.data?.document?.id) LS.lastDoc = r.data.document.id;
+              },
             },
-            after: (r) => {
-              if (r.data && r.data.document && r.data.document.id)
-                store.lastDoc = r.data.document.id;
+            {
+              title: 'Liệt kê tài liệu',
+              method: 'GET',
+              path: '/documents',
+              fields: [
+                {
+                  name: 'status',
+                  type: 'select',
+                  options: [
+                    '',
+                    'COMPLETED',
+                    'CHUNKING',
+                    'EMBEDDING',
+                    'REJECTED',
+                    'FAILED',
+                  ],
+                },
+                { name: 'take', type: 'number', default: '20' },
+              ],
+              build: (c) => ({
+                path:
+                  '/documents?' +
+                  new URLSearchParams(
+                    clean({ status: c.status, take: c.take }),
+                  ),
+              }),
             },
-          },
+            {
+              title: 'Chi tiết tài liệu',
+              method: 'GET',
+              path: '/documents/:id',
+              fields: [
+                { name: 'id', type: 'text', grow: true, fillLast: 'doc' },
+              ],
+              build: (c) => ({
+                path: '/documents/' + encodeURIComponent(c.id),
+              }),
+            },
+            {
+              title: 'Chunks',
+              method: 'GET',
+              path: '/documents/:id/chunks',
+              fields: [
+                { name: 'id', type: 'text', grow: true, fillLast: 'doc' },
+              ],
+              build: (c) => ({
+                path: '/documents/' + encodeURIComponent(c.id) + '/chunks',
+              }),
+            },
+            {
+              title: 'Tóm tắt embedding',
+              method: 'GET',
+              path: '/documents/:id/embeddings',
+              fields: [
+                { name: 'id', type: 'text', grow: true, fillLast: 'doc' },
+              ],
+              build: (c) => ({
+                path: '/documents/' + encodeURIComponent(c.id) + '/embeddings',
+              }),
+            },
+            {
+              title: 'Stage ingestion + thời gian',
+              method: 'GET',
+              path: '/documents/:id/jobs',
+              fields: [
+                { name: 'id', type: 'text', grow: true, fillLast: 'doc' },
+              ],
+              build: (c) => ({
+                path: '/documents/' + encodeURIComponent(c.id) + '/jobs',
+              }),
+            },
+            {
+              title: 'Re-ingest',
+              method: 'POST',
+              path: '/documents/:id/ingest',
+              button: 'Chạy',
+              fields: [
+                { name: 'id', type: 'text', grow: true, fillLast: 'doc' },
+              ],
+              build: (c) => ({
+                path: '/documents/' + encodeURIComponent(c.id) + '/ingest',
+              }),
+            },
+            {
+              title: 'Re-chunk (chọn strategy)',
+              method: 'POST',
+              path: '/documents/:id/chunk',
+              button: 'Chạy',
+              fields: [
+                { name: 'id', type: 'text', grow: true, fillLast: 'doc' },
+                {
+                  name: 'strategy',
+                  type: 'select',
+                  options: ['structure', 'fixed', 'semantic'],
+                  default: 'structure',
+                },
+              ],
+              build: (c) => ({
+                path: '/documents/' + encodeURIComponent(c.id) + '/chunk',
+                body: { strategy: c.strategy },
+              }),
+            },
+            {
+              title: 'Re-embed',
+              method: 'POST',
+              path: '/documents/:id/embed',
+              button: 'Chạy',
+              fields: [
+                { name: 'id', type: 'text', grow: true, fillLast: 'doc' },
+              ],
+              build: (c) => ({
+                path: '/documents/' + encodeURIComponent(c.id) + '/embed',
+                body: {},
+              }),
+            },
+            {
+              title: 'Graph — build entity/quan hệ → Neo4j',
+              method: 'POST',
+              path: '/documents/:id/graph',
+              button: 'Build',
+              hint: 'Cần GRAPH_RAG_ENABLED=true + Neo4j.',
+              fields: [
+                { name: 'id', type: 'text', grow: true, fillLast: 'doc' },
+              ],
+              build: (c) => ({
+                path: '/documents/' + encodeURIComponent(c.id) + '/graph',
+                body: {},
+              }),
+            },
+            {
+              title: 'Graph — tóm tắt',
+              method: 'GET',
+              path: '/documents/:id/graph',
+              fields: [
+                { name: 'id', type: 'text', grow: true, fillLast: 'doc' },
+              ],
+              build: (c) => ({
+                path: '/documents/' + encodeURIComponent(c.id) + '/graph',
+              }),
+            },
+            {
+              title: 'Xoá tài liệu',
+              method: 'DELETE',
+              path: '/documents/:id',
+              button: 'Xoá',
+              fields: [
+                { name: 'id', type: 'text', grow: true, fillLast: 'doc' },
+              ],
+              build: (c) => ({
+                path: '/documents/' + encodeURIComponent(c.id),
+              }),
+            },
+          ]),
 
-          {
-            title: 'Liệt kê tài liệu',
-            method: 'GET',
-            path: '/documents',
-            fields: [
-              {
-                name: 'status',
-                type: 'select',
-                options: [
-                  '',
-                  'COMPLETED',
-                  'CHUNKING',
-                  'EMBEDDING',
-                  'REJECTED',
-                  'FAILED',
-                ],
-                default: '',
-              },
-              { name: 'take', type: 'number', default: '20' },
-            ],
-            build: (c) => ({
-              path:
-                '/documents?' +
-                new URLSearchParams(clean({ status: c.status, take: c.take })),
-            }),
-          },
-
-          {
-            title: 'Chi tiết tài liệu (text đã clean, quality report)',
-            method: 'GET',
-            path: '/documents/:id',
-            fields: [{ name: 'id', type: 'text', grow: true, fillLast: 'doc' }],
-            build: (c) => ({ path: '/documents/' + encodeURIComponent(c.id) }),
-          },
-
-          {
-            title: 'Chunks của tài liệu',
-            method: 'GET',
-            path: '/documents/:id/chunks',
-            fields: [{ name: 'id', type: 'text', grow: true, fillLast: 'doc' }],
-            build: (c) => ({
-              path: '/documents/' + encodeURIComponent(c.id) + '/chunks',
-            }),
-          },
-
-          {
-            title: 'Tóm tắt embedding',
-            method: 'GET',
-            path: '/documents/:id/embeddings',
-            fields: [{ name: 'id', type: 'text', grow: true, fillLast: 'doc' }],
-            build: (c) => ({
-              path: '/documents/' + encodeURIComponent(c.id) + '/embeddings',
-            }),
-          },
-
-          {
-            title: 'Các stage ingestion + thời gian',
-            method: 'GET',
-            path: '/documents/:id/jobs',
-            fields: [{ name: 'id', type: 'text', grow: true, fillLast: 'doc' }],
-            build: (c) => ({
-              path: '/documents/' + encodeURIComponent(c.id) + '/jobs',
-            }),
-          },
-
-          {
-            title: 'Chạy lại toàn bộ pipeline',
-            method: 'POST',
-            path: '/documents/:id/ingest',
-            button: 'Re-ingest',
-            fields: [{ name: 'id', type: 'text', grow: true, fillLast: 'doc' }],
-            build: (c) => ({
-              path: '/documents/' + encodeURIComponent(c.id) + '/ingest',
-            }),
-          },
-
-          {
-            title: 'Chạy lại chunking (chọn strategy)',
-            method: 'POST',
-            path: '/documents/:id/chunk',
-            button: 'Re-chunk',
-            fields: [
-              { name: 'id', type: 'text', grow: true, fillLast: 'doc' },
-              {
-                name: 'strategy',
-                type: 'select',
-                options: ['structure', 'fixed', 'semantic'],
-                default: 'structure',
-              },
-            ],
-            build: (c) => ({
-              path: '/documents/' + encodeURIComponent(c.id) + '/chunk',
-              body: { strategy: c.strategy },
-            }),
-          },
-
-          {
-            title: 'Sinh lại embedding',
-            method: 'POST',
-            path: '/documents/:id/embed',
-            button: 'Re-embed',
-            fields: [{ name: 'id', type: 'text', grow: true, fillLast: 'doc' }],
-            build: (c) => ({
-              path: '/documents/' + encodeURIComponent(c.id) + '/embed',
-              body: {},
-            }),
-          },
-
-          {
-            title: 'Graph RAG — dựng entity/quan hệ → Neo4j',
-            method: 'POST',
-            path: '/documents/:id/graph',
-            button: 'Build graph',
-            hint: 'Cần GRAPH_RAG_ENABLED=true và Neo4j.',
-            fields: [{ name: 'id', type: 'text', grow: true, fillLast: 'doc' }],
-            build: (c) => ({
-              path: '/documents/' + encodeURIComponent(c.id) + '/graph',
-              body: {},
-            }),
-          },
-
-          {
-            title: 'Graph — tóm tắt entity/quan hệ của tài liệu',
-            method: 'GET',
-            path: '/documents/:id/graph',
-            fields: [{ name: 'id', type: 'text', grow: true, fillLast: 'doc' }],
-            build: (c) => ({
-              path: '/documents/' + encodeURIComponent(c.id) + '/graph',
-            }),
-          },
-
-          {
-            title: 'Xoá tài liệu (dọn Neo4j + cascade Postgres)',
-            method: 'DELETE',
-            path: '/documents/:id',
-            button: 'Xoá',
-            fields: [{ name: 'id', type: 'text', grow: true, fillLast: 'doc' }],
-            build: (c) => ({ path: '/documents/' + encodeURIComponent(c.id) }),
-          },
-        ]),
-      );
-
-      app.append(
-        section('③ Truy hồi (không gọi LLM)', [
-          {
-            title: 'POST /rag/search — debug retrieval',
-            method: 'POST',
-            path: '/rag/search',
-            hint: 'Kiểm tra "có kéo đúng chunk không". strategy: vector | keyword | graph | hybrid.',
-            fields: [
-              {
-                name: 'query',
-                type: 'textarea',
-                default:
-                  'Sinh viên được bảo lưu kết quả học tập tối đa mấy học kỳ?',
-              },
-              { name: 'topK', type: 'number', default: '5' },
-              {
-                name: 'strategy',
-                type: 'select',
-                options: strategies,
-                default: 'vector',
-              },
-              {
-                name: 'sources',
-                type: 'text',
-                placeholder: 'lọc theo source, phẩy (tuỳ chọn)',
-              },
-            ],
-            build: (c) => ({
+          card('③ Truy hồi (không gọi LLM)', [
+            {
+              title: 'POST /rag/search',
+              method: 'POST',
               path: '/rag/search',
-              body: clean({
-                query: c.query,
-                topK: num(c.topK),
-                strategy: c.strategy,
-                filters: c.sources
-                  ? {
-                      sources: c.sources
-                        .split(',')
-                        .map((s) => s.trim())
-                        .filter(Boolean),
-                    }
-                  : undefined,
+              hint: 'Kiểm tra "có kéo đúng chunk không".',
+              fields: [
+                {
+                  name: 'query',
+                  type: 'textarea',
+                  grow: true,
+                  default:
+                    'Sinh viên được bảo lưu kết quả học tập tối đa mấy học kỳ?',
+                },
+                { name: 'topK', type: 'number', default: '5' },
+                {
+                  name: 'strategy',
+                  type: 'select',
+                  options: STRAT,
+                  default: 'vector',
+                },
+                {
+                  name: 'sources',
+                  type: 'text',
+                  placeholder: 'lọc source, phẩy',
+                },
+              ],
+              build: (c) => ({
+                path: '/rag/search',
+                body: clean({
+                  query: c.query,
+                  topK: num(c.topK),
+                  strategy: c.strategy,
+                  filters: c.sources
+                    ? {
+                        sources: c.sources
+                          .split(',')
+                          .map((s) => s.trim())
+                          .filter(Boolean),
+                      }
+                    : undefined,
+                }),
               }),
-            }),
-          },
-        ]),
-      );
+            },
+          ]),
 
-      app.append(
-        section('④ RAG Query — pipeline đầy đủ', [
-          {
-            title: 'POST /rag/query',
-            method: 'POST',
-            path: '/rag/query',
-            hint: 'retrieve → context → validate → generate → claim → evidence → faithfulness → citation.',
-            fields: [
-              {
-                name: 'query',
-                type: 'textarea',
-                default:
-                  'Sinh viên được bảo lưu kết quả học tập tối đa mấy học kỳ?',
-              },
-              { name: 'topK', type: 'number', default: '5' },
-              {
-                name: 'strategy',
-                type: 'select',
-                options: strategies,
-                default: 'vector',
-              },
-              { name: 'rerank', type: 'checkbox', label: 'rerank' },
-              { name: 'strict', type: 'checkbox', label: 'strict grounding' },
-              {
-                name: 'cite',
-                type: 'checkbox',
-                label: 'citation',
-                default: true,
-              },
-              {
-                name: 'faithfulness',
-                type: 'checkbox',
-                label: 'faithfulness verifier',
-                default: true,
-              },
-            ],
-            build: (c) => ({
+          card('④ RAG Query — pipeline đầy đủ', [
+            {
+              title: 'POST /rag/query',
+              method: 'POST',
               path: '/rag/query',
-              body: clean({
-                query: c.query,
-                topK: num(c.topK),
-                strategy: c.strategy,
-                rerank: c.rerank || undefined,
-                strict: c.strict || undefined,
-                cite: c.cite || undefined,
-                faithfulness: c.faithfulness || undefined,
+              hint: 'retrieve → context → validate → generate → claim → evidence → faithfulness → citation.',
+              fields: [
+                {
+                  name: 'query',
+                  type: 'textarea',
+                  grow: true,
+                  default:
+                    'Sinh viên được bảo lưu kết quả học tập tối đa mấy học kỳ?',
+                },
+                { name: 'topK', type: 'number', default: '5' },
+                {
+                  name: 'strategy',
+                  type: 'select',
+                  options: STRAT,
+                  default: 'vector',
+                },
+                { name: 'rerank', type: 'checkbox', label: 'rerank' },
+                { name: 'strict', type: 'checkbox', label: 'strict' },
+                {
+                  name: 'cite',
+                  type: 'checkbox',
+                  label: 'citation',
+                  default: true,
+                },
+                {
+                  name: 'faithfulness',
+                  type: 'checkbox',
+                  label: 'faithfulness',
+                  default: true,
+                },
+              ],
+              build: (c) => ({
+                path: '/rag/query',
+                body: clean({
+                  query: c.query,
+                  topK: num(c.topK),
+                  strategy: c.strategy,
+                  rerank: c.rerank || undefined,
+                  strict: c.strict || undefined,
+                  cite: c.cite || undefined,
+                  faithfulness: c.faithfulness || undefined,
+                }),
               }),
-            }),
-            after: (r) => {
-              if (r.data && r.data.id) store.lastQuery = r.data.id;
+              after: (r) => {
+                if (r.data?.id) LS.lastQuery = r.data.id;
+              },
             },
-          },
-        ]),
-      );
+          ]),
 
-      app.append(
-        section('⑤ Lịch sử truy vấn (audit)', [
-          {
-            title: 'Liệt kê RagQuery',
-            method: 'GET',
-            path: '/rag/queries',
-            fields: [
-              {
-                name: 'status',
-                type: 'select',
-                options: [
-                  '',
-                  'GROUNDED',
-                  'PARTIALLY_GROUNDED',
-                  'INSUFFICIENT_EVIDENCE',
-                  'CONFLICTING_EVIDENCE',
-                ],
-                default: '',
-              },
-              { name: 'take', type: 'number', default: '20' },
-            ],
-            build: (c) => ({
-              path:
-                '/rag/queries?' +
-                new URLSearchParams(clean({ status: c.status, take: c.take })),
-            }),
-          },
-          {
-            title: 'Chi tiết một truy vấn (+ citations)',
-            method: 'GET',
-            path: '/rag/queries/:id',
-            fields: [
-              { name: 'id', type: 'text', grow: true, fillLast: 'query' },
-            ],
-            build: (c) => ({
-              path: '/rag/queries/' + encodeURIComponent(c.id),
-            }),
-          },
-          {
-            title: 'Trace timeline từng chặng',
-            method: 'GET',
-            path: '/rag/queries/:id/trace',
-            fields: [
-              { name: 'id', type: 'text', grow: true, fillLast: 'query' },
-            ],
-            build: (c) => ({
-              path: '/rag/queries/' + encodeURIComponent(c.id) + '/trace',
-            }),
-          },
-        ]),
-      );
+          card('⑤ Lịch sử truy vấn (audit)', [
+            {
+              title: 'Liệt kê RagQuery',
+              method: 'GET',
+              path: '/rag/queries',
+              fields: [
+                {
+                  name: 'status',
+                  type: 'select',
+                  options: [
+                    '',
+                    'GROUNDED',
+                    'PARTIALLY_GROUNDED',
+                    'INSUFFICIENT_EVIDENCE',
+                    'CONFLICTING_EVIDENCE',
+                  ],
+                },
+                { name: 'take', type: 'number', default: '20' },
+              ],
+              build: (c) => ({
+                path:
+                  '/rag/queries?' +
+                  new URLSearchParams(
+                    clean({ status: c.status, take: c.take }),
+                  ),
+              }),
+            },
+            {
+              title: 'Chi tiết truy vấn (+ citations)',
+              method: 'GET',
+              path: '/rag/queries/:id',
+              fields: [
+                { name: 'id', type: 'text', grow: true, fillLast: 'query' },
+              ],
+              build: (c) => ({
+                path: '/rag/queries/' + encodeURIComponent(c.id),
+              }),
+            },
+            {
+              title: 'Trace timeline',
+              method: 'GET',
+              path: '/rag/queries/:id/trace',
+              fields: [
+                { name: 'id', type: 'text', grow: true, fillLast: 'query' },
+              ],
+              build: (c) => ({
+                path: '/rag/queries/' + encodeURIComponent(c.id) + '/trace',
+              }),
+            },
+          ]),
 
-      app.append(
-        section('⑥ Đánh giá — golden dataset (111 case)', [
-          {
-            title: 'Chạy đánh giá một dataset',
-            method: 'POST',
-            path: '/evaluation/run',
-            button: 'Run eval',
-            hint: 'mode=retrieval nhanh (không LLM). mode=full gọi LLM cho từng case — có thể lâu.',
-            fields: [
-              {
-                name: 'datasetName',
-                type: 'select',
-                options: datasets,
-                default: 'answerable',
-              },
-              {
-                name: 'mode',
-                type: 'select',
-                options: ['retrieval', 'full'],
-                default: 'retrieval',
-              },
-              { name: 'topK', type: 'number', default: '5' },
-              {
-                name: 'isBaseline',
-                type: 'checkbox',
-                label: 'chốt làm baseline',
-              },
-              { name: 'strict', type: 'checkbox', label: 'strict' },
-              { name: 'cite', type: 'checkbox', label: 'cite' },
-              { name: 'faithfulness', type: 'checkbox', label: 'faithfulness' },
-              { name: 'rerank', type: 'checkbox', label: 'rerank' },
-            ],
-            build: (c) => ({
+          card('⑥ Đánh giá — golden dataset (111 case)', [
+            {
+              title: 'Chạy đánh giá',
+              method: 'POST',
               path: '/evaluation/run',
-              body: clean({
-                datasetName: c.datasetName,
-                mode: c.mode,
-                topK: num(c.topK),
-                isBaseline: c.isBaseline || undefined,
-                strict: c.strict || undefined,
-                cite: c.cite || undefined,
-                faithfulness: c.faithfulness || undefined,
-                rerank: c.rerank || undefined,
+              button: 'Run',
+              hint: 'mode=retrieval nhanh (không LLM). mode=full có thể lâu.',
+              fields: [
+                {
+                  name: 'datasetName',
+                  type: 'select',
+                  options: DS,
+                  default: 'answerable',
+                },
+                {
+                  name: 'mode',
+                  type: 'select',
+                  options: ['retrieval', 'full'],
+                  default: 'retrieval',
+                },
+                { name: 'topK', type: 'number', default: '5' },
+                { name: 'isBaseline', type: 'checkbox', label: 'baseline' },
+                { name: 'strict', type: 'checkbox', label: 'strict' },
+                { name: 'cite', type: 'checkbox', label: 'cite' },
+                {
+                  name: 'faithfulness',
+                  type: 'checkbox',
+                  label: 'faithfulness',
+                },
+                { name: 'rerank', type: 'checkbox', label: 'rerank' },
+              ],
+              build: (c) => ({
+                path: '/evaluation/run',
+                body: clean({
+                  datasetName: c.datasetName,
+                  mode: c.mode,
+                  topK: num(c.topK),
+                  isBaseline: c.isBaseline || undefined,
+                  strict: c.strict || undefined,
+                  cite: c.cite || undefined,
+                  faithfulness: c.faithfulness || undefined,
+                  rerank: c.rerank || undefined,
+                }),
               }),
-            }),
-            after: (r) => {
-              if (r.data && r.data.runId) store.lastRun = r.data.runId;
+              after: (r) => {
+                if (r.data?.runId) LS.lastRun = r.data.runId;
+              },
             },
-          },
-
-          {
-            title: 'Liệt kê các run',
-            method: 'GET',
-            path: '/evaluation/runs',
-            fields: [
-              {
-                name: 'datasetName',
-                type: 'select',
-                options: ['', ...datasets],
-                default: '',
-              },
-            ],
-            build: (c) => ({
-              path:
-                '/evaluation/runs' +
-                (c.datasetName ? '?datasetName=' + c.datasetName : ''),
-            }),
-          },
-
-          {
-            title: 'Chi tiết một run (metrics + từng case)',
-            method: 'GET',
-            path: '/evaluation/runs/:id',
-            fields: [{ name: 'id', type: 'text', grow: true, fillLast: 'run' }],
-            build: (c) => ({
-              path: '/evaluation/runs/' + encodeURIComponent(c.id),
-            }),
-          },
-
-          {
-            title: 'So run với baseline (regression gate)',
-            method: 'POST',
-            path: '/evaluation/runs/:id/compare',
-            fields: [{ name: 'id', type: 'text', grow: true, fillLast: 'run' }],
-            build: (c) => ({
-              path: '/evaluation/runs/' + encodeURIComponent(c.id) + '/compare',
-              body: {},
-            }),
-          },
-
-          {
-            title: 'Chốt run làm baseline',
-            method: 'POST',
-            path: '/evaluation/runs/:id/set-baseline',
-            fields: [{ name: 'id', type: 'text', grow: true, fillLast: 'run' }],
-            build: (c) => ({
-              path:
-                '/evaluation/runs/' +
-                encodeURIComponent(c.id) +
-                '/set-baseline',
-              body: {},
-            }),
-          },
-        ]),
-      );
-
-      app.append(
-        section('⑦ Experiment & benchmark before/after', [
-          {
-            title: 'Danh sách experiment chuẩn',
-            method: 'GET',
-            path: '/evaluation/experiments',
-            build: () => ({ path: '/evaluation/experiments' }),
-          },
-          {
-            title: 'Chạy một experiment (before/after + delta)',
-            method: 'POST',
-            path: '/evaluation/experiments/run',
-            button: 'Run',
-            fields: [
-              {
-                name: 'experimentId',
-                type: 'select',
-                options: experiments,
-                default: 'exp-003',
-              },
-              {
-                name: 'datasetName',
-                type: 'select',
-                options: ['', ...datasets],
-                default: '',
-              },
-            ],
-            build: (c) => ({
-              path: '/evaluation/experiments/run',
-              body: clean({
-                experimentId: c.experimentId,
-                datasetName: c.datasetName,
+            {
+              title: 'Liệt kê run',
+              method: 'GET',
+              path: '/evaluation/runs',
+              fields: [
+                { name: 'datasetName', type: 'select', options: ['', ...DS] },
+              ],
+              build: (c) => ({
+                path:
+                  '/evaluation/runs' +
+                  (c.datasetName ? '?datasetName=' + c.datasetName : ''),
               }),
-            }),
-          },
+            },
+            {
+              title: 'Chi tiết run',
+              method: 'GET',
+              path: '/evaluation/runs/:id',
+              fields: [
+                { name: 'id', type: 'text', grow: true, fillLast: 'run' },
+              ],
+              build: (c) => ({
+                path: '/evaluation/runs/' + encodeURIComponent(c.id),
+              }),
+            },
+            {
+              title: 'So với baseline (regression gate)',
+              method: 'POST',
+              path: '/evaluation/runs/:id/compare',
+              button: 'So sánh',
+              fields: [
+                { name: 'id', type: 'text', grow: true, fillLast: 'run' },
+              ],
+              build: (c) => ({
+                path:
+                  '/evaluation/runs/' + encodeURIComponent(c.id) + '/compare',
+              }),
+            },
+            {
+              title: 'Chốt baseline',
+              method: 'POST',
+              path: '/evaluation/runs/:id/set-baseline',
+              button: 'Chốt',
+              fields: [
+                { name: 'id', type: 'text', grow: true, fillLast: 'run' },
+              ],
+              build: (c) => ({
+                path:
+                  '/evaluation/runs/' +
+                  encodeURIComponent(c.id) +
+                  '/set-baseline',
+              }),
+            },
+          ]),
 
-          {
-            title: 'Benchmark rerank (off vs on)',
-            method: 'POST',
-            path: '/evaluation/benchmark-rerank',
-            button: 'Run',
-            fields: [
-              {
-                name: 'datasetName',
-                type: 'select',
-                options: datasets,
-                default: 'answerable',
-              },
-            ],
-            build: (c) => ({
-              path: '/evaluation/benchmark-rerank',
-              body: { datasetName: c.datasetName },
-            }),
-          },
-          {
-            title: 'Benchmark grounding (basic vs strict)',
-            method: 'POST',
-            path: '/evaluation/benchmark-grounding',
-            button: 'Run',
-            fields: [
-              {
-                name: 'datasetName',
-                type: 'select',
-                options: datasets,
-                default: 'answerable',
-              },
-            ],
-            build: (c) => ({
-              path: '/evaluation/benchmark-grounding',
-              body: { datasetName: c.datasetName },
-            }),
-          },
-          {
-            title: 'Benchmark citation (off vs on)',
-            method: 'POST',
-            path: '/evaluation/benchmark-citation',
-            button: 'Run',
-            fields: [
-              {
-                name: 'datasetName',
-                type: 'select',
-                options: datasets,
-                default: 'answerable',
-              },
-            ],
-            build: (c) => ({
-              path: '/evaluation/benchmark-citation',
-              body: { datasetName: c.datasetName },
-            }),
-          },
-          {
-            title: 'Benchmark faithfulness verifier (off vs on)',
-            method: 'POST',
-            path: '/evaluation/benchmark-faithfulness',
-            button: 'Run',
-            fields: [
-              {
-                name: 'datasetName',
-                type: 'select',
-                options: datasets,
-                default: 'answerable',
-              },
-            ],
-            build: (c) => ({
-              path: '/evaluation/benchmark-faithfulness',
-              body: { datasetName: c.datasetName },
-            }),
-          },
-          {
-            title: 'Benchmark 4 chiến lược retrieval',
-            method: 'POST',
-            path: '/evaluation/benchmark-strategies',
-            button: 'Run',
-            fields: [
-              {
-                name: 'datasetName',
-                type: 'select',
-                options: datasets,
-                default: 'answerable',
-              },
-              {
-                name: 'mode',
-                type: 'select',
-                options: ['retrieval', 'full'],
-                default: 'retrieval',
-              },
-            ],
-            build: (c) => ({
+          card('⑦ Experiment & benchmark', [
+            {
+              title: 'Danh sách experiment',
+              method: 'GET',
+              path: '/evaluation/experiments',
+              build: () => ({ path: '/evaluation/experiments' }),
+            },
+            {
+              title: 'Chạy experiment (before/after)',
+              method: 'POST',
+              path: '/evaluation/experiments/run',
+              button: 'Run',
+              fields: [
+                {
+                  name: 'experimentId',
+                  type: 'select',
+                  options: EXP,
+                  default: 'exp-003',
+                },
+                { name: 'datasetName', type: 'select', options: ['', ...DS] },
+              ],
+              build: (c) => ({
+                path: '/evaluation/experiments/run',
+                body: clean({
+                  experimentId: c.experimentId,
+                  datasetName: c.datasetName,
+                }),
+              }),
+            },
+            ...['rerank', 'grounding', 'citation', 'faithfulness'].map((k) => ({
+              title: 'Benchmark ' + k + ' (off vs on)',
+              method: 'POST',
+              path: '/evaluation/benchmark-' + k,
+              button: 'Run',
+              fields: [
+                {
+                  name: 'datasetName',
+                  type: 'select',
+                  options: DS,
+                  default: 'answerable',
+                },
+              ],
+              build: (c) => ({
+                path: '/evaluation/benchmark-' + k,
+                body: { datasetName: c.datasetName },
+              }),
+            })),
+            {
+              title: 'Benchmark 4 chiến lược retrieval',
+              method: 'POST',
               path: '/evaluation/benchmark-strategies',
-              body: clean({ datasetName: c.datasetName, mode: c.mode }),
-            }),
-          },
-          {
-            title: 'Benchmark provider hiện tại (quality/cost/latency)',
-            method: 'POST',
-            path: '/evaluation/benchmark-providers',
-            button: 'Run',
-            fields: [
-              {
-                name: 'datasetName',
-                type: 'select',
-                options: datasets,
-                default: 'answerable',
-              },
-            ],
-            build: (c) => ({
+              button: 'Run',
+              fields: [
+                {
+                  name: 'datasetName',
+                  type: 'select',
+                  options: DS,
+                  default: 'answerable',
+                },
+                {
+                  name: 'mode',
+                  type: 'select',
+                  options: ['retrieval', 'full'],
+                  default: 'retrieval',
+                },
+              ],
+              build: (c) => ({
+                path: '/evaluation/benchmark-strategies',
+                body: clean({ datasetName: c.datasetName, mode: c.mode }),
+              }),
+            },
+            {
+              title: 'Benchmark provider hiện tại',
+              method: 'POST',
               path: '/evaluation/benchmark-providers',
-              body: { datasetName: c.datasetName },
-            }),
-          },
-        ]),
-      );
+              button: 'Run',
+              fields: [
+                {
+                  name: 'datasetName',
+                  type: 'select',
+                  options: DS,
+                  default: 'answerable',
+                },
+              ],
+              build: (c) => ({
+                path: '/evaluation/benchmark-providers',
+                body: { datasetName: c.datasetName },
+              }),
+            },
+          ]),
 
-      app.append(
-        section('⑧ Graph — bảo trì', [
-          {
-            title: 'Reconcile — dọn node/quan hệ mồ côi trong Neo4j',
-            method: 'POST',
-            path: '/graph/reconcile',
-            button: 'Reconcile',
-            build: () => ({ path: '/graph/reconcile', body: {} }),
-          },
-        ]),
-      );
+          card('⑧ Graph — bảo trì', [
+            {
+              title: 'Reconcile — dọn node/quan hệ mồ côi',
+              method: 'POST',
+              path: '/graph/reconcile',
+              button: 'Reconcile',
+              build: () => ({ path: '/graph/reconcile', body: {} }),
+            },
+          ]),
+        );
+        [...app.children].slice(0, 4).forEach((c) => (c.open = true));
+        paintLastDoc();
+      }
 
-      /* mở sẵn 4 section đầu */
-      [...document.querySelectorAll('.card')]
-        .slice(0, 4)
-        .forEach((c) => (c.open = true));
+      /* ------------------------------------------------------------------ boot */
+      setTab(localStorage.getItem('rc.tab') || 'chat');
       ping();
     </script>
   </body>
