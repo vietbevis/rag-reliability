@@ -2,8 +2,12 @@
 
 > Mở rộng RAG pipeline một chiều thành một **agent read-first, có kiểm soát**:
 > nhận task ngôn ngữ tự nhiên → tự chọn & gọi tool nhiều bước → tổng hợp câu
-> trả lời **grounded + có citation**, hoặc **abstain**. Tài liệu này là plan
-> chốt để triển khai; cập nhật khi từng bước hoàn thành.
+> trả lời **grounded + có citation**, hoặc **abstain**.
+>
+> **Trạng thái:** 17.0–17.10 XONG trên nhánh `feat/agent-tool-calling` (13
+> commit, `main` chưa đụng). Còn 17.11 (backlog) + 2 việc phải làm trước
+> production: **§9.3 numeric-provenance** và **fix tool-calling reliability của
+> deepseek-v4-flash** (§18).
 
 ---
 

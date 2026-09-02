@@ -40,7 +40,7 @@ Faithfulness tăng A→B, latency +C ms, cost +D%".
 | 11    | Evaluation framework: golden dataset, metrics, experiments, automated runner suite                          | ✅ Hoàn thành |
 | 12    | Regression (CI gate, multi-metric thresholds) + full-pipeline observability & trace sanitizer               | ✅ Hoàn thành |
 | 13    | Benchmark đa provider + **vector vs graph vs hybrid** (quality / cost / latency)                            | ✅ Hoàn thành |
-| 17    | **Tool calling & agent orchestration** (LangGraph, read-only v1, Langfuse + promptfoo)                      | 📋 Plan       |
+| 17    | **Tool calling & agent orchestration** (LangGraph, read-only v1, Langfuse + promptfoo)                      | 🚧 17.0–17.10 xong (nhánh `feat/agent-tool-calling`) |
 
 > PHASE 17 mở rộng RAG một chiều thành agent read-first có kiểm soát (tool
 > calling nhiều bước → grounded answer / abstain). Plan chi tiết:
