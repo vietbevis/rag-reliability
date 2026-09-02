@@ -40,7 +40,7 @@ Agent **kế thừa nguyên** triết lý reliability của service (xem
 | 17.3  | `agent-state` + `agent-graph.builder` + `agent.node` + `tool.node` + `budget.guard` + `loop-detector` (chưa verify, trả raw)               | ✅ Xong — LangGraph StateGraph, vòng `agent ⇄ tool`, guard budget/loop/no-progress; verify LIVE api.b.ai 2/2 e2e |
 | 17.4  | `rag_search` (bọc `RetrievalService`; param `strategy` gồm cả `graph` — gộp `graph_query` vào)                                             | ✅ Xong — 7 unit test; tool.node cộng dồn cost tool vào usage |
 | 17.5  | `finalize.node` + `AnswerVerificationService` (dùng chung với RAG) · map `RagStatus` · abstain path · `AgentCitation.kind` (chunk/graph/computation) | ✅ Xong — 20 unit test; **§9.3 numeric-provenance check chưa làm** (số có dấu phân cách lexical-match trượt) |
-| 17.6  | Prisma `AgentRun` + `AgentStep` + migration · persist trajectory · `AgentService`                                                          | ⬜ Chưa làm |
+| 17.6  | Prisma `AgentRun` + `AgentStep` + migration · persist trajectory · `AgentService`                                                          | ✅ Xong — migration `phase17_agent_run` (đã tỉa DROP INDEX drift); e2e round-trip pass |
 | 17.7  | `agent.controller` (sync) + rate limit + DTO + Swagger                                                                                     | ⬜ Chưa làm |
 | 17.8  | Async BullMQ + Postgres checkpointer + SSE stream + cancel                                                                                 | ⬜ Chưa làm |
 | 17.9  | Langfuse self-host (callback vào graph) + README + doc này                                                                                 | ⬜ Chưa làm |

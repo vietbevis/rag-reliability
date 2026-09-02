@@ -357,3 +357,78 @@ model EvaluationResult {
   @@unique([runId, caseId])
   @@index([runId])
 }
+
+// ---------------------------------------------------------------------------
+// Agent tool-calling (PHASE 17) — xem docs/architecture/agent-tools.md.
+// ---------------------------------------------------------------------------
+
+enum AgentRunStatus {
+  RUNNING
+  COMPLETED
+  ABSTAINED
+  FAILED
+  CANCELLED
+}
+
+enum AgentStepType {
+  THINK
+  TOOL_CALL
+  TOOL_RESULT
+  FINAL
+  GUARD_STOP
+}
+
+/// Một lần chạy agent: task → vòng lặp tool → finalize verify. `trace` đã khử
+/// secret/PII qua trace-sanitizer trước khi lưu (PROMPT §38).
+model AgentRun {
+  id            String         @id @default(cuid())
+  task          String
+  status        AgentRunStatus @default(RUNNING)
+  /// Trạng thái độ tin cậy sau finalize (tái dùng enum RAG).
+  finalStatus   RagStatus?
+  /// `final` = model tự chốt; `budget_*` / `no_progress` / `error` = dừng sớm.
+  stopReason    String?
+  answer        String?
+  toolAllowlist String[]       @default([])
+  costBudgetUsd Float
+  usage         Json           @default("{}")
+  /// [{ id, text, supported, verdict, evidenceChunkIds }] — audit claim.
+  claims        Json           @default("[]")
+  /// [{ claimId, claimText, kind, documentId?, chunkId?, section?, page?, valid }]
+  citations     Json           @default("[]")
+  faithfulness  Float?
+  latencyMs     Int?
+  stepCount     Int            @default(0)
+  trace         Json           @default("{}")
+  /// Checkpoint LangGraph để resume (PHASE 17.8).
+  checkpointId  String?
+  error         String?
+  createdAt     DateTime       @default(now())
+
+  steps AgentStep[]
+
+  @@index([status])
+  @@index([finalStatus])
+  @@index([createdAt])
+}
+
+model AgentStep {
+  id         String        @id @default(cuid())
+  agentRunId String
+  agentRun   AgentRun      @relation(fields: [agentRunId], references: [id], onDelete: Cascade)
+  index      Int
+  type       AgentStepType
+  toolName   String?
+  toolInput  Json?
+  /// Kết quả tool TOÀN VĂN (chưa cắt) — bản feed cho model đã cắt riêng.
+  toolOutput Json?
+  evidence   Json?
+  tokens     Json?
+  latencyMs  Int?
+  note       String?
+  error      String?
+  createdAt  DateTime      @default(now())
+
+  @@unique([agentRunId, index])
+  @@index([agentRunId])
+}

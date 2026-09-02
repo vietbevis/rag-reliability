@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { RagModule } from '../rag/rag.module';
+import { AgentService } from './agent.service';
 import { AgentGraphBuilder } from './graph/agent-graph.builder';
 import { CalculatorTool } from './tools/builtin/calculator.tool';
 import { CurrentTimeTool } from './tools/builtin/current-time.tool';
@@ -32,7 +33,8 @@ import { ToolRegistryService } from './tools/tool-registry.service';
     },
     ToolRegistryService,
     AgentGraphBuilder,
+    AgentService,
   ],
-  exports: [ToolRegistryService, AgentGraphBuilder],
+  exports: [ToolRegistryService, AgentGraphBuilder, AgentService],
 })
 export class AgentModule {}
