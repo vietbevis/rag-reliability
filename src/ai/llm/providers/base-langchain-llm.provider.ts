@@ -1,12 +1,12 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import {
   AIMessage,
   type BaseMessage,
   HumanMessage,
   SystemMessage,
+  ToolMessage,
 } from '@langchain/core/messages';
+import { tool as lcTool } from '@langchain/core/tools';
 import { Logger } from '@nestjs/common';
 import type { ZodType } from 'zod';
 import { LlmError } from '../../../common/errors';
@@ -18,7 +18,10 @@ import type {
   LLMProvider,
   LLMResponse,
   LLMStreamChunk,
+  LLMToolResponse,
   StructuredResult,
+  ToolCall,
+  ToolSpec,
 } from '../llm.interface';
 import { estimateCost } from '../pricing';
 import { classifyProviderError, withRetry } from '../retry.util';
@@ -114,6 +117,77 @@ export abstract class BaseLangChainLlmProvider implements LLMProvider {
     } catch (err) {
       throw this.wrap(err, 'chatStream');
     }
+  }
+
+  supportsNativeToolCalling(): boolean {
+    const model = this.getModel();
+    return model !== null && typeof model.bindTools === 'function';
+  }
+
+  async chatWithTools(
+    messages: ChatMessage[],
+    tools: ToolSpec[],
+    options: LLMOptions = {},
+  ): Promise<LLMToolResponse> {
+    const model = this.requireModel(options);
+    if (typeof model.bindTools !== 'function') {
+      throw new LlmError(
+        'BAD_REQUEST',
+        `${this.provider} model không hỗ trợ tool-calling native`,
+        { provider: this.provider },
+      );
+    }
+
+    const lcMessages = toLangChainMessages(messages);
+    // `tool()` chỉ dùng để bind schema — hàm thực thi không bao giờ được gọi ở
+    // đây (agent loop tự thực thi tool rồi feed ToolMessage ở lượt sau).
+    const bound = model.bindTools(
+      tools.map((spec) =>
+        lcTool(() => '', {
+          name: spec.name,
+          description: spec.description,
+          schema: spec.parameters,
+        }),
+      ),
+    ) as unknown as {
+      invoke(
+        messages: BaseMessage[],
+        options?: { signal?: AbortSignal },
+      ): Promise<AIMessage>;
+    };
+    const started = Date.now();
+
+    const { value: response } = await withRetry(
+      (signal) => bound.invoke(lcMessages, { signal }),
+      this.retryOpts(options.traceLabel ?? 'llm.tools', options),
+    ).catch((err) => {
+      throw this.wrap(err, 'chatWithTools');
+    });
+
+    const latencyMs = Date.now() - started;
+    const modelName = this.resolveModelName(options);
+    const toolCalls = validateToolCalls(
+      response.tool_calls ?? [],
+      tools,
+      this.logger,
+    );
+
+    return {
+      content: messageContentToString(response.content),
+      usage: this.toTokenUsage(
+        response.usage_metadata,
+        response.response_metadata,
+        modelName,
+      ),
+      model: modelName,
+      provider: this.provider,
+      latencyMs,
+      finishReason:
+        toolCalls.length > 0
+          ? 'tool_calls'
+          : extractFinishReason(response.response_metadata),
+      toolCalls,
+    };
   }
 
   async chatStructured<T>(
@@ -230,11 +304,76 @@ export function toLangChainMessages(messages: ChatMessage[]): BaseMessage[] {
       case 'system':
         return new SystemMessage(m.content);
       case 'assistant':
-        return new AIMessage(m.content);
+        return m.toolCalls && m.toolCalls.length > 0
+          ? new AIMessage({
+              content: m.content,
+              tool_calls: m.toolCalls.map((tc) => ({
+                id: tc.id || undefined,
+                name: tc.name,
+                args: (tc.args ?? {}) as Record<string, unknown>,
+                type: 'tool_call' as const,
+              })),
+            })
+          : new AIMessage(m.content);
+      case 'tool':
+        return new ToolMessage({
+          content: m.content,
+          tool_call_id: m.toolCallId ?? '',
+          name: m.name,
+        });
       case 'user':
       default:
         return new HumanMessage(m.content);
     }
+  });
+}
+
+interface RawToolCall {
+  id?: string;
+  name: string;
+  args: Record<string, unknown>;
+}
+
+/**
+ * Đối chiếu tool call thô của model với `ToolSpec` tương ứng (PROMPT §50). Args
+ * hợp lệ ⇒ thay bằng giá trị đã parse; tool lạ hoặc args sai schema ⇒ giữ thô,
+ * `argsValid = false` để agent loop feed lỗi lại cho model ở lượt sau.
+ */
+export function validateToolCalls(
+  raw: RawToolCall[],
+  tools: ToolSpec[],
+  logger?: Logger,
+): ToolCall[] {
+  const specByName = new Map(tools.map((t) => [t.name, t]));
+  return raw.map((rc) => {
+    const spec = specByName.get(rc.name);
+    if (!spec) {
+      logger?.warn(`chatWithTools: model gọi tool không khai báo "${rc.name}"`);
+      return {
+        id: rc.id ?? '',
+        name: rc.name,
+        args: rc.args,
+        argsValid: false,
+      };
+    }
+    const parsed = spec.parameters.safeParse(rc.args);
+    if (!parsed.success) {
+      logger?.warn(
+        `chatWithTools: args cho tool "${rc.name}" không hợp lệ theo schema`,
+      );
+      return {
+        id: rc.id ?? '',
+        name: rc.name,
+        args: rc.args,
+        argsValid: false,
+      };
+    }
+    return {
+      id: rc.id ?? '',
+      name: rc.name,
+      args: parsed.data,
+      argsValid: true,
+    };
   });
 }
 

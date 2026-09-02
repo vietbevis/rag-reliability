@@ -9,8 +9,19 @@ import type {
   LLMProvider,
   LLMResponse,
   LLMStreamChunk,
+  LLMToolResponse,
   StructuredResult,
+  ToolCall,
+  ToolSpec,
 } from '../llm.interface';
+
+/**
+ * Một lượt trong kịch bản tool-calling giả (chỉ dùng cho unit test):
+ * `toolCalls` ⇒ model "yêu cầu gọi tool"; `content` ⇒ model "trả lời thẳng".
+ */
+export type FakeToolTurn =
+  | { toolCalls: Array<{ name: string; args?: unknown; id?: string }> }
+  | { content: string };
 
 /**
  * LLM TẤT ĐỊNH cho CI/dev (đối xứng với {@link FakeEmbeddingProvider}). KHÔNG
@@ -28,8 +39,62 @@ export class FakeLlmProvider implements LLMProvider {
   readonly provider = LlmProvider.FAKE;
   readonly defaultModel = 'fake-llm-v1';
 
+  /** Kịch bản cho các lượt `chatWithTools` kế tiếp. FIFO, cạn ⇒ trả lời thẳng. */
+  private toolScript: FakeToolTurn[] = [];
+
   isConfigured(): boolean {
     return true;
+  }
+
+  /** Nạp kịch bản tool-calling cho unit test. */
+  scriptToolTurns(turns: FakeToolTurn[]): void {
+    this.toolScript = [...turns];
+  }
+
+  supportsNativeToolCalling(): boolean {
+    return true;
+  }
+
+  chatWithTools(
+    messages: ChatMessage[],
+    tools: ToolSpec[],
+    options: LLMOptions = {},
+  ): Promise<LLMToolResponse> {
+    const started = Date.now();
+    const turn = this.toolScript.shift();
+    const specByName = new Map(tools.map((t) => [t.name, t]));
+
+    let toolCalls: ToolCall[] = [];
+    let content = '';
+    if (turn && 'toolCalls' in turn) {
+      toolCalls = turn.toolCalls.map((tc, i) => {
+        const parsed = specByName
+          .get(tc.name)
+          ?.parameters.safeParse(tc.args ?? {});
+        return {
+          id: tc.id ?? `fake-call-${i + 1}`,
+          name: tc.name,
+          args: parsed?.success ? parsed.data : (tc.args ?? {}),
+          argsValid: parsed?.success ?? false,
+        };
+      });
+    } else {
+      content =
+        turn && 'content' in turn
+          ? turn.content
+          : `[fake] ${extractiveAnswer(messages)}`;
+    }
+
+    const rendered = toolCalls.length > 0 ? JSON.stringify(toolCalls) : content;
+    return Promise.resolve({
+      content,
+      toolCalls,
+      usage: usage(messages, rendered),
+      model: options.model ?? this.defaultModel,
+      provider: this.provider,
+      latencyMs: Date.now() - started,
+      finishReason: toolCalls.length > 0 ? 'tool_calls' : 'stop',
+    });
   }
 
   chat(

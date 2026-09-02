@@ -7,7 +7,9 @@ import type {
   LLMOptions,
   LLMResponse,
   LLMStreamChunk,
+  LLMToolResponse,
   StructuredResult,
+  ToolSpec,
 } from './llm.interface';
 
 /**
@@ -42,6 +44,21 @@ export class LlmService {
     options?: LLMOptions & { provider?: LlmProvider },
   ): AsyncIterable<LLMStreamChunk> {
     return this.factory.create(options?.provider).chatStream(messages, options);
+  }
+
+  /** Provider active có hỗ trợ tool-calling native hay không (PHASE 17). */
+  supportsNativeToolCalling(provider?: LlmProvider): boolean {
+    return this.factory.create(provider).supportsNativeToolCalling();
+  }
+
+  chatWithTools(
+    messages: ChatMessage[],
+    tools: ToolSpec[],
+    options?: LLMOptions & { provider?: LlmProvider },
+  ): Promise<LLMToolResponse> {
+    return this.factory
+      .create(options?.provider)
+      .chatWithTools(messages, tools, options);
   }
 
   chatStructured<T>(

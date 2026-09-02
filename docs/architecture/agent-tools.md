@@ -35,7 +35,7 @@ Agent **kế thừa nguyên** triết lý reliability của service (xem
 | Bước  | Nội dung                                                                                                                                   | Trạng thái  |
 | ----- | ------------------------------------------------------------------------------------------------------------------------------------------ | ----------- |
 | 17.0  | Config nhóm `agent` (env.schema/configuration) · `AgentModule` rỗng wired · flag `AGENT_ENABLED=false`                                     | ✅ Xong     |
-| 17.1  | `LLMProvider.chatWithTools` + `supportsNativeToolCalling` + role `'tool'` · impl `BaseLangChainLlmProvider` · `fake-llm` scriptable · test | ⬜ Chưa làm |
+| 17.1  | `LLMProvider.chatWithTools` + `supportsNativeToolCalling` + role `'tool'` · impl `BaseLangChainLlmProvider` · `fake-llm` scriptable · test | ✅ Xong — native tool-calling verify LIVE với api.b.ai (deepseek-v4-flash): 4/4 e2e pass |
 | 17.2  | `tool.interface` + `tool-registry` + `calculator` + `current_time`                                                                         | ⬜ Chưa làm |
 | 17.3  | `agent-state` + `agent-graph.builder` + `agent.node` + `tool.node` + `budget.guard` + `loop-detector` (chưa verify, trả raw)               | ⬜ Chưa làm |
 | 17.4  | `rag_search` + `graph_query` (bọc service sẵn có)                                                                                          | ⬜ Chưa làm |
@@ -486,6 +486,7 @@ ESLint, có `.spec.ts`. Thứ tự = bảng §2.
 | Rủi ro                                                       | Giảm thiểu                                                                                                          |
 | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
 | Model local chọn sai tool / sai định dạng args               | format-validity gate (17.10) + fallback JSON; nếu vẫn kém → cân nhắc `AGENT_MODEL` thương mại cho riêng vòng agent. |
+| **`reasoning: false` bị api.b.ai từ chối** — phát hiện ở 17.1: `NO_REASONING_KWARGS` gửi `reasoning_effort:'none'`, api.b.ai giờ chỉ nhận `low\|medium\|high\|xhigh\|max` → HTTP 400. Ảnh hưởng `custom-llm.provider.ts` + graph extraction (`entity-extractor.service.ts:100`). | **Cần fix trước 17.3** (`agent.node` dự kiến dùng `reasoning:false`). Phương án: bỏ hẳn `reasoning_effort` khỏi kwargs mặc định (giữ `enable_thinking:false`), hoặc `'none'`→`'low'`, hoặc để model non-reasoning tự nhiên. Đụng provider dùng chung — chờ quyết. |
 | Vòng lặp tốn kém âm thầm                                     | `budget.guard` + `loop-detector` + Langfuse cost dashboard + rate limit theo run.                                   |
 | `finalize` verify (nhiều LLM call) làm latency agent cao     | Cho phép tắt từng lớp verify qua request flag như `/rag/query` (`cite`, `faithfulness`); đo p50–p95 ở 17.10.        |
 | Trùng lặp logic giữa `RagPipelineService` và `finalize.node` | Trích phần verify chung (`runCitation` + faithfulness) thành service dùng chung ở 17.5, không copy.                 |

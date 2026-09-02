@@ -119,6 +119,74 @@ describe('FakeLlmProvider', () => {
   });
 });
 
+describe('FakeLlmProvider.chatWithTools (scriptable)', () => {
+  const searchTool = {
+    name: 'rag_search',
+    description: 'Tìm trong knowledge base',
+    parameters: z.object({
+      query: z.string(),
+      topK: z.number().int().optional(),
+    }),
+  };
+
+  it('supportsNativeToolCalling = true', () => {
+    expect(new FakeLlmProvider().supportsNativeToolCalling()).toBe(true);
+  });
+
+  it('phát tool call theo kịch bản rồi trả lời thẳng ở lượt cuối', async () => {
+    const fake = new FakeLlmProvider();
+    fake.scriptToolTurns([
+      {
+        toolCalls: [{ name: 'rag_search', args: { query: 'quy chế bảo lưu' } }],
+      },
+      { content: 'Sinh viên được bảo lưu tối đa hai học kỳ.' },
+    ]);
+
+    const first = await fake.chatWithTools(
+      [{ role: 'user', content: 'bảo lưu được mấy kỳ?' }],
+      [searchTool],
+    );
+    expect(first.toolCalls).toHaveLength(1);
+    expect(first.toolCalls[0]).toMatchObject({
+      name: 'rag_search',
+      id: 'fake-call-1',
+      argsValid: true,
+      args: { query: 'quy chế bảo lưu' },
+    });
+    expect(first.finishReason).toBe('tool_calls');
+
+    const second = await fake.chatWithTools(
+      [{ role: 'user', content: 'bảo lưu được mấy kỳ?' }],
+      [searchTool],
+    );
+    expect(second.toolCalls).toHaveLength(0);
+    expect(second.content).toBe('Sinh viên được bảo lưu tối đa hai học kỳ.');
+  });
+
+  it('kịch bản cạn → trả lời thẳng (extractive)', async () => {
+    const fake = new FakeLlmProvider();
+    const res = await fake.chatWithTools(
+      [{ role: 'user', content: 'Câu một. Câu hai.' }],
+      [searchTool],
+    );
+    expect(res.toolCalls).toHaveLength(0);
+    expect(res.content).toBe('[fake] Câu một.');
+  });
+
+  it('argsValid=false khi kịch bản đưa args sai schema', async () => {
+    const fake = new FakeLlmProvider();
+    fake.scriptToolTurns([
+      { toolCalls: [{ name: 'rag_search', args: { query: 42 } }] },
+    ]);
+    const res = await fake.chatWithTools(
+      [{ role: 'user', content: 'x' }],
+      [searchTool],
+    );
+    expect(res.toolCalls[0]!.argsValid).toBe(false);
+    expect(res.toolCalls[0]!.args).toEqual({ query: 42 });
+  });
+});
+
 describe('properNouns (NER thô cho fake provider)', () => {
   it('rút được cụm từ viết hoa có dấu tiếng Việt', () => {
     const nouns = properNouns('Đại học Bách Khoa nằm ở thành phố Hà Nội.');
