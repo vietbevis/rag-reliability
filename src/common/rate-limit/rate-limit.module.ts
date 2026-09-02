@@ -24,6 +24,7 @@ import type { AppConfig } from '../../config/configuration';
           throttlers: [
             { name: 'default', ttl: rl.ttlMs, limit: rl.limit },
             { name: 'rag', ttl: rl.ttlMs, limit: rl.ragLimit },
+            { name: 'agent', ttl: rl.ttlMs, limit: rl.agentLimit },
           ],
           skipIf: () => !rl.enabled,
         };

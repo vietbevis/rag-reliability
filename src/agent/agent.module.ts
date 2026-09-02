@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { RagModule } from '../rag/rag.module';
+import { AgentController } from './agent.controller';
+import { AgentEnabledGuard } from './agent-enabled.guard';
 import { AgentService } from './agent.service';
 import { AgentGraphBuilder } from './graph/agent-graph.builder';
 import { CalculatorTool } from './tools/builtin/calculator.tool';
@@ -22,6 +24,7 @@ import { ToolRegistryService } from './tools/tool-registry.service';
  */
 @Module({
   imports: [RagModule],
+  controllers: [AgentController],
   providers: [
     CalculatorTool,
     CurrentTimeTool,
@@ -34,6 +37,7 @@ import { ToolRegistryService } from './tools/tool-registry.service';
     ToolRegistryService,
     AgentGraphBuilder,
     AgentService,
+    AgentEnabledGuard,
   ],
   exports: [ToolRegistryService, AgentGraphBuilder, AgentService],
 })

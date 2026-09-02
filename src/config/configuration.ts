@@ -19,6 +19,7 @@ export interface AppConfig {
     ttlMs: number;
     limit: number;
     ragLimit: number;
+    agentLimit: number;
   };
   database: {
     url: string;
@@ -190,6 +191,7 @@ export function loadConfiguration(): AppConfig {
       ttlMs: env.RATE_LIMIT_TTL_MS,
       limit: env.RATE_LIMIT_LIMIT,
       ragLimit: env.RATE_LIMIT_RAG_LIMIT,
+      agentLimit: env.RATE_LIMIT_AGENT_LIMIT,
     },
     database: {
       url: env.DATABASE_URL,

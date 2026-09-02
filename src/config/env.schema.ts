@@ -76,6 +76,8 @@ export const envSchema = z
     RATE_LIMIT_LIMIT: numeric({ int: true, min: 1, default: 120 }),
     // Trần riêng, chặt hơn, cho các route RAG tốn kém (/rag/query, /rag/search).
     RATE_LIMIT_RAG_LIMIT: numeric({ int: true, min: 1, default: 20 }),
+    // Trần riêng, chặt nhất, cho /agent/* (một run = nhiều vòng LLM + tool).
+    RATE_LIMIT_AGENT_LIMIT: numeric({ int: true, min: 1, default: 10 }),
 
     // ---- Database --------------------------------------------------------
     DATABASE_URL: z
