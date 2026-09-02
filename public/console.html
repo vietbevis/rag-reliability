@@ -140,6 +140,9 @@
           <button data-tab="chat" class="tab rounded-md px-3 py-1 font-medium">
             Chat
           </button>
+          <button data-tab="agent" class="tab rounded-md px-3 py-1 font-medium">
+            Agent
+          </button>
           <button data-tab="api" class="tab rounded-md px-3 py-1 font-medium">
             API Console
           </button>
@@ -327,6 +330,123 @@
         </div>
       </main>
 
+      <!-- ================= AGENT ================= -->
+      <main id="view-agent" class="hidden min-h-0 flex-1 flex-col [&:not(.hidden)]:flex">
+        <div
+          id="agentScroll"
+          class="mx-auto w-full max-w-3xl flex-1 overflow-y-auto px-4 py-6"
+        >
+          <div id="agentEmpty" class="mt-16 text-center">
+            <div
+              class="mx-auto grid size-12 place-items-center rounded-xl border border-line dark:border-line-dark"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                class="size-6 text-brand dark:text-brand-dark"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path
+                  d="M12 8V4H8M4 8h4M4 8v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8h-8m-4 0h4m0 0V4m8 4-2 0M9 15h6"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </div>
+            <h1 class="mt-4 text-lg font-semibold">Agent tool-calling</h1>
+            <p class="mt-1 text-sm text-soft dark:text-soft-dark">
+              Task → vòng lặp tool (rag_search · calculator · current_time) →
+              finalize verify. Cần <code>AGENT_ENABLED=true</code>.
+            </p>
+            <div
+              class="mt-5 flex flex-wrap justify-center gap-2"
+              id="agentSuggests"
+            ></div>
+          </div>
+          <div id="agentMessages" class="space-y-5"></div>
+        </div>
+
+        <div
+          class="border-t border-line bg-card dark:border-line-dark dark:bg-card-dark"
+        >
+          <div class="mx-auto w-full max-w-3xl px-4 py-3">
+            <div
+              class="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-soft dark:text-soft-dark"
+            >
+              <span class="font-medium">tool:</span>
+              <label class="flex items-center gap-1.5"
+                ><input
+                  type="checkbox"
+                  class="aTool accent-brand"
+                  value="rag_search"
+                  checked
+                />
+                rag_search</label
+              >
+              <label class="flex items-center gap-1.5"
+                ><input
+                  type="checkbox"
+                  class="aTool accent-brand"
+                  value="calculator"
+                  checked
+                />
+                calculator</label
+              >
+              <label class="flex items-center gap-1.5"
+                ><input
+                  type="checkbox"
+                  class="aTool accent-brand"
+                  value="current_time"
+                  checked
+                />
+                current_time</label
+              >
+              <label class="flex items-center gap-1.5"
+                >budget $
+                <input
+                  id="aBudget"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="mặc định"
+                  class="w-20 rounded border border-line bg-canvas px-1.5 py-0.5 dark:border-line-dark dark:bg-canvas-dark"
+                />
+              </label>
+              <button
+                id="agentClear"
+                class="ml-auto rounded border border-line px-2 py-0.5 hover:bg-line/40 dark:border-line-dark dark:hover:bg-line-dark/40"
+              >
+                xoá
+              </button>
+            </div>
+            <form id="agentForm" class="flex items-end gap-2">
+              <textarea
+                id="agentInput"
+                rows="1"
+                placeholder="Nhập task cho agent… (Enter gửi, Shift+Enter xuống dòng)"
+                class="max-h-40 min-h-[44px] flex-1 resize-none rounded-xl border border-line bg-canvas px-3 py-2.5 text-sm outline-none placeholder:text-soft focus:border-brand dark:border-line-dark dark:bg-canvas-dark dark:placeholder:text-soft-dark dark:focus:border-brand-dark"
+              ></textarea>
+              <button
+                id="agentSend"
+                type="submit"
+                class="grid size-11 shrink-0 place-items-center rounded-xl bg-brand text-white transition hover:opacity-90 disabled:opacity-40 dark:bg-brand-dark dark:text-canvas-dark"
+              >
+                <svg
+                  class="size-5"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <path d="m5 12 14-7-4 14-3-6-7-1Z" stroke-linejoin="round" />
+                </svg>
+              </button>
+            </form>
+          </div>
+        </div>
+      </main>
+
       <!-- ================= API CONSOLE ================= -->
       <main id="view-api" class="hidden min-h-0 flex-1 overflow-y-auto">
         <div
@@ -390,6 +510,12 @@
         },
         set lastQuery(v) {
           localStorage.setItem('rc.q', v);
+        },
+        get lastAgentRun() {
+          return localStorage.getItem('rc.agent') || '';
+        },
+        set lastAgentRun(v) {
+          localStorage.setItem('rc.agent', v);
         },
       };
 
@@ -499,6 +625,7 @@
               : 'text-soft hover:text-ink dark:text-soft-dark dark:hover:text-ink-dark');
         });
         $('#view-chat').classList.toggle('hidden', name !== 'chat');
+        $('#view-agent').classList.toggle('hidden', name !== 'agent');
         $('#view-api').classList.toggle('hidden', name !== 'api');
         localStorage.setItem('rc.tab', name);
         if (name === 'api' && !$('#app').children.length) buildConsole();
@@ -834,6 +961,356 @@
         if (!$('#chatEmpty')) location.reload();
       });
 
+      /* ================================================================= AGENT */
+      const AGENT_SUGGESTS = [
+        'Một lô hàng 43 thùng, mỗi thùng 27 sản phẩm. Tổng bao nhiêu sản phẩm?',
+        'Quy định về điều kiện tốt nghiệp là gì?',
+        'Hôm nay là ngày mấy theo giờ Việt Nam?',
+        '15% của 2.480.000 đồng là bao nhiêu?',
+      ];
+      const agentMsgEl = $('#agentMessages');
+      let agentBusy = false;
+
+      $('#agentSuggests').append(
+        ...AGENT_SUGGESTS.map((q) =>
+          el(
+            'button',
+            {
+              class:
+                'rounded-full border border-line px-3 py-1.5 text-xs text-soft transition hover:border-brand hover:text-ink dark:border-line-dark dark:text-soft-dark dark:hover:border-brand-dark dark:hover:text-ink-dark',
+              onclick: () => {
+                $('#agentInput').value = q;
+                sendAgent();
+              },
+            },
+            q,
+          ),
+        ),
+      );
+
+      function scrollAgent() {
+        const s = $('#agentScroll');
+        s.scrollTop = s.scrollHeight;
+      }
+
+      const STEP_STYLE = {
+        THINK: 'bg-line/60 text-soft dark:bg-line-dark/60 dark:text-soft-dark',
+        TOOL_CALL:
+          'bg-sky-500/15 text-sky-600 dark:text-sky-400',
+        TOOL_RESULT:
+          'bg-brand/15 text-brand dark:bg-brand-dark/15 dark:text-brand-dark',
+        FINAL:
+          'bg-brand/15 text-brand dark:bg-brand-dark/15 dark:text-brand-dark',
+        GUARD_STOP: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
+      };
+
+      async function renderTrajectory(node, runId) {
+        node.textContent = 'đang tải…';
+        const r = await api(
+          'GET',
+          '/agent/runs/' + encodeURIComponent(runId) + '/trace',
+        );
+        node.textContent = '';
+        const steps = (r.data && r.data.steps) || [];
+        if (!steps.length) {
+          node.textContent = '(không có step)';
+          return;
+        }
+        const ol = el('ol', { class: 'space-y-1.5 text-xs' });
+        steps.forEach((s) => {
+          const head = el(
+            'div',
+            { class: 'flex items-center gap-2' },
+            chip(
+              s.type + (s.toolName ? ' · ' + s.toolName : ''),
+              STEP_STYLE[s.type] || STEP_STYLE.THINK,
+            ),
+            s.latencyMs != null
+              ? el(
+                  'span',
+                  { class: 'text-soft dark:text-soft-dark' },
+                  s.latencyMs + ' ms',
+                )
+              : null,
+            s.error
+              ? el('span', { class: 'text-red-500' }, s.error)
+              : null,
+          );
+          const li = el('li', {}, head);
+          const detail =
+            s.toolInput != null || s.toolOutput != null || s.note;
+          if (detail) {
+            li.append(
+              el(
+                'pre',
+                {
+                  class:
+                    'mt-1 overflow-auto rounded bg-line/40 p-1.5 font-mono text-[10px] leading-relaxed text-soft dark:bg-line-dark/40 dark:text-soft-dark',
+                  style: 'max-height:160px',
+                },
+                s.note ||
+                  JSON.stringify(
+                    { in: s.toolInput, out: s.toolOutput },
+                    null,
+                    1,
+                  ),
+              ),
+            );
+          }
+          ol.append(li);
+        });
+        node.append(ol);
+      }
+
+      function renderAgent(container, r) {
+        container.innerHTML = '';
+        const d = r.data || {};
+        if (r.status === 403) {
+          container.append(
+            el(
+              'div',
+              { class: 'text-sm text-amber-600 dark:text-amber-400' },
+              'Agent đang tắt — đặt AGENT_ENABLED=true rồi khởi động lại.',
+            ),
+          );
+          return;
+        }
+        if (r.netErr || (r.status >= 400 && !d.finalStatus && !d.answer)) {
+          container.append(
+            el(
+              'div',
+              { class: 'text-sm text-red-600 dark:text-red-400' },
+              `Lỗi ${r.status || ''}: ` +
+                (d.message || (typeof d === 'string' ? d : JSON.stringify(d))),
+            ),
+          );
+          return;
+        }
+
+        container.append(
+          el(
+            'div',
+            { class: 'prose-answer text-sm' },
+            d.answer || d.error || '(không có nội dung)',
+          ),
+        );
+
+        const fin = d.finalStatus || d.status || 'ERROR';
+        const meta = el('div', {
+          class: 'mt-2.5 flex flex-wrap items-center gap-1.5',
+        });
+        meta.append(
+          chip(fin.replace(/_/g, ' '), STATUS_STYLE[fin] || STATUS_STYLE.ERROR),
+        );
+        if (d.status && d.status !== fin)
+          meta.append(
+            chip(
+              d.status,
+              'bg-line/60 text-soft dark:bg-line-dark/60 dark:text-soft-dark',
+            ),
+          );
+        if (d.stopReason && d.stopReason !== 'final')
+          meta.append(
+            chip(
+              'stop: ' + d.stopReason,
+              'bg-amber-500/15 text-amber-600 dark:text-amber-400',
+            ),
+          );
+        if (d.faithfulness && d.faithfulness.score != null)
+          meta.append(
+            chip(
+              'faithfulness ' + d.faithfulness.score.toFixed(2),
+              d.faithfulness.grounded
+                ? STATUS_STYLE.GROUNDED
+                : STATUS_STYLE.PARTIALLY_GROUNDED,
+            ),
+          );
+        const softCls =
+          'bg-line/60 text-soft dark:bg-line-dark/60 dark:text-soft-dark';
+        if (d.toolsUsed && d.toolsUsed.length)
+          meta.append(chip('tool: ' + d.toolsUsed.join(', '), softCls));
+        if (d.stepCount != null)
+          meta.append(chip(d.stepCount + ' bước', softCls));
+        if (d.toolFormatTotal)
+          meta.append(
+            chip(
+              'format ' + d.toolFormatValid + '/' + d.toolFormatTotal,
+              softCls,
+            ),
+          );
+        meta.append(chip((r.ms / 1000).toFixed(1) + 's', softCls));
+        container.append(meta);
+
+        const folds = el('div', { class: 'mt-2.5 space-y-1.5' });
+        if (d.citations && d.citations.length) {
+          const list = el('ul', { class: 'space-y-1 text-xs' });
+          d.citations.forEach((c) =>
+            list.append(
+              el(
+                'li',
+                { class: 'flex gap-2' },
+                el(
+                  'span',
+                  {
+                    class: c.valid
+                      ? 'text-brand dark:text-brand-dark'
+                      : 'text-red-500',
+                  },
+                  c.valid ? '✓' : '✕',
+                ),
+                el('span', {}, [
+                  el(
+                    'span',
+                    { class: 'text-soft dark:text-soft-dark' },
+                    '[' + (c.kind || 'chunk') + '] ',
+                  ),
+                  c.claimText || c.section || c.documentId || c.chunkId || '—',
+                  c.section
+                    ? el(
+                        'span',
+                        { class: 'text-soft dark:text-soft-dark' },
+                        ' — ' + c.section,
+                      )
+                    : null,
+                  c.page != null
+                    ? el(
+                        'span',
+                        { class: 'text-soft dark:text-soft-dark' },
+                        ' · tr.' + c.page,
+                      )
+                    : null,
+                ]),
+              ),
+            ),
+          );
+          folds.append(foldable('Trích dẫn', list, d.citations.length));
+        }
+        if (d.claims && d.claims.length) {
+          const list = el('ul', { class: 'space-y-1 text-xs' });
+          d.claims.forEach((c) =>
+            list.append(
+              el(
+                'li',
+                { class: 'flex gap-2' },
+                el(
+                  'span',
+                  {
+                    class:
+                      'font-medium ' + (VERDICT_STYLE[c.verdict] || 'text-soft'),
+                  },
+                  c.verdict || (c.supported ? 'SUPPORTED' : 'UNSUPPORTED'),
+                ),
+                el('span', {}, c.text),
+              ),
+            ),
+          );
+          folds.append(foldable('Claims', list, d.claims.length));
+        }
+        if (d.id) {
+          const traj = el('div', {});
+          const fold = foldable('Trajectory', traj);
+          fold.addEventListener(
+            'toggle',
+            () => {
+              if (fold.open && !traj.dataset.loaded) {
+                traj.dataset.loaded = '1';
+                renderTrajectory(traj, d.id);
+              }
+            },
+            { once: false },
+          );
+          folds.append(fold);
+          folds.append(
+            el(
+              'div',
+              { class: 'text-[11px] text-soft dark:text-soft-dark' },
+              'AgentRun: ' + d.id,
+            ),
+          );
+        }
+        if (folds.children.length) container.append(folds);
+      }
+
+      async function sendAgent() {
+        const input = $('#agentInput');
+        const task = input.value.trim();
+        if (!task || agentBusy) return;
+        agentBusy = true;
+        $('#agentSend').disabled = true;
+        input.value = '';
+        input.style.height = 'auto';
+
+        $('#agentEmpty')?.remove();
+        agentMsgEl.append(
+          el(
+            'div',
+            { class: 'flex justify-end' },
+            el(
+              'div',
+              {
+                class:
+                  'max-w-[85%] rounded-2xl rounded-br-md bg-brand px-3.5 py-2 text-sm text-white dark:bg-brand-dark dark:text-canvas-dark prose-answer',
+              },
+              task,
+            ),
+          ),
+        );
+
+        const wrap = el('div', { class: 'flex' });
+        const body = el('div', {
+          class:
+            'max-w-[92%] rounded-2xl rounded-bl-md border border-line bg-card px-3.5 py-2.5 dark:border-line-dark dark:bg-card-dark',
+        });
+        body.append(
+          el(
+            'div',
+            { class: 'typing flex gap-1 py-1' },
+            el('span', { class: 'size-1.5 rounded-full bg-soft' }),
+            el('span', { class: 'size-1.5 rounded-full bg-soft' }),
+            el('span', { class: 'size-1.5 rounded-full bg-soft' }),
+          ),
+        );
+        wrap.append(body);
+        agentMsgEl.append(wrap);
+        scrollAgent();
+
+        const tools = $$('.aTool')
+          .filter((c) => c.checked)
+          .map((c) => c.value);
+        const payload = { task, execution: 'sync' };
+        if (tools.length && tools.length < $$('.aTool').length)
+          payload.toolAllowlist = tools;
+        const budget = Number($('#aBudget').value);
+        if (budget > 0) payload.costBudgetUsd = budget;
+
+        const r = await api('POST', '/agent/run', { body: payload });
+        if (r.data && r.data.id) LS.lastAgentRun = r.data.id;
+        renderAgent(body, r);
+        scrollAgent();
+        agentBusy = false;
+        $('#agentSend').disabled = false;
+        input.focus();
+      }
+
+      $('#agentForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        sendAgent();
+      });
+      $('#agentInput').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          sendAgent();
+        }
+      });
+      $('#agentInput').addEventListener('input', (e) => {
+        e.target.style.height = 'auto';
+        e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px';
+      });
+      $('#agentClear').addEventListener('click', () => {
+        agentMsgEl.innerHTML = '';
+        if (!$('#agentEmpty')) location.reload();
+      });
+
       /* ================================================================= API CONSOLE */
       const clean = (o) =>
         Object.fromEntries(
@@ -938,7 +1415,9 @@
                       ? LS.lastDoc
                       : f.fillLast === 'run'
                         ? LS.lastRun
-                        : LS.lastQuery;
+                        : f.fillLast === 'agent'
+                          ? LS.lastAgentRun
+                          : LS.lastQuery;
                 },
               },
               'gần nhất',
@@ -1720,6 +2199,92 @@
               path: '/graph/reconcile',
               button: 'Reconcile',
               build: () => ({ path: '/graph/reconcile', body: {} }),
+            },
+          ]),
+
+          card('⑨ Agent tool-calling (PHASE 17)', [
+            {
+              title: 'POST /agent/run',
+              method: 'POST',
+              path: '/agent/run',
+              button: 'Chạy',
+              hint: 'Cần AGENT_ENABLED=true. sync → 200 + kết quả; async → 202 (cần QUEUE_ENABLED), theo dõi qua /runs/:id. Lưu id vào "gần nhất".',
+              fields: [
+                {
+                  name: 'task',
+                  type: 'textarea',
+                  grow: true,
+                  default:
+                    'Một lô hàng 43 thùng, mỗi thùng 27 sản phẩm. Tổng bao nhiêu sản phẩm? Dùng công cụ tính toán.',
+                },
+                {
+                  name: 'toolAllowlist',
+                  type: 'text',
+                  placeholder: 'phẩy, bỏ trống = tất cả',
+                },
+                {
+                  name: 'costBudgetUsd',
+                  type: 'number',
+                  placeholder: 'mặc định',
+                },
+                {
+                  name: 'execution',
+                  type: 'select',
+                  options: ['sync', 'async'],
+                  default: 'sync',
+                },
+              ],
+              build: (c) => ({
+                path: '/agent/run',
+                body: clean({
+                  task: c.task,
+                  execution: c.execution,
+                  costBudgetUsd: num(c.costBudgetUsd),
+                  toolAllowlist: c.toolAllowlist
+                    ? c.toolAllowlist
+                        .split(',')
+                        .map((s) => s.trim())
+                        .filter(Boolean)
+                    : undefined,
+                }),
+              }),
+              after: (r) => {
+                if (r.data?.id) LS.lastAgentRun = r.data.id;
+              },
+            },
+            {
+              title: 'Kết quả / trạng thái run',
+              method: 'GET',
+              path: '/agent/runs/:id',
+              fields: [
+                { name: 'id', type: 'text', grow: true, fillLast: 'agent' },
+              ],
+              build: (c) => ({
+                path: '/agent/runs/' + encodeURIComponent(c.id),
+              }),
+            },
+            {
+              title: 'Trajectory đầy đủ (đã khử secret/PII)',
+              method: 'GET',
+              path: '/agent/runs/:id/trace',
+              fields: [
+                { name: 'id', type: 'text', grow: true, fillLast: 'agent' },
+              ],
+              build: (c) => ({
+                path: '/agent/runs/' + encodeURIComponent(c.id) + '/trace',
+              }),
+            },
+            {
+              title: 'Huỷ run đang chạy',
+              method: 'POST',
+              path: '/agent/runs/:id/cancel',
+              button: 'Huỷ',
+              fields: [
+                { name: 'id', type: 'text', grow: true, fillLast: 'agent' },
+              ],
+              build: (c) => ({
+                path: '/agent/runs/' + encodeURIComponent(c.id) + '/cancel',
+              }),
             },
           ]),
         );
