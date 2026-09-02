@@ -27,6 +27,8 @@ function state(over: Partial<AgentState>): AgentState {
     evidence: [],
     toolInvocations: {},
     toolCallCount: 0,
+    toolFormatValid: 0,
+    toolFormatTotal: 0,
     noProgressStreak: 0,
     usage: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     answer: null,

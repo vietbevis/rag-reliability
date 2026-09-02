@@ -1,0 +1,29 @@
+# PHASE 17.10 — eval agent. Chạy: npm run evaluate:agent
+#
+# Trước khi chạy:
+#   - nest build (script tự làm)
+#   - PostgreSQL + Redis chạy; corpus KB đã ingest (cho case rag_search)
+#   - .env có LLM_PROVIDER=custom + CUSTOM_LLM_* (dùng model THẬT — benchmark)
+#   - grader llm-rubric: promptfoo mặc định OpenAI. Trỏ về api.b.ai:
+#       OPENAI_BASE_URL=$CUSTOM_LLM_BASE_URL OPENAI_API_KEY=$CUSTOM_LLM_API_KEY
+#     và đặt PROMPTFOO_GRADER_MODEL (vd deepseek-v4-flash) ở defaultTest bên dưới.
+description: RAG Agent evaluation (PHASE 17.10)
+
+providers:
+  - id: file://./provider.mjs
+    label: rag-agent
+
+defaultTest:
+  options:
+    # Model chấm llm-rubric — đổi theo provider của bạn.
+    provider: openai:chat:deepseek-v4-flash
+  assert:
+    - type: latency
+      threshold: 90000
+    - type: cost
+      threshold: 0.20
+
+tests: file://./tests.yaml
+
+# Kết quả: `promptfoo eval ... -o evaluation/agent/results.json` (gitignore).
+# Regression gate: `promptfoo eval` exit ≠ 0 khi có case fail.

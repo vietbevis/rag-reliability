@@ -119,6 +119,8 @@ export function createAgentNode(deps: AgentNodeDeps) {
       steps,
       usage,
       toolCallCount: res.toolCalls.length,
+      toolFormatTotal: res.toolCalls.length,
+      toolFormatValid: res.toolCalls.length - invalid.length,
     };
   };
 }

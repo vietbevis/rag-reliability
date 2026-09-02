@@ -44,7 +44,7 @@ Agent **kế thừa nguyên** triết lý reliability của service (xem
 | 17.7  | `agent.controller` (sync) + rate limit + DTO + Swagger                                                                                     | ✅ Xong — `AgentEnabledGuard` gate `AGENT_ENABLED`; throttler `agent` (10/phút); e2e HTTP 4/4 |
 | 17.8  | Async BullMQ + SSE stream + cancel · ~~Postgres checkpointer~~ hoãn                                                                        | ✅ Xong (trừ checkpointer) — e2e async 202→worker + fallback sync + cancel 409 + SSE |
 | 17.9  | Langfuse `LangfuseTracer` (SDK v3, best-effort) + config + wiring + doc                                                                     | ✅ Xong — không dùng callback handler (peer LangChain lệch); self-host để user chạy compose upstream |
-| 17.10 | Eval agent dựng trên **promptfoo** + `agent-metrics` bổ sung + golden dataset + baseline + CI gate                                         | ⬜ Chưa làm |
+| 17.10 | Eval agent trên **promptfoo** + `agent-metrics` + golden dataset + `npm run evaluate:agent`                                               | ✅ Xong (infra) — seed run cho thấy deepseek-v4-flash **hay bỏ qua tool** (task "dùng calculator" → 0 tool call). Baseline để cải thiện ở 17.11. |
 | 17.11 | _(sau)_ `web_search` (Tavily + SSRF guard) · write-tool + HITL approval (`/approve`)                                                       | ⬜ Backlog  |
 
 ---
@@ -388,24 +388,32 @@ Checkpointer của LangGraph dùng bảng riêng (prefix `lg_`), tạo bởi
 
 ---
 
-## 12. Evaluation — promptfoo
+## 12. Evaluation — promptfoo (17.10)
 
-- Bộ eval agent dựng trên **promptfoo** (config `evaluation/agent/promptfooconfig.yaml`),
-  provider trỏ vào endpoint `POST /agent/run` (hoặc gọi `AgentService` trực tiếp
-  qua custom provider).
-- Golden dataset `evaluation/agent/tasks.jsonl` (~20–30 case): đa bước, một
-  bước, cần abstain, cần calculator, cần graph, **injection-trong-tool-output**.
-- promptfoo lo: chạy case, assertion (contains / llm-rubric / latency / cost),
-  red-team prompt-injection, báo cáo HTML, exit code cho CI.
-- `src/evaluation/metrics/agent-metrics.ts` bổ sung những gì promptfoo không có
-  sẵn theo golden:
-  - **Tool selection** precision / recall vs `expectedTools`
-  - **Step efficiency** (bước / tool call so với tối thiểu)
-  - **Abstention correctness**
-  - **Tool-call format validity** (% tool call parse + validate Zod OK) — gate
-    để quyết định có bật fallback JSON cho model đang dùng
-- CLI: `npm run evaluate:agent -- --baseline`; cắm vào cùng cơ chế regression
-  của service (exit ≠ 0 chặn merge — xem `regression.md`).
+- **`npm run evaluate:agent`** = `nest build && promptfoo eval -c
+  evaluation/agent/promptfooconfig.yaml`.
+- **Custom provider** `evaluation/agent/provider.mjs` → `build-agent.mjs` bootstrap
+  `NestFactory.createApplicationContext(AppModule)` (không HTTP) + `AgentService.run`
+  với **LLM THẬT** (`.env` `LLM_PROVIDER=custom`). Trả `output` = answer +
+  `metadata` = trajectory (toolsUsed, stepCount, finalStatus, format counts).
+- **`src/evaluation/metrics/agent-metrics.ts`** (hàm thuần, có spec) — bổ sung
+  cho promptfoo:
+  - `toolSelection` P/R/F1 vs `expectedTools`
+  - `forbiddenToolCompliance`, `abstentionCorrect`, `stepEfficiency`
+  - `formatValidity` (% tool call args hợp lệ Zod)
+  - `scoreAgentCase` — `pass` = không gọi tool cấm + abstention đúng +
+    format-validity ≥ 0.8; `score` gộp thêm F1 + efficiency.
+- **`assert-trajectory.mjs`** — promptfoo `javascript` assert: đọc kỳ vọng từ
+  `test.metadata`, thực tế từ `providerResponse.metadata`, chấm bằng
+  `scoreAgentCase`.
+- **Golden dataset** `evaluation/agent/tests.yaml` (~6 case seed — mở rộng theo
+  corpus): calculator / phần trăm / abstain / rag_search / injection-in-tool /
+  current_time. Mỗi case: `contains` / `llm-rubric` / `javascript` asserts.
+- **CI gate**: `promptfoo eval` exit ≠ 0 khi có case fail → cắm vào pipeline
+  như regression RAG (xem `regression.md`). grader llm-rubric: trỏ
+  `OPENAI_BASE_URL`/`OPENAI_API_KEY` về api.b.ai + `defaultTest.options.provider`.
+- **Format-validity gate** (agent-tools.md §14): nếu `formatValidity` trung bình
+  < ngưỡng với model đang dùng ⇒ bật đường fallback `chatStructured`.
 
 ---
 
@@ -507,6 +515,7 @@ ESLint, có `.spec.ts`. Thứ tự = bảng §2.
 | Rủi ro                                                       | Giảm thiểu                                                                                                          |
 | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
 | Model local chọn sai tool / sai định dạng args               | format-validity gate (17.10) + fallback JSON; nếu vẫn kém → cân nhắc `AGENT_MODEL` thương mại cho riêng vòng agent. |
+| **deepseek-v4-flash bỏ qua tool** — 17.10 seed eval: task ép "dùng công cụ tính toán" nhưng model vẫn trả lời thẳng, 0 tool call → finalize abstain. Tool-calling native của model này KHÔNG đáng tin cho ép-buộc dùng tool. | **17.11**: (a) system prompt mạnh hơn ("PHẢI gọi tool khi task yêu cầu"); (b) `tool_choice:'required'`/`'auto'` param nếu api.b.ai hỗ trợ; (c) đường fallback `chatStructured` (bắt buộc chọn action); (d) `AGENT_MODEL` khác. Đo lại bằng `evaluate:agent`. |
 | ~~`reasoning: false` bị api.b.ai từ chối~~ — phát hiện 17.1, **đã fix**: bỏ `reasoning_effort:'none'` khỏi `NO_REASONING_KWARGS`, chỉ còn `enable_thinking:false`. Verify LIVE 5/5 e2e. | ✅ Xong (commit `fix(llm)`). `agent.node` dùng `reasoning:false` an toàn. |
 | Vòng lặp tốn kém âm thầm                                     | `budget.guard` + `loop-detector` + Langfuse cost dashboard + rate limit theo run.                                   |
 | `finalize` verify (nhiều LLM call) làm latency agent cao     | Cho phép tắt từng lớp verify qua request flag như `/rag/query` (`cite`, `faithfulness`); đo p50–p95 ở 17.10.        |

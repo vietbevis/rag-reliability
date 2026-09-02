@@ -50,6 +50,10 @@ export interface AgentRunOutcome {
   evidence: ToolEvidence[];
   usage: AgentUsage;
   toolCallCount: number;
+  /** Tên tool đã yêu cầu, theo thứ tự (cho agent-metrics). */
+  toolsUsed: string[];
+  toolFormatValid: number;
+  toolFormatTotal: number;
   latencyMs: number;
   /** Chỉ có khi `stopReason === 'error'`. */
   error?: string;
@@ -113,6 +117,9 @@ export class AgentGraphBuilder {
         evidence: [],
         usage: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
         toolCallCount: 0,
+        toolsUsed: [],
+        toolFormatValid: 0,
+        toolFormatTotal: 0,
         latencyMs: Date.now() - startedAt,
         error: message,
       };
@@ -195,6 +202,11 @@ export class AgentGraphBuilder {
       evidence: state.evidence,
       usage: state.usage,
       toolCallCount: state.toolCallCount,
+      toolsUsed: state.steps
+        .filter((s) => s.type === 'TOOL_CALL' && s.toolName)
+        .map((s) => s.toolName as string),
+      toolFormatValid: state.toolFormatValid,
+      toolFormatTotal: state.toolFormatTotal,
       latencyMs: Date.now() - startedAt,
     };
   }

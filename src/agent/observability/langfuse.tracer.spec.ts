@@ -15,6 +15,9 @@ const result: AgentRunResult = {
   faithfulness: null,
   usage: { inputTokens: 1, outputTokens: 2, estimatedCost: 0 },
   toolCallCount: 0,
+  toolsUsed: [],
+  toolFormatValid: 0,
+  toolFormatTotal: 0,
   stepCount: 1,
   latencyMs: 10,
 };

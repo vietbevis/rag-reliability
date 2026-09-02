@@ -44,6 +44,9 @@ export interface AgentRunResult {
   faithfulness: FaithfulnessResult | null;
   usage: AgentUsage;
   toolCallCount: number;
+  toolsUsed: string[];
+  toolFormatValid: number;
+  toolFormatTotal: number;
   stepCount: number;
   latencyMs: number;
   error?: string;
@@ -190,6 +193,9 @@ export class AgentService implements OnModuleDestroy {
       faithfulness: outcome.faithfulness,
       usage: outcome.usage,
       toolCallCount: outcome.toolCallCount,
+      toolsUsed: outcome.toolsUsed,
+      toolFormatValid: outcome.toolFormatValid,
+      toolFormatTotal: outcome.toolFormatTotal,
       stepCount: outcome.steps.length,
       latencyMs: outcome.latencyMs,
       error: outcome.error,
@@ -224,6 +230,9 @@ export class AgentService implements OnModuleDestroy {
         estimatedCost: 0,
       },
       toolCallCount: 0,
+      toolsUsed: [],
+      toolFormatValid: 0,
+      toolFormatTotal: 0,
       stepCount: run.stepCount,
       latencyMs: run.latencyMs ?? 0,
       error: run.error ?? undefined,

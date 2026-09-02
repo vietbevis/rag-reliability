@@ -90,6 +90,15 @@ export const AgentStateAnnotation = Annotation.Root({
     reducer: (a, b) => a + b,
     default: () => 0,
   }),
+  /** Tool call model sinh có args hợp lệ theo schema / tổng — cho format-validity metric. */
+  toolFormatValid: Annotation<number>({
+    reducer: (a, b) => a + b,
+    default: () => 0,
+  }),
+  toolFormatTotal: Annotation<number>({
+    reducer: (a, b) => a + b,
+    default: () => 0,
+  }),
   /** Số vòng `agent` không sinh evidence mới liên tiếp — cho no-progress. */
   noProgressStreak: Annotation<number>({
     reducer: lastWrite,
