@@ -48,6 +48,13 @@ export interface ToolEvidence {
   ref: string;
   /** Văn bản hoá để verify + trích dẫn. */
   text: string;
+  /** Chỉ với `kind` chunk/graph — để `finalize` dựng context + citation. */
+  documentId?: string;
+  chunkId?: string;
+  score?: number;
+  section?: string;
+  heading?: string;
+  page?: number;
 }
 
 export interface AgentToolResult<T = unknown> {

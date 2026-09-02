@@ -3,10 +3,17 @@ import { ConfigService } from '@nestjs/config';
 import { END, START, StateGraph } from '@langchain/langgraph';
 import type { AppConfig } from '../../config/configuration';
 import { LlmService } from '../../ai/llm/llm.service';
+import type {
+  FaithfulnessResult,
+  RagStatus,
+  VerifiedClaim,
+} from '../../common/types';
+import { AnswerVerificationService } from '../../rag/grounding/answer-verification.service';
 import type { ToolEvidence } from '../tools/tool.interface';
 import { ToolRegistryService } from '../tools/tool-registry.service';
 import {
   AgentStateAnnotation,
+  type AgentCitation,
   type AgentState,
   type AgentStopReason,
   type AgentStepRecord,
@@ -14,6 +21,7 @@ import {
 } from './agent-state';
 import { checkBudget, type AgentLimits } from './guards/budget.guard';
 import { createAgentNode } from './nodes/agent.node';
+import { createFinalizeNode } from './nodes/finalize.node';
 import { createToolNode } from './nodes/tool.node';
 
 /** Sau ngần này vòng `agent` không sinh evidence mới ⇒ dừng (no-progress). */
@@ -29,7 +37,13 @@ export interface AgentRunOptions {
 export interface AgentRunOutcome {
   task: string;
   answer: string | null;
+  /** Lý do vòng lặp dừng (`final` = model tự chốt). */
   stopReason: AgentStopReason;
+  /** Trạng thái độ tin cậy sau `finalize` (verify). `null` khi run lỗi. */
+  finalStatus: RagStatus | null;
+  citations: AgentCitation[];
+  claims: VerifiedClaim[];
+  faithfulness: FaithfulnessResult | null;
   steps: AgentStepRecord[];
   evidence: ToolEvidence[];
   usage: AgentUsage;
@@ -41,9 +55,8 @@ export interface AgentRunOutcome {
 
 /**
  * Dựng và chạy graph agent (PHASE 17 §4). Vòng lặp `agent ⇄ tool` có guard
- * (budget + loop + no-progress) chặn trước mỗi lần vào `tool`. 17.3: câu trả
- * lời cuối trả THÔ — chưa qua `finalize` (grounding/citation/faithfulness ở
- * 17.5), chưa persist (17.6).
+ * (budget + loop + no-progress); mọi đường kết thúc đi qua `finalize` — verify
+ * grounding/citation/faithfulness + map `RagStatus` (17.5). Chưa persist (17.6).
  */
 @Injectable()
 export class AgentGraphBuilder {
@@ -53,6 +66,7 @@ export class AgentGraphBuilder {
   constructor(
     private readonly llm: LlmService,
     private readonly registry: ToolRegistryService,
+    private readonly verification: AnswerVerificationService,
     config: ConfigService<AppConfig, true>,
   ) {
     this.cfg = config.get('agent', { infer: true });
@@ -87,6 +101,10 @@ export class AgentGraphBuilder {
         task,
         answer: null,
         stopReason: 'error',
+        finalStatus: null,
+        citations: [],
+        claims: [],
+        faithfulness: null,
         steps: [],
         evidence: [],
         usage: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
@@ -115,6 +133,10 @@ export class AgentGraphBuilder {
       loopThreshold: limits.loopRepeatThreshold,
       logger: this.logger,
     });
+    const finalizeNode = createFinalizeNode({
+      verification: this.verification,
+      logger: this.logger,
+    });
 
     const stoppedNode = (state: AgentState) => {
       const reason = resolveStop(state, limits) ?? 'budget_steps';
@@ -135,6 +157,7 @@ export class AgentGraphBuilder {
       .addNode('agent', agentNode)
       .addNode('tool', toolNode)
       .addNode('stopped', stoppedNode)
+      .addNode('finalize', finalizeNode)
       .addEdge(START, 'agent')
       .addConditionalEdges(
         'agent',
@@ -142,11 +165,12 @@ export class AgentGraphBuilder {
         {
           tool: 'tool',
           stopped: 'stopped',
-          end: END,
+          finalize: 'finalize',
         },
       )
       .addEdge('tool', 'agent')
-      .addEdge('stopped', END)
+      .addEdge('stopped', 'finalize')
+      .addEdge('finalize', END)
       .compile();
   }
 
@@ -158,7 +182,11 @@ export class AgentGraphBuilder {
     return {
       task,
       answer: state.answer,
-      stopReason: state.stopReason ?? 'error',
+      stopReason: state.stopReason ?? 'final',
+      finalStatus: state.finalStatus,
+      citations: state.citations,
+      claims: state.verifiedClaims,
+      faithfulness: state.faithfulness,
       steps: state.steps,
       evidence: state.evidence,
       usage: state.usage,
@@ -182,7 +210,7 @@ function resolveStop(
 function route(
   state: AgentState,
   limits: AgentLimits,
-): 'tool' | 'stopped' | 'end' {
-  if (state.stopReason === 'final' || state.answer !== null) return 'end';
+): 'tool' | 'stopped' | 'finalize' {
+  if (state.answer !== null) return 'finalize';
   return resolveStop(state, limits) ? 'stopped' : 'tool';
 }

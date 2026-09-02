@@ -39,7 +39,7 @@ Agent **kế thừa nguyên** triết lý reliability của service (xem
 | 17.2  | `tool.interface` + `tool-registry` + `calculator` + `current_time`                                                                         | ✅ Xong — `mathjs` hardened; registry validate snake_case/unique/read-only + resolve theo allowlist |
 | 17.3  | `agent-state` + `agent-graph.builder` + `agent.node` + `tool.node` + `budget.guard` + `loop-detector` (chưa verify, trả raw)               | ✅ Xong — LangGraph StateGraph, vòng `agent ⇄ tool`, guard budget/loop/no-progress; verify LIVE api.b.ai 2/2 e2e |
 | 17.4  | `rag_search` (bọc `RetrievalService`; param `strategy` gồm cả `graph` — gộp `graph_query` vào)                                             | ✅ Xong — 7 unit test; tool.node cộng dồn cost tool vào usage |
-| 17.5  | `finalize.node`: nối grounding + citation + faithfulness · map `RagStatus` · abstain path · mở rộng `Citation.kind`                        | ⬜ Chưa làm |
+| 17.5  | `finalize.node` + `AnswerVerificationService` (dùng chung với RAG) · map `RagStatus` · abstain path · `AgentCitation.kind` (chunk/graph/computation) | ✅ Xong — 20 unit test; **§9.3 numeric-provenance check chưa làm** (số có dấu phân cách lexical-match trượt) |
 | 17.6  | Prisma `AgentRun` + `AgentStep` + migration · persist trajectory · `AgentService`                                                          | ⬜ Chưa làm |
 | 17.7  | `agent.controller` (sync) + rate limit + DTO + Swagger                                                                                     | ⬜ Chưa làm |
 | 17.8  | Async BullMQ + Postgres checkpointer + SSE stream + cancel                                                                                 | ⬜ Chưa làm |
@@ -295,6 +295,19 @@ Tái dùng nguyên module grounding hiện có (xem `grounding.md`, `faithfulnes
 
 Kết quả: `AgentRunResult` có cùng shape "reliability" như `RagQueryResult`
 (answer, status, citations, claims, faithfulness) + trajectory.
+
+**Đã làm (17.5):** `src/rag/grounding/answer-verification.service.ts` đóng gói
+chuỗi verify (`verifyAnswer` cho câu agent tự soạn · `synthesizeAndVerify` cho
+đường dừng sớm), export cho cả `finalize.node` và (về sau) `RagPipelineService`.
+`finalize.node` dựng chunk giả từ evidence `computation`, relabel citation →
+`AgentCitation.kind` (chunk/graph/computation) — KHÔNG đụng `CitationKind` gốc
+của RAG.
+
+**Chưa làm — §9.3 numeric-provenance:** claim về số liệu tính được chỉ verify
+qua lexical match + faithfulness LLM; số có dấu phân cách ("684.500" vs
+"684500") làm lexical trượt, LLM thì thận trọng → dễ hạ `INSUFFICIENT_EVIDENCE`
+oan. Cần bước riêng: trích mọi số trong answer, đối chiếu xuất hiện trong
+evidence `computation`. **Ứng viên phải làm trước khi coi agent production-ready.**
 
 ---
 

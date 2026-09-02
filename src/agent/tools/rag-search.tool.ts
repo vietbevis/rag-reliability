@@ -126,6 +126,12 @@ export class RagSearchTool implements AgentTool<
       kind: c.source === 'graph' ? 'graph' : 'chunk',
       ref: c.chunkId,
       text: c.content,
+      documentId: c.documentId,
+      chunkId: c.chunkId,
+      score: c.score,
+      section: c.section,
+      heading: c.heading,
+      page: c.page,
     }));
 
     return {

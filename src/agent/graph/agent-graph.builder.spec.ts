@@ -4,10 +4,54 @@ import {
   FakeLlmProvider,
   type FakeToolTurn,
 } from '../../ai/llm/providers/fake-llm.provider';
+import type {
+  AnswerVerificationService,
+  VerificationResult,
+} from '../../rag/grounding/answer-verification.service';
 import { CalculatorTool } from '../tools/builtin/calculator.tool';
 import { CurrentTimeTool } from '../tools/builtin/current-time.tool';
 import { ToolRegistryService } from '../tools/tool-registry.service';
 import { AgentGraphBuilder } from './agent-graph.builder';
+
+const ZERO = {
+  inputTokens: 0,
+  outputTokens: 0,
+  totalTokens: 0,
+  estimatedCost: 0,
+};
+
+/**
+ * AVS giả: `verifyAnswer` trả GROUNDED giữ nguyên câu trả lời;
+ * `synthesizeAndVerify` trả câu tổng hợp từ số chunk nhận được.
+ */
+function stubVerification(): AnswerVerificationService {
+  return {
+    verifyAnswer: (answer: string): Promise<VerificationResult> =>
+      Promise.resolve({
+        answer,
+        status: 'GROUNDED',
+        claims: [],
+        citations: [],
+        faithfulness: { score: 1, grounded: true, claims: [] },
+        usage: ZERO,
+      }),
+    synthesizeAndVerify: (
+      _task: string,
+      chunks: unknown[],
+    ): Promise<VerificationResult> =>
+      Promise.resolve({
+        answer:
+          chunks.length > 0
+            ? `[tổng hợp từ ${chunks.length} evidence]`
+            : 'Không tìm thấy thông tin đủ tin cậy trong knowledge base để trả lời câu hỏi này.',
+        status: chunks.length > 0 ? 'GROUNDED' : 'INSUFFICIENT_EVIDENCE',
+        claims: [],
+        citations: [],
+        faithfulness: { score: 1, grounded: true, claims: [] },
+        usage: ZERO,
+      }),
+  } as unknown as AnswerVerificationService;
+}
 
 function makeBuilder(env: Record<string, string> = {}) {
   const fake = new FakeLlmProvider();
@@ -28,6 +72,7 @@ function makeBuilder(env: Record<string, string> = {}) {
   const builder = new AgentGraphBuilder(
     fake as unknown as LlmService,
     registry,
+    stubVerification(),
     config,
   );
   return {
@@ -42,7 +87,7 @@ const calc = (expression: string): FakeToolTurn => ({
 });
 
 describe('AgentGraphBuilder.run', () => {
-  it('trả lời thẳng khi model không gọi tool', async () => {
+  it('trả lời thẳng khi model không gọi tool → đi qua finalize', async () => {
     const { builder, script } = makeBuilder();
     script([{ content: 'Đáp án là 42.' }]);
 
@@ -50,8 +95,9 @@ describe('AgentGraphBuilder.run', () => {
 
     expect(out.answer).toBe('Đáp án là 42.');
     expect(out.stopReason).toBe('final');
+    expect(out.finalStatus).toBe('GROUNDED');
     expect(out.toolCallCount).toBe(0);
-    expect(out.steps.map((s) => s.type)).toEqual(['FINAL']);
+    expect(out.steps.map((s) => s.type)).toEqual(['THINK', 'FINAL']);
   });
 
   it('một vòng tool rồi chốt câu trả lời', async () => {
@@ -62,11 +108,13 @@ describe('AgentGraphBuilder.run', () => {
 
     expect(out.answer).toBe('Kết quả là 42.');
     expect(out.stopReason).toBe('final');
+    expect(out.finalStatus).toBe('GROUNDED');
     expect(out.toolCallCount).toBe(1);
     expect(out.steps.map((s) => s.type)).toEqual([
       'THINK',
       'TOOL_CALL',
       'TOOL_RESULT',
+      'THINK',
       'FINAL',
     ]);
     expect(out.evidence).toEqual([
@@ -79,18 +127,20 @@ describe('AgentGraphBuilder.run', () => {
     expect(toolResult?.toolOutput).toMatchObject({ result: '42' });
   });
 
-  it('guard: dừng khi vượt AGENT_MAX_STEPS, answer=null + GUARD_STOP', async () => {
+  it('guard AGENT_MAX_STEPS: GUARD_STOP + finalize tổng hợp từ evidence đã có', async () => {
     const { builder, script } = makeBuilder({ AGENT_MAX_STEPS: '3' });
     script([calc('1+1'), calc('2+2'), calc('3+3'), { content: 'xong' }]);
 
     const out = await builder.run('làm gì đó nhiều bước');
 
     expect(out.stopReason).toBe('budget_steps');
-    expect(out.answer).toBeNull();
-    expect(out.steps.at(-1)?.type).toBe('GUARD_STOP');
+    expect(out.steps.some((s) => s.type === 'GUARD_STOP')).toBe(true);
+    // finalize salvage được vì đã có evidence từ vòng tool đầu
+    expect(out.answer).toContain('tổng hợp');
+    expect(out.finalStatus).toBe('GROUNDED');
   });
 
-  it('guard: dừng khi vượt AGENT_MAX_TOOL_CALLS', async () => {
+  it('guard AGENT_MAX_TOOL_CALLS', async () => {
     const { builder, script } = makeBuilder({
       AGENT_MAX_STEPS: '50',
       AGENT_MAX_TOOL_CALLS: '2',
@@ -101,7 +151,7 @@ describe('AgentGraphBuilder.run', () => {
     const out = await builder.run('x');
 
     expect(out.stopReason).toBe('budget_tool_calls');
-    expect(out.answer).toBeNull();
+    expect(out.steps.some((s) => s.type === 'GUARD_STOP')).toBe(true);
   });
 
   it('loop-detector chặn lời gọi tool lặp lại y hệt', async () => {
@@ -130,7 +180,7 @@ describe('AgentGraphBuilder.run', () => {
     const out = await builder.run('x');
 
     expect(out.stopReason).toBe('no_progress');
-    expect(out.answer).toBeNull();
+    expect(out.steps.some((s) => s.type === 'GUARD_STOP')).toBe(true);
   });
 
   it('args tool sai schema → tool trả lỗi, model xoay hướng ở lượt sau', async () => {

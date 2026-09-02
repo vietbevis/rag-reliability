@@ -26,6 +26,7 @@ import { ClaimExtractorService } from './grounding/claim-extractor.service';
 import { EvidenceMatcherService } from './grounding/evidence-matcher.service';
 import { CitationService } from './grounding/citation.service';
 import { FaithfulnessService } from './grounding/faithfulness.service';
+import { AnswerVerificationService } from './grounding/answer-verification.service';
 import { RagPipelineService } from './pipeline/rag-pipeline.service';
 import { RagController } from './rag.controller';
 
@@ -68,6 +69,7 @@ import { RagController } from './rag.controller';
     EvidenceMatcherService,
     CitationService,
     FaithfulnessService,
+    AnswerVerificationService,
     RagPipelineService,
   ],
   exports: [
@@ -83,6 +85,7 @@ import { RagController } from './rag.controller';
     RetrievalService,
     ContextBuilderService,
     FaithfulnessService,
+    AnswerVerificationService,
     RagPipelineService,
   ],
 })

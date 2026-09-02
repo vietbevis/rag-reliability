@@ -66,13 +66,17 @@ export function createAgentNode(deps: AgentNodeDeps) {
     const base = state.steps.length;
 
     if (res.toolCalls.length === 0) {
-      deps.logger.debug('agent.node: model chốt câu trả lời');
+      deps.logger.debug(
+        'agent.node: model chốt câu trả lời (chờ finalize verify)',
+      );
       return {
         messages: [...seed, { role: 'assistant', content: res.content }],
+        // Bước THINK — câu trả lời do model soạn. Bước FINAL (kèm status) do
+        // node `finalize` phát sau khi verify.
         steps: [
           {
             index: base,
-            type: 'FINAL',
+            type: 'THINK',
             tokens,
             latencyMs: res.latencyMs,
             note: res.content.slice(0, 200),

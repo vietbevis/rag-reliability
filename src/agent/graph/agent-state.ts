@@ -1,6 +1,26 @@
 import { Annotation } from '@langchain/langgraph';
 import type { ChatMessage } from '../../ai/llm/llm.interface';
+import type {
+  FaithfulnessResult,
+  RagStatus,
+  VerifiedClaim,
+} from '../../common/types';
 import type { ToolEvidence } from '../tools/tool.interface';
+
+/**
+ * Citation của agent — mở rộng {@link CitationKind} của RAG cho nguồn tính
+ * toán. `chunk`/`graph` ⇒ trỏ tài liệu KB; `computation` ⇒ kết quả tool tính.
+ */
+export interface AgentCitation {
+  claimId: string;
+  claimText: string;
+  kind: 'chunk' | 'graph' | 'computation';
+  documentId?: string;
+  chunkId?: string;
+  section?: string;
+  page?: number;
+  valid: boolean;
+}
 
 /** Lý do vòng lặp agent dừng. `final` = model tự chốt câu trả lời. */
 export type AgentStopReason =
@@ -89,6 +109,24 @@ export const AgentStateAnnotation = Annotation.Root({
     default: () => null,
   }),
   stopReason: Annotation<AgentStopReason | null>({
+    reducer: lastWrite,
+    default: () => null,
+  }),
+
+  // --- Kết quả sau `finalize` (17.5) ---
+  finalStatus: Annotation<RagStatus | null>({
+    reducer: lastWrite,
+    default: () => null,
+  }),
+  citations: Annotation<AgentCitation[]>({
+    reducer: lastWrite,
+    default: () => [],
+  }),
+  verifiedClaims: Annotation<VerifiedClaim[]>({
+    reducer: lastWrite,
+    default: () => [],
+  }),
+  faithfulness: Annotation<FaithfulnessResult | null>({
     reducer: lastWrite,
     default: () => null,
   }),

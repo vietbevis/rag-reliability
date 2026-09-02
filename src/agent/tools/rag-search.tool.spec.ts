@@ -62,6 +62,12 @@ describe('RagSearchTool', () => {
         kind: 'chunk',
         ref: 'c1',
         text: 'Sinh viên được bảo lưu tối đa hai học kỳ.',
+        documentId: 'd1',
+        chunkId: 'c1',
+        score: 0.912345,
+        section: undefined,
+        heading: undefined,
+        page: undefined,
       },
     ]);
     expect(res.usage?.estimatedCost).toBeCloseTo(0.0002);
