@@ -43,7 +43,7 @@ Agent **kế thừa nguyên** triết lý reliability của service (xem
 | 17.6  | Prisma `AgentRun` + `AgentStep` + migration · persist trajectory · `AgentService`                                                          | ✅ Xong — migration `phase17_agent_run` (đã tỉa DROP INDEX drift); e2e round-trip pass |
 | 17.7  | `agent.controller` (sync) + rate limit + DTO + Swagger                                                                                     | ✅ Xong — `AgentEnabledGuard` gate `AGENT_ENABLED`; throttler `agent` (10/phút); e2e HTTP 4/4 |
 | 17.8  | Async BullMQ + SSE stream + cancel · ~~Postgres checkpointer~~ hoãn                                                                        | ✅ Xong (trừ checkpointer) — e2e async 202→worker + fallback sync + cancel 409 + SSE |
-| 17.9  | Langfuse self-host (callback vào graph) + README + doc này                                                                                 | ⬜ Chưa làm |
+| 17.9  | Langfuse `LangfuseTracer` (SDK v3, best-effort) + config + wiring + doc                                                                     | ✅ Xong — không dùng callback handler (peer LangChain lệch); self-host để user chạy compose upstream |
 | 17.10 | Eval agent dựng trên **promptfoo** + `agent-metrics` bổ sung + golden dataset + baseline + CI gate                                         | ⬜ Chưa làm |
 | 17.11 | _(sau)_ `web_search` (Tavily + SSRF guard) · write-tool + HITL approval (`/approve`)                                                       | ⬜ Backlog  |
 
@@ -362,20 +362,29 @@ Checkpointer của LangGraph dùng bảng riêng (prefix `lg_`), tạo bởi
 
 ---
 
-## 11. Observability — Langfuse
+## 11. Observability — Langfuse (17.9)
 
-- **Langfuse self-host** (Docker) làm nền quan sát chính. Thêm
-  `langfuse-langchain` `CallbackHandler` vào `RunnableConfig` của graph → mỗi
-  run có cây trace đầy đủ: từng node, từng tool call, prompt (sanitized),
-  token, cost, latency.
-- Env: `LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`,
-  `LANGFUSE_ENABLED=false` (mặc định tắt, bật ở môi trường có Langfuse).
-- **`AgentRun.trace`** vẫn giữ (JSON tự quản, qua `trace-sanitizer`) — nguồn sự
-  thật để query trong DB app kể cả khi Langfuse tắt. Langfuse là lớp bổ sung
-  để debug/tinh chỉnh prompt, không phải phụ thuộc cứng.
-- **SSE stream** `GET /agent/runs/:id/stream`: đẩy `AgentStep` khi phát sinh
-  (dùng `graph.streamEvents`) cho client theo dõi tiến trình.
-- OpenTelemetry spans: để sau, chỉ thêm khi có nhu cầu ghép vào APM chung.
+- **`LangfuseTracer`** (`src/agent/observability/`) ghi mỗi agent run thành 1
+  trace (input=task, output=answer, tags status/final/stop) + 1 span / step
+  (tool input/output, latency, error). **Best-effort**: Langfuse chết / chưa
+  cấu hình ⇒ no-op, KHÔNG làm hỏng run. `AgentService.execute` gọi
+  fire-and-forget sau khi persist.
+- Dùng SDK **`langfuse` v3** (REST thuần) — KHÔNG dùng `langfuse-langchain`
+  (kẹt peer `langchain <0.4`) hay `@langfuse/langchain` 5.x (cần OTel NodeSDK).
+  Đổi lại: span do ta tự phát theo `AgentStepRecord`, không bắt được nội bộ
+  LangChain — đủ để debug trajectory agent.
+- Env: `LANGFUSE_ENABLED=false` (mặc định) · `LANGFUSE_HOST` ·
+  `LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY` (bắt buộc khi bật — validate ở
+  `env.schema`).
+- **Self-host**: Langfuse v3 cần stack riêng (postgres + clickhouse + redis +
+  minio). Không nhồi vào `docker-compose.yml` của service này — chạy
+  `docker compose` của [langfuse/langfuse](https://github.com/langfuse/langfuse)
+  (hoặc Langfuse Cloud), rồi trỏ `LANGFUSE_HOST` + tạo project lấy key.
+- **`AgentRun.trace`** trong Postgres (qua `trace-sanitizer`) vẫn là nguồn sự
+  thật — query được kể cả khi Langfuse tắt.
+- **SSE stream** `GET /agent/runs/:id/stream`: poll DB, đẩy `AgentStep` khi
+  phát sinh, đóng khi run kết thúc.
+- OpenTelemetry spans: để sau, chỉ thêm khi cần ghép APM chung.
 
 ---
 

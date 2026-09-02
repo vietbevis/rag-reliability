@@ -25,6 +25,7 @@ import {
   type AgentRunOutcome,
 } from './graph/agent-graph.builder';
 import type { AgentCitation, AgentUsage } from './graph/agent-state';
+import { LangfuseTracer } from './observability/langfuse.tracer';
 
 export interface AgentServiceRunOptions {
   toolAllowlist?: string[];
@@ -72,6 +73,7 @@ export class AgentService implements OnModuleDestroy {
   constructor(
     private readonly prisma: PrismaService,
     private readonly graph: AgentGraphBuilder,
+    private readonly langfuse: LangfuseTracer,
     config: ConfigService<AppConfig, true>,
   ) {
     this.defaultBudget = config.get('agent', {
@@ -176,7 +178,7 @@ export class AgentService implements OnModuleDestroy {
       `agent run ${run.id}: ${status} · finalStatus=${outcome.finalStatus ?? '-'} · ${outcome.latencyMs}ms`,
     );
 
-    return {
+    const result: AgentRunResult = {
       id: run.id,
       task,
       status,
@@ -192,6 +194,8 @@ export class AgentService implements OnModuleDestroy {
       latencyMs: outcome.latencyMs,
       error: outcome.error,
     };
+    if (this.langfuse.enabled) void this.langfuse.record(result, outcome);
+    return result;
   }
 
   async get(id: string): Promise<AgentRunResult> {

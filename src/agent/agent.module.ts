@@ -7,6 +7,7 @@ import { AgentController } from './agent.controller';
 import { AgentEnabledGuard } from './agent-enabled.guard';
 import { AgentService } from './agent.service';
 import { AgentGraphBuilder } from './graph/agent-graph.builder';
+import { LangfuseTracer } from './observability/langfuse.tracer';
 import {
   AGENT_RUN_QUEUE,
   agentQueueEnabled,
@@ -71,6 +72,7 @@ const queueProviders: Provider[] = queueOn ? [AgentRunProcessor] : [];
     },
     ToolRegistryService,
     AgentGraphBuilder,
+    LangfuseTracer,
     AgentService,
     AgentQueueService,
     AgentEnabledGuard,

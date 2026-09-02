@@ -385,6 +385,15 @@ export const envSchema = z
     // request. Client vẫn có thể ghi đè từng request qua body `execution`.
     AGENT_EXECUTION: z.enum(['async', 'sync']).default('async'),
 
+    // ---- Observability: Langfuse (PHASE 17.9) --------------------------
+    // Bật ⇒ mỗi agent run được ghi thành 1 trace (span theo step) vào Langfuse
+    // self-host. Best-effort: lỗi Langfuse KHÔNG làm hỏng run. Yêu cầu
+    // LANGFUSE_PUBLIC_KEY + LANGFUSE_SECRET_KEY khi bật.
+    LANGFUSE_ENABLED: boolish(false),
+    LANGFUSE_HOST: z.string().trim().url().default('http://localhost:3030'),
+    LANGFUSE_PUBLIC_KEY: z.string().trim().optional(),
+    LANGFUSE_SECRET_KEY: z.string().trim().optional(),
+
     // ---- Queue xử lý tài liệu (PHASE 1 — BullMQ + Redis) ----------------
     // BẬT (mặc định): POST /documents trả 202 ngay, worker BullMQ chạy pipeline
     // ingest→chunk→embed→graph nền. TẮT: chạy inline đồng bộ trong request
@@ -454,6 +463,14 @@ export const envSchema = z
         !!env.NEO4J_PASSWORD,
         'NEO4J_PASSWORD',
         'NEO4J_PASSWORD is required when GRAPH_RAG_ENABLED=true (Neo4j luôn phải có mật khẩu)',
+      );
+    }
+
+    if (env.LANGFUSE_ENABLED) {
+      requireKey(
+        !!env.LANGFUSE_PUBLIC_KEY && !!env.LANGFUSE_SECRET_KEY,
+        'LANGFUSE_PUBLIC_KEY',
+        'LANGFUSE_PUBLIC_KEY và LANGFUSE_SECRET_KEY bắt buộc khi LANGFUSE_ENABLED=true',
       );
     }
 

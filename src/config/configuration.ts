@@ -168,6 +168,13 @@ export interface AppConfig {
       loopRepeatThreshold: number;
     };
   };
+  /** Observability Langfuse cho agent (PHASE 17.9). */
+  langfuse: {
+    enabled: boolean;
+    host: string;
+    publicKey?: string;
+    secretKey?: string;
+  };
 }
 
 /**
@@ -358,6 +365,12 @@ export function loadConfiguration(): AppConfig {
         toolResultMaxTokens: env.AGENT_TOOL_RESULT_MAX_TOKENS,
         loopRepeatThreshold: env.AGENT_LOOP_REPEAT_THRESHOLD,
       },
+    },
+    langfuse: {
+      enabled: env.LANGFUSE_ENABLED,
+      host: env.LANGFUSE_HOST,
+      publicKey: env.LANGFUSE_PUBLIC_KEY,
+      secretKey: env.LANGFUSE_SECRET_KEY,
     },
   };
 }
