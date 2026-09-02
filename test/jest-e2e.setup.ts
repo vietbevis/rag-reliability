@@ -12,9 +12,10 @@ process.env.LLM_PROVIDER = 'fake';
 process.env.RERANK_PROVIDER = 'fake';
 // e2e bắn nhiều request liên tiếp vào /rag/* — tắt rate limiting để không dính 429.
 process.env.RATE_LIMIT_ENABLED = 'false';
-// e2e không có Redis → queue chạy inline đồng bộ (POST /documents trả về khi
-// pipeline đã xong). Test nào cần hành vi async thật phải tự bật + mock.
-process.env.QUEUE_ENABLED = 'false';
+// e2e không có Redis → queue chạy inline đồng bộ (ghi đè cứng giá trị `.env`).
+// Chỉ bật khi chạy bộ e2e async THẬT: `AGENT_ASYNC_E2E=1` (cần Redis).
+process.env.QUEUE_ENABLED =
+  process.env.AGENT_ASYNC_E2E === '1' ? 'true' : 'false';
 // E5 1024d không chạy được với provider fake ở e2e → giữ 1536 cho fixture cũ,
 // nhưng provider fake sinh vector theo EMBEDDING_DIMENSION nên chỉ cần nhất quán.
 process.env.EMBEDDING_DIMENSION = process.env.EMBEDDING_DIMENSION ?? '1024';

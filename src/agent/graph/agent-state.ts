@@ -31,6 +31,7 @@ export type AgentStopReason =
   | 'budget_tokens'
   | 'budget_cost'
   | 'no_progress'
+  | 'cancelled'
   | 'error';
 
 export type AgentStepType =

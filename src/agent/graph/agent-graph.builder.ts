@@ -32,6 +32,8 @@ export interface AgentRunOptions {
   agentRunId?: string;
   /** Ghi đè `AGENT_COST_BUDGET_USD` cho request này. */
   costBudgetUsd?: number;
+  /** Huỷ run (cancel / shutdown) — abort xuyên xuống LLM + tool. */
+  signal?: AbortSignal;
 }
 
 export interface AgentRunOutcome {
@@ -91,16 +93,18 @@ export class AgentGraphBuilder {
     try {
       const final = await graph.invoke(
         { task, startedAt },
-        { recursionLimit: limits.maxSteps * 2 + 6 },
+        { recursionLimit: limits.maxSteps * 2 + 6, signal: opts.signal },
       );
       return this.toOutcome(task, final, startedAt);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'lỗi không xác định';
-      this.logger.error(`agent run lỗi: ${message}`);
+      const cancelled = opts.signal?.aborted === true;
+      if (cancelled) this.logger.warn('agent run bị huỷ (cancel)');
+      else this.logger.error(`agent run lỗi: ${message}`);
       return {
         task,
         answer: null,
-        stopReason: 'error',
+        stopReason: cancelled ? 'cancelled' : 'error',
         finalStatus: null,
         citations: [],
         claims: [],

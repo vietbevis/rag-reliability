@@ -42,7 +42,7 @@ Agent **kế thừa nguyên** triết lý reliability của service (xem
 | 17.5  | `finalize.node` + `AnswerVerificationService` (dùng chung với RAG) · map `RagStatus` · abstain path · `AgentCitation.kind` (chunk/graph/computation) | ✅ Xong — 20 unit test; **§9.3 numeric-provenance check chưa làm** (số có dấu phân cách lexical-match trượt) |
 | 17.6  | Prisma `AgentRun` + `AgentStep` + migration · persist trajectory · `AgentService`                                                          | ✅ Xong — migration `phase17_agent_run` (đã tỉa DROP INDEX drift); e2e round-trip pass |
 | 17.7  | `agent.controller` (sync) + rate limit + DTO + Swagger                                                                                     | ✅ Xong — `AgentEnabledGuard` gate `AGENT_ENABLED`; throttler `agent` (10/phút); e2e HTTP 4/4 |
-| 17.8  | Async BullMQ + Postgres checkpointer + SSE stream + cancel                                                                                 | ⬜ Chưa làm |
+| 17.8  | Async BullMQ + SSE stream + cancel · ~~Postgres checkpointer~~ hoãn                                                                        | ✅ Xong (trừ checkpointer) — e2e async 202→worker + fallback sync + cancel 409 + SSE |
 | 17.9  | Langfuse self-host (callback vào graph) + README + doc này                                                                                 | ⬜ Chưa làm |
 | 17.10 | Eval agent dựng trên **promptfoo** + `agent-metrics` bổ sung + golden dataset + baseline + CI gate                                         | ⬜ Chưa làm |
 | 17.11 | _(sau)_ `web_search` (Tavily + SSRF guard) · write-tool + HITL approval (`/approve`)                                                       | ⬜ Backlog  |
@@ -59,7 +59,7 @@ Agent **kế thừa nguyên** triết lý reliability của service (xem
 | 2   | Thực thi API        | **Async (BullMQ)** mặc định + cho phép `execution:'sync'` với task ngắn + SSE stream tiến trình.                                                                      |
 | 3   | Model vòng agent    | Backend LLM đang dùng là **custom provider bên thứ 3** (API OpenAI-compatible). Tool-calling native là đường chính; `AGENT_MODEL` (tuỳ chọn) ghi đè model cho riêng vòng agent. **Fallback constrained-JSON** giữ làm lưới an toàn khi `supportsNativeToolCalling()=false`. |
 | 4   | `rag_search` trả về | **Chunk thô** (không generate ở tool) — agent tự tổng hợp ở `finalize`. Rẻ, ít vòng LLM.                                                                              |
-| 5   | Checkpointer        | **Postgres checkpointer từ 17.8** (`@langchain/langgraph-checkpoint-postgres`), cho async + resume stream.                                                            |
+| 5   | Checkpointer        | **HOÃN.** `@langchain/langgraph-checkpoint-postgres` cần peer `@langchain/langgraph-checkpoint@^1.1.4` (rủi ro lệch với langgraph 1.4). v1 read-only KHÔNG có `interrupt()` nên checkpointer chỉ có giá trị crash-resume; SSE `/stream` poll DB (không cần checkpointer). Làm khi có HITL / write-tool (17.11). |
 | 6   | `web_search`        | Hoãn tới 17.11 (cần API key + SSRF guard).                                                                                                                            |
 
 ### 3.2. Thư viện OSS đưa vào — và vì sao KHÔNG dùng framework trọn gói

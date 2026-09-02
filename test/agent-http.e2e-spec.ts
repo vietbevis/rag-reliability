@@ -18,6 +18,7 @@ const RUN = !process.env.SKIP_DB_E2E;
 (RUN ? describe : describe.skip)('Agent HTTP (e2e) — PHASE 17.7', () => {
   let app: INestApplication;
   let prisma: PrismaService;
+  let fake: FakeLlmProvider;
   const runIds: string[] = [];
 
   beforeAll(async () => {
@@ -35,7 +36,8 @@ const RUN = !process.env.SKIP_DB_E2E;
     app.useGlobalFilters(new AllExceptionsFilter());
     await app.init();
     prisma = app.get(PrismaService);
-    app.get(FakeLlmProvider).scriptToolTurns([]);
+    fake = app.get(FakeLlmProvider);
+    fake.scriptToolTurns([]);
   }, 60_000);
 
   afterAll(async () => {
@@ -79,16 +81,61 @@ const RUN = !process.env.SKIP_DB_E2E;
       .expect(400);
   });
 
-  it("execution:'async' → 400 (chưa hỗ trợ)", async () => {
-    await request(app.getHttpServer())
+  it("execution:'async' khi QUEUE_ENABLED=false → fallback sync (200 + kết quả)", async () => {
+    const res = await request(app.getHttpServer())
       .post('/agent/run')
-      .send({ task: 'x', execution: 'async' })
-      .expect(400);
-  });
+      .send({ task: 'Chạy async nhưng queue tắt.', execution: 'async' })
+      .expect(200);
+    runIds.push(res.body.id);
+    expect(res.body.status).toBeDefined();
+    expect(res.body.stepCount).toBeGreaterThan(0);
+  }, 60_000);
 
   it('GET /agent/runs/:id không tồn tại → 404', async () => {
     await request(app.getHttpServer())
       .get('/agent/runs/khong_ton_tai')
       .expect(404);
   });
+
+  it('POST /agent/runs/:id/cancel trên run đã xong → 409', async () => {
+    fake.scriptToolTurns([]);
+    const res = await request(app.getHttpServer())
+      .post('/agent/run')
+      .send({ task: 'Run để test cancel.' })
+      .expect(200);
+    runIds.push(res.body.id);
+    await request(app.getHttpServer())
+      .post(`/agent/runs/${res.body.id}/cancel`)
+      .expect(409);
+  }, 60_000);
+
+  it('GET /agent/runs/:id/stream → SSE text/event-stream, tự đóng', async () => {
+    fake.scriptToolTurns([]);
+    const created = await request(app.getHttpServer())
+      .post('/agent/run')
+      .send({ task: 'Run để test stream.' })
+      .expect(200);
+    runIds.push(created.body.id);
+
+    const sse = await request(app.getHttpServer())
+      .get(`/agent/runs/${created.body.id}/stream`)
+      .buffer(true)
+      .parse((res, cb) => {
+        let data = '';
+        let done = false;
+        const finish = (): void => {
+          if (!done) {
+            done = true;
+            cb(null, data);
+          }
+        };
+        res.setEncoding('utf8');
+        res.on('data', (c: string) => (data += c));
+        res.on('end', finish);
+        res.on('close', finish);
+      });
+
+    expect(sse.headers['content-type']).toMatch(/text\/event-stream/);
+    expect(String(sse.body)).toMatch(/done|step/);
+  }, 25_000);
 });
