@@ -36,7 +36,7 @@ Agent **kế thừa nguyên** triết lý reliability của service (xem
 | ----- | ------------------------------------------------------------------------------------------------------------------------------------------ | ----------- |
 | 17.0  | Config nhóm `agent` (env.schema/configuration) · `AgentModule` rỗng wired · flag `AGENT_ENABLED=false`                                     | ✅ Xong     |
 | 17.1  | `LLMProvider.chatWithTools` + `supportsNativeToolCalling` + role `'tool'` · impl `BaseLangChainLlmProvider` · `fake-llm` scriptable · test | ✅ Xong — native tool-calling verify LIVE với api.b.ai (deepseek-v4-flash): 4/4 e2e pass |
-| 17.2  | `tool.interface` + `tool-registry` + `calculator` + `current_time`                                                                         | ⬜ Chưa làm |
+| 17.2  | `tool.interface` + `tool-registry` + `calculator` + `current_time`                                                                         | ✅ Xong — `mathjs` hardened; registry validate snake_case/unique/read-only + resolve theo allowlist |
 | 17.3  | `agent-state` + `agent-graph.builder` + `agent.node` + `tool.node` + `budget.guard` + `loop-detector` (chưa verify, trả raw)               | ⬜ Chưa làm |
 | 17.4  | `rag_search` + `graph_query` (bọc service sẵn có)                                                                                          | ⬜ Chưa làm |
 | 17.5  | `finalize.node`: nối grounding + citation + faithfulness · map `RagStatus` · abstain path · mở rộng `Citation.kind`                        | ⬜ Chưa làm |
