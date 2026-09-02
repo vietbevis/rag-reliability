@@ -148,6 +148,25 @@ export interface AppConfig {
       weights: { vector: number; keyword: number; graph: number };
     };
   };
+  /** Agent tool-calling (PHASE 17). Xem docs/architecture/agent-tools.md. */
+  agent: {
+    /** Công tắc tính năng — TẮT thì AgentModule không expose route nào. */
+    enabled: boolean;
+    /** Model ghi đè cho vòng agent; `undefined` → model LLM chính. */
+    model?: string;
+    /** async → BullMQ (cần queue.enabled); sync → chạy trong request. */
+    execution: 'async' | 'sync';
+    /** Trần cứng chống vòng lặp bỏ chạy (PROMPT §52). */
+    limits: {
+      maxSteps: number;
+      maxToolCalls: number;
+      maxWallClockMs: number;
+      maxTotalTokens: number;
+      costBudgetUsd: number;
+      toolResultMaxTokens: number;
+      loopRepeatThreshold: number;
+    };
+  };
 }
 
 /**
@@ -322,6 +341,20 @@ export function loadConfiguration(): AppConfig {
           keyword: env.FUSION_WEIGHT_KEYWORD,
           graph: env.FUSION_WEIGHT_GRAPH,
         },
+      },
+    },
+    agent: {
+      enabled: env.AGENT_ENABLED,
+      model: env.AGENT_MODEL,
+      execution: env.AGENT_EXECUTION,
+      limits: {
+        maxSteps: env.AGENT_MAX_STEPS,
+        maxToolCalls: env.AGENT_MAX_TOOL_CALLS,
+        maxWallClockMs: env.AGENT_MAX_WALL_CLOCK_MS,
+        maxTotalTokens: env.AGENT_MAX_TOTAL_TOKENS,
+        costBudgetUsd: env.AGENT_COST_BUDGET_USD,
+        toolResultMaxTokens: env.AGENT_TOOL_RESULT_MAX_TOKENS,
+        loopRepeatThreshold: env.AGENT_LOOP_REPEAT_THRESHOLD,
       },
     },
   };

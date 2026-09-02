@@ -341,6 +341,48 @@ export const envSchema = z
       .default('auto'),
     RAG_REGENERATE_ON_UNFAITHFUL: boolish(true),
 
+    // ---- Agent tool-calling (PHASE 17) --------------------------------
+    // Công tắc tính năng. TẮT (mặc định) = AgentModule không expose route nào,
+    // phần RAG thuần không bị ảnh hưởng. Xem docs/architecture/agent-tools.md.
+    AGENT_ENABLED: boolish(false),
+    // Trần cứng chống vòng lặp bỏ chạy (PROMPT §52). Vượt bất kỳ trần nào →
+    // agent nhảy thẳng bước finalize (tổng hợp từ evidence đã có / abstain).
+    AGENT_MAX_STEPS: numeric({ int: true, min: 1, max: 50, default: 8 }),
+    AGENT_MAX_TOOL_CALLS: numeric({ int: true, min: 1, max: 100, default: 12 }),
+    AGENT_MAX_WALL_CLOCK_MS: numeric({
+      int: true,
+      min: 1000,
+      max: 600000,
+      default: 120000,
+    }),
+    AGENT_MAX_TOTAL_TOKENS: numeric({
+      int: true,
+      min: 1000,
+      max: 2000000,
+      default: 60000,
+    }),
+    AGENT_COST_BUDGET_USD: numeric({ min: 0, max: 100, default: 0.1 }),
+    // Cắt kết quả tool trước khi đưa lại cho LLM (toàn văn vẫn lưu AgentStep).
+    AGENT_TOOL_RESULT_MAX_TOKENS: numeric({
+      int: true,
+      min: 128,
+      max: 32000,
+      default: 2000,
+    }),
+    // Số lần gọi lặp cùng (toolName + input chuẩn hoá) trước khi loop-detector
+    // chặn tool đó.
+    AGENT_LOOP_REPEAT_THRESHOLD: numeric({
+      int: true,
+      min: 1,
+      max: 10,
+      default: 2,
+    }),
+    // Model riêng cho vòng agent. Để trống → dùng model LLM chính của provider.
+    AGENT_MODEL: z.string().trim().optional(),
+    // async = trả 202 + BullMQ worker (yêu cầu QUEUE_ENABLED); sync = chạy trong
+    // request. Client vẫn có thể ghi đè từng request qua body `execution`.
+    AGENT_EXECUTION: z.enum(['async', 'sync']).default('async'),
+
     // ---- Queue xử lý tài liệu (PHASE 1 — BullMQ + Redis) ----------------
     // BẬT (mặc định): POST /documents trả 202 ngay, worker BullMQ chạy pipeline
     // ingest→chunk→embed→graph nền. TẮT: chạy inline đồng bộ trong request
