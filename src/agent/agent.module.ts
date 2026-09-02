@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AgentGraphBuilder } from './graph/agent-graph.builder';
 import { CalculatorTool } from './tools/builtin/calculator.tool';
 import { CurrentTimeTool } from './tools/builtin/current-time.tool';
 import { AGENT_TOOLS, type AgentTool } from './tools/tool.interface';
@@ -12,7 +13,8 @@ import { ToolRegistryService } from './tools/tool-registry.service';
  * hoặc abstain. Plan chi tiết: `docs/architecture/agent-tools.md`.
  *
  * Tiến độ: 17.0 config + wiring · 17.1 tool-calling ở lớp LLM · 17.2 lớp tool +
- * registry + 2 builtin tool. Graph, RAG tool, persistence, route ở 17.3–17.10.
+ * registry + 2 builtin tool · 17.3 graph vòng lặp agent ⇄ tool + guard.
+ * `finalize` (verify), RAG tool, persistence, route ở 17.4–17.10.
  * Khi `AGENT_ENABLED=false` module này chưa expose route nào.
  */
 @Module({
@@ -25,7 +27,8 @@ import { ToolRegistryService } from './tools/tool-registry.service';
       inject: [CalculatorTool, CurrentTimeTool],
     },
     ToolRegistryService,
+    AgentGraphBuilder,
   ],
-  exports: [ToolRegistryService],
+  exports: [ToolRegistryService, AgentGraphBuilder],
 })
 export class AgentModule {}
