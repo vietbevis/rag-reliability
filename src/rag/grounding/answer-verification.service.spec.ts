@@ -226,6 +226,70 @@ describe('AnswerVerificationService.verifyAnswer', () => {
     expect(res.answer).toBe(ABSTAIN_ANSWER);
     expect(res.claims[0]?.verdict).toBe('UNSUPPORTED');
   });
+
+  const unsupported = {
+    claimId: 'c1',
+    supported: false,
+    verdict: 'UNSUPPORTED' as const,
+    evidenceChunkIds: [],
+    score: 0,
+  };
+  const computeChunk = (content: string): RetrievedChunk => ({
+    chunkId: 'compute:1',
+    documentId: 'computation',
+    content,
+    score: 1,
+    source: 'vector',
+    metadata: {},
+  });
+
+  it('§9.3: claim chứa số có trong chunk → nâng SUPPORTED, KHÔNG abstain', async () => {
+    const avs = makeAvs({
+      claims: [{ id: 'c1', text: 'Tổng doanh thu là 684.500 đồng.' }],
+      evidence: [unsupported],
+      faithClaims: [unsupported],
+      faithGrounded: false,
+    });
+    const res = await avs.verifyAnswer('Tổng doanh thu là 684.500 đồng.', [
+      computeChunk('37*18500 = 684500'),
+    ]);
+
+    expect(res.status).not.toBe('INSUFFICIENT_EVIDENCE');
+    expect(res.claims[0]).toMatchObject({
+      supported: true,
+      verdict: 'SUPPORTED',
+      evidenceChunkIds: ['compute:1'],
+    });
+    expect(res.answer).toContain('684');
+    expect(res.citations.some((c) => c.chunkId === 'compute:1')).toBe(true);
+  });
+
+  it('§9.3 KHÔNG nâng claim CONTRADICTED', async () => {
+    const contra = { ...unsupported, verdict: 'CONTRADICTED' as const };
+    const avs = makeAvs({
+      claims: [{ id: 'c1', text: 'Tổng là 684500 đồng.' }],
+      evidence: [contra],
+      faithClaims: [contra],
+    });
+    const res = await avs.verifyAnswer('Tổng là 684500 đồng.', [
+      computeChunk('684500'),
+    ]);
+    expect(res.status).toBe('CONFLICTING_EVIDENCE');
+    expect(res.claims[0]?.verdict).toBe('CONTRADICTED');
+  });
+
+  it('§9.3 số KHÔNG có trong chunk → vẫn abstain', async () => {
+    const avs = makeAvs({
+      claims: [{ id: 'c1', text: 'Tổng là 999999 đồng.' }],
+      evidence: [unsupported],
+      faithClaims: [unsupported],
+      faithGrounded: false,
+    });
+    const res = await avs.verifyAnswer('Tổng là 999999 đồng.', [
+      computeChunk('684500'),
+    ]);
+    expect(res.status).toBe('INSUFFICIENT_EVIDENCE');
+  });
 });
 
 describe('AnswerVerificationService.synthesizeAndVerify', () => {

@@ -381,6 +381,10 @@ export const envSchema = z
     }),
     // Model riêng cho vòng agent. Để trống → dùng model LLM chính của provider.
     AGENT_MODEL: z.string().trim().optional(),
+    // Ép model gọi tool ở LƯỢT ĐẦU (`tool_choice:'required'`) — chống model OSS
+    // "lười" bỏ qua tool khi task rõ ràng cần (17.10 finding). Provider không
+    // hỗ trợ ⇒ tự bỏ qua.
+    AGENT_FORCE_FIRST_TOOL: boolish(true),
     // async = trả 202 + BullMQ worker (yêu cầu QUEUE_ENABLED); sync = chạy trong
     // request. Client vẫn có thể ghi đè từng request qua body `execution`.
     AGENT_EXECUTION: z.enum(['async', 'sync']).default('async'),

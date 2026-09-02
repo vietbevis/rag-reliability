@@ -67,6 +67,13 @@ export interface LLMOptions {
    * Bỏ trống = theo mặc định của model.
    */
   reasoning?: boolean;
+  /**
+   * Ép model gọi tool ở `chatWithTools` (PHASE 17.11). `'required'` = phải gọi
+   * ít nhất một tool (không được trả lời thẳng) — dùng ở lượt agent đầu tiên để
+   * chống model "lười" bỏ qua tool. `'auto'` (mặc định) = tự quyết. Provider
+   * không hỗ trợ ⇒ tự bỏ qua (best-effort).
+   */
+  toolChoice?: 'auto' | 'required';
   /** Nhãn mờ được truyền vào trace observability. */
   traceLabel?: string;
 }

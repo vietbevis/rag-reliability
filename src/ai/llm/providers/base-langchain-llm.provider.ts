@@ -130,7 +130,8 @@ export abstract class BaseLangChainLlmProvider implements LLMProvider {
     options: LLMOptions = {},
   ): Promise<LLMToolResponse> {
     const model = this.requireModel(options);
-    if (typeof model.bindTools !== 'function') {
+    const bindTools = model.bindTools?.bind(model);
+    if (typeof bindTools !== 'function') {
       throw new LlmError(
         'BAD_REQUEST',
         `${this.provider} model không hỗ trợ tool-calling native`,
@@ -141,26 +142,41 @@ export abstract class BaseLangChainLlmProvider implements LLMProvider {
     const lcMessages = toLangChainMessages(messages);
     // `tool()` chỉ dùng để bind schema — hàm thực thi không bao giờ được gọi ở
     // đây (agent loop tự thực thi tool rồi feed ToolMessage ở lượt sau).
-    const bound = model.bindTools(
-      tools.map((spec) =>
-        lcTool(() => '', {
-          name: spec.name,
-          description: spec.description,
-          schema: spec.parameters,
-        }),
-      ),
-    ) as unknown as {
-      invoke(
-        messages: BaseMessage[],
-        options?: { signal?: AbortSignal },
-      ): Promise<AIMessage>;
-    };
+    const lcTools = tools.map((spec) =>
+      lcTool(() => '', {
+        name: spec.name,
+        description: spec.description,
+        schema: spec.parameters,
+      }),
+    );
+    const bind = (choice?: 'auto' | 'required') =>
+      bindTools(
+        lcTools,
+        choice ? { tool_choice: choice } : undefined,
+      ) as unknown as {
+        invoke(
+          messages: BaseMessage[],
+          options?: { signal?: AbortSignal },
+        ): Promise<AIMessage>;
+      };
     const started = Date.now();
 
     const { value: response } = await withRetry(
-      (signal) => bound.invoke(lcMessages, { signal }),
+      (signal) => bind(options.toolChoice).invoke(lcMessages, { signal }),
       this.retryOpts(options.traceLabel ?? 'llm.tools', options),
-    ).catch((err) => {
+    ).catch(async (err) => {
+      // Model/endpoint không nuốt `tool_choice` (400) ⇒ thử lại KHÔNG ép (§17.11).
+      if (options.toolChoice) {
+        this.logger.warn(
+          `${this.provider} không hỗ trợ tool_choice — thử lại không ép`,
+        );
+        return withRetry(
+          (signal) => bind(undefined).invoke(lcMessages, { signal }),
+          this.retryOpts(options.traceLabel ?? 'llm.tools', options),
+        ).catch((e) => {
+          throw this.wrap(e, 'chatWithTools');
+        });
+      }
       throw this.wrap(err, 'chatWithTools');
     });
 

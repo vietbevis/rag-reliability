@@ -34,12 +34,15 @@ function fakeModel(overrides: Partial<BaseChatModel>): BaseChatModel {
 }
 
 /** Model giả có `bindTools` trả về một Runnable với `invoke` cho trước. */
-function toolModel(invoke: jest.Mock): BaseChatModel {
+function toolModel(
+  invoke: jest.Mock,
+  bindTools = jest.fn().mockReturnValue({ invoke }),
+): BaseChatModel {
   return {
     invoke: jest.fn(),
     stream: jest.fn(),
     withStructuredOutput: jest.fn(),
-    bindTools: jest.fn().mockReturnValue({ invoke }),
+    bindTools,
   } as unknown as BaseChatModel;
 }
 
@@ -265,6 +268,45 @@ describe('BaseLangChainLlmProvider.chatWithTools', () => {
     await expect(
       provider.chatWithTools([{ role: 'user', content: 'x' }], [weatherTool]),
     ).rejects.toBeInstanceOf(LlmError);
+  });
+
+  it('toolChoice="required" → truyền tool_choice vào bindTools', async () => {
+    const invoke = jest
+      .fn()
+      .mockResolvedValue(new AIMessage({ content: 'ok' }));
+    const bindTools = jest.fn().mockReturnValue({ invoke });
+    const provider = new FakeProvider(toolModel(invoke, bindTools));
+
+    await provider.chatWithTools(
+      [{ role: 'user', content: 'x' }],
+      [weatherTool],
+      {
+        toolChoice: 'required',
+      },
+    );
+
+    expect(bindTools).toHaveBeenCalledWith(expect.any(Array), {
+      tool_choice: 'required',
+    });
+  });
+
+  it('endpoint từ chối tool_choice → thử lại KHÔNG ép', async () => {
+    const invoke = jest
+      .fn()
+      .mockRejectedValueOnce({ status: 400 })
+      .mockResolvedValue(new AIMessage({ content: 'ok' }));
+    const bindTools = jest.fn().mockReturnValue({ invoke });
+    const provider = new FakeProvider(toolModel(invoke, bindTools));
+
+    const res = await provider.chatWithTools(
+      [{ role: 'user', content: 'x' }],
+      [weatherTool],
+      { toolChoice: 'required' },
+    );
+
+    expect(res.content).toBe('ok');
+    // lần 2 bind KHÔNG kèm tool_choice
+    expect(bindTools).toHaveBeenLastCalledWith(expect.any(Array), undefined);
   });
 });
 

@@ -15,6 +15,7 @@ import { CitationService } from './citation.service';
 import { ClaimExtractorService } from './claim-extractor.service';
 import { EvidenceMatcherService } from './evidence-matcher.service';
 import { FaithfulnessService } from './faithfulness.service';
+import { chunksBackingNumbers, extractNumbers } from './numeric-provenance';
 
 /** Câu từ chối chuẩn khi không đủ căn cứ (đồng bộ với RagPipelineService). */
 export const ABSTAIN_ANSWER =
@@ -168,6 +169,43 @@ export class AnswerVerificationService {
       };
     });
 
+    // §9.3 numeric-provenance: claim chứa số ĐÃ có trong evidence (chuẩn hoá bỏ
+    // dấu phân cách) ⇒ nâng SUPPORTED — bù cho lexical/NLI trượt định dạng số.
+    // KHÔNG lấn CONTRADICTED.
+    const provCitations: typeof built.citations = [];
+    for (const c of claims) {
+      if (c.supported || c.verdict === 'CONTRADICTED') continue;
+      const claimNums = extractNumbers(c.text);
+      if (claimNums.size === 0) continue;
+      const backing = chunksBackingNumbers(c.text, chunks);
+      const allBacked = [...claimNums].every((n) =>
+        backing.some((id) =>
+          extractNumbers(
+            chunks.find((ch) => ch.chunkId === id)?.content ?? '',
+          ).has(n),
+        ),
+      );
+      if (!allBacked) continue;
+      c.supported = true;
+      c.verdict = 'SUPPORTED';
+      c.evidenceChunkIds = backing.slice(0, 3);
+      for (const chunkId of c.evidenceChunkIds) {
+        const ch = chunks.find((x) => x.chunkId === chunkId);
+        if (ch) {
+          provCitations.push({
+            claimId: c.id,
+            claimText: c.text,
+            kind: 'chunk',
+            documentId: ch.documentId,
+            chunkId: ch.chunkId,
+            page: ch.page,
+            section: ch.section,
+            valid: true,
+          });
+        }
+      }
+    }
+
     let status: RagStatus = initialStatus;
     const hasContradiction = claims.some((c) => c.verdict === 'CONTRADICTED');
     if (hasContradiction || faith.result.rootCause === 'CONFLICTING_CONTEXT') {
@@ -188,7 +226,7 @@ export class AnswerVerificationService {
       answer: status === 'INSUFFICIENT_EVIDENCE' ? ABSTAIN_ANSWER : answer,
       status,
       claims,
-      citations: built.citations,
+      citations: [...built.citations, ...provCitations],
       faithfulness: faith.result,
       usage: addUsage(extraction.usage, faith.usage),
     };

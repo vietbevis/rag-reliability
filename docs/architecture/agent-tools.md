@@ -4,10 +4,10 @@
 > nhận task ngôn ngữ tự nhiên → tự chọn & gọi tool nhiều bước → tổng hợp câu
 > trả lời **grounded + có citation**, hoặc **abstain**.
 >
-> **Trạng thái:** 17.0–17.10 XONG trên nhánh `feat/agent-tool-calling` (13
-> commit, `main` chưa đụng). Còn 17.11 (backlog) + 2 việc phải làm trước
-> production: **§9.3 numeric-provenance** và **fix tool-calling reliability của
-> deepseek-v4-flash** (§18).
+> **Trạng thái:** 17.0–17.10 XONG trên nhánh `feat/agent-tool-calling`. §9.3
+> numeric-provenance + tool-calling reliability (system prompt + `tool_choice`)
+> ĐÃ VÁ (§18). Còn 17.11 (backlog: web_search, write-tool, HITL, checkpointer,
+> fallback `chatStructured`).
 
 ---
 
@@ -307,11 +307,13 @@ chuỗi verify (`verifyAnswer` cho câu agent tự soạn · `synthesizeAndVerif
 `AgentCitation.kind` (chunk/graph/computation) — KHÔNG đụng `CitationKind` gốc
 của RAG.
 
-**Chưa làm — §9.3 numeric-provenance:** claim về số liệu tính được chỉ verify
-qua lexical match + faithfulness LLM; số có dấu phân cách ("684.500" vs
-"684500") làm lexical trượt, LLM thì thận trọng → dễ hạ `INSUFFICIENT_EVIDENCE`
-oan. Cần bước riêng: trích mọi số trong answer, đối chiếu xuất hiện trong
-evidence `computation`. **Ứng viên phải làm trước khi coi agent production-ready.**
+**§9.3 numeric-provenance — ĐÃ LÀM** (`src/rag/grounding/numeric-provenance.ts`):
+`AnswerVerificationService.verifyAnswer` sau khi có verdict từ lexical/NLI, chạy
+1 pass: claim chứa số mà số đó (chuẩn hoá bỏ dấu phân cách — "684.500" ≡
+"684500") xuất hiện trong evidence chunk ⇒ **nâng verdict SUPPORTED** + sinh
+citation. KHÔNG lấn `CONTRADICTED`. Chặn "mọi claim unsupported →
+INSUFFICIENT_EVIDENCE" bắn oan cho câu trả lời số học. Verify LIVE: task
+calculator → `status=GROUNDED` (trước đây flaky INSUFFICIENT).
 
 ---
 
@@ -519,7 +521,7 @@ ESLint, có `.spec.ts`. Thứ tự = bảng §2.
 | Rủi ro                                                       | Giảm thiểu                                                                                                          |
 | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
 | Model local chọn sai tool / sai định dạng args               | format-validity gate (17.10) + fallback JSON; nếu vẫn kém → cân nhắc `AGENT_MODEL` thương mại cho riêng vòng agent. |
-| **deepseek-v4-flash bỏ qua tool** — 17.10 seed eval: task ép "dùng công cụ tính toán" nhưng model vẫn trả lời thẳng, 0 tool call → finalize abstain. Tool-calling native của model này KHÔNG đáng tin cho ép-buộc dùng tool. | **17.11**: (a) system prompt mạnh hơn ("PHẢI gọi tool khi task yêu cầu"); (b) `tool_choice:'required'`/`'auto'` param nếu api.b.ai hỗ trợ; (c) đường fallback `chatStructured` (bắt buộc chọn action); (d) `AGENT_MODEL` khác. Đo lại bằng `evaluate:agent`. |
+| ~~deepseek-v4-flash bỏ qua tool~~ — **ĐÃ GIẢM**: (a) system prompt mạnh hơn ("BẮT BUỘC gọi tool… TUYỆT ĐỐI KHÔNG tự tính nhẩm"); (b) `AGENT_FORCE_FIRST_TOOL` (`tool_choice:'required'` ở lượt đầu, tự fallback nếu endpoint từ chối); (c) §9.3 vá phần abstain oan. Verify LIVE: task calculator → GROUNDED + có tool call. | Còn lại (17.11): đường fallback `chatStructured` khi native vẫn kém; đo `formatValidity` trung bình bằng `evaluate:agent` để quyết. |
 | ~~`reasoning: false` bị api.b.ai từ chối~~ — phát hiện 17.1, **đã fix**: bỏ `reasoning_effort:'none'` khỏi `NO_REASONING_KWARGS`, chỉ còn `enable_thinking:false`. Verify LIVE 5/5 e2e. | ✅ Xong (commit `fix(llm)`). `agent.node` dùng `reasoning:false` an toàn. |
 | Vòng lặp tốn kém âm thầm                                     | `budget.guard` + `loop-detector` + Langfuse cost dashboard + rate limit theo run.                                   |
 | `finalize` verify (nhiều LLM call) làm latency agent cao     | Cho phép tắt từng lớp verify qua request flag như `/rag/query` (`cite`, `faithfulness`); đo p50–p95 ở 17.10.        |

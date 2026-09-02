@@ -155,6 +155,8 @@ export interface AppConfig {
     enabled: boolean;
     /** Model ghi đè cho vòng agent; `undefined` → model LLM chính. */
     model?: string;
+    /** Ép `tool_choice:'required'` ở lượt agent đầu tiên. */
+    forceFirstTool: boolean;
     /** async → BullMQ (cần queue.enabled); sync → chạy trong request. */
     execution: 'async' | 'sync';
     /** Trần cứng chống vòng lặp bỏ chạy (PROMPT §52). */
@@ -355,6 +357,7 @@ export function loadConfiguration(): AppConfig {
     agent: {
       enabled: env.AGENT_ENABLED,
       model: env.AGENT_MODEL,
+      forceFirstTool: env.AGENT_FORCE_FIRST_TOOL,
       execution: env.AGENT_EXECUTION,
       limits: {
         maxSteps: env.AGENT_MAX_STEPS,

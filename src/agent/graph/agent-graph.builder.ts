@@ -135,6 +135,7 @@ export class AgentGraphBuilder {
       llm: this.llm,
       toolSpecs: this.registry.toSpecs(tools),
       model: this.cfg.model,
+      forceFirstTool: this.cfg.forceFirstTool,
       logger: this.logger,
     });
     const toolNode = createToolNode({
