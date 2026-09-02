@@ -38,7 +38,7 @@ Agent **kế thừa nguyên** triết lý reliability của service (xem
 | 17.1  | `LLMProvider.chatWithTools` + `supportsNativeToolCalling` + role `'tool'` · impl `BaseLangChainLlmProvider` · `fake-llm` scriptable · test | ✅ Xong — native tool-calling verify LIVE với api.b.ai (deepseek-v4-flash): 4/4 e2e pass |
 | 17.2  | `tool.interface` + `tool-registry` + `calculator` + `current_time`                                                                         | ✅ Xong — `mathjs` hardened; registry validate snake_case/unique/read-only + resolve theo allowlist |
 | 17.3  | `agent-state` + `agent-graph.builder` + `agent.node` + `tool.node` + `budget.guard` + `loop-detector` (chưa verify, trả raw)               | ✅ Xong — LangGraph StateGraph, vòng `agent ⇄ tool`, guard budget/loop/no-progress; verify LIVE api.b.ai 2/2 e2e |
-| 17.4  | `rag_search` + `graph_query` (bọc service sẵn có)                                                                                          | ⬜ Chưa làm |
+| 17.4  | `rag_search` (bọc `RetrievalService`; param `strategy` gồm cả `graph` — gộp `graph_query` vào)                                             | ✅ Xong — 7 unit test; tool.node cộng dồn cost tool vào usage |
 | 17.5  | `finalize.node`: nối grounding + citation + faithfulness · map `RagStatus` · abstain path · mở rộng `Citation.kind`                        | ⬜ Chưa làm |
 | 17.6  | Prisma `AgentRun` + `AgentStep` + migration · persist trajectory · `AgentService`                                                          | ⬜ Chưa làm |
 | 17.7  | `agent.controller` (sync) + rate limit + DTO + Swagger                                                                                     | ⬜ Chưa làm |
@@ -235,12 +235,11 @@ interface LLMProvider {
 
 ## 7. Bộ tool v1
 
-| Tool           | Bọc gì                                                                               | Ghi chú                                                                                   |
-| -------------- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
-| `rag_search`   | `RetrievalService` (+ optional rerank)                                               | Cốt lõi. Trả **chunk thô** + score + ids → evidence `kind:'chunk'`. Không generate ở đây. |
-| `graph_query`  | `GraphQueryService`                                                                  | Trả entity / quan hệ + `chunkId` nguồn → evidence `kind:'graph'`.                         |
-| `calculator`   | `mathjs` (`math.evaluate`, scope trắng, `import` vô hiệu, giới hạn độ dài biểu thức) | Deterministic, không LLM. Sửa lỗi số học của model.                                       |
-| `current_time` | `Date`                                                                               | Khử phi-xác định cho câu hỏi "gần đây / hôm nay".                                         |
+| Tool           | Bọc gì                                                                               | Ghi chú                                                                                                                                                       |
+| -------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rag_search`   | `RetrievalService`                                                                  | Cốt lõi. Param `strategy` ∈ vector/keyword/graph/hybrid — **`graph` thay cho tool `graph_query` riêng** (retrieval layer đã route). Trả **chunk thô** + score + ids → evidence `kind:'chunk'` (hoặc `'graph'` nếu source=graph). Không generate. Lỗi hạ tầng ⇒ `ok:false` (§54). |
+| `calculator`   | `mathjs` (hardened: bắt ref `evaluate` trước khi vô hiệu `import`/`createUnit`/…)    | Deterministic, không LLM. Sửa lỗi số học của model.                                                                                                        |
+| `current_time` | `Date` + `Intl`                                                                     | Khử phi-xác định cho câu hỏi "gần đây / hôm nay".                                                                                                          |
 
 Không vào v1: tool ghi DB, HTTP tùy ý, `web_search`, code execution.
 

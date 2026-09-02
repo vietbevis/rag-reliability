@@ -38,6 +38,7 @@ export function createToolNode(deps: ToolNodeDeps) {
     const steps: AgentStepRecord[] = [];
     const evidence: ToolEvidence[] = [];
     const invocations: Record<string, number> = {};
+    const usage = { inputTokens: 0, outputTokens: 0, estimatedCost: 0 };
 
     for (let i = 0; i < calls.length; i++) {
       const call = calls[i]!;
@@ -77,8 +78,19 @@ export function createToolNode(deps: ToolNodeDeps) {
         error: result.ok ? undefined : result.error,
         latencyMs: result.latencyMs,
         note: loop.blocked ? 'bị loop-detector chặn' : undefined,
+        tokens: result.usage
+          ? {
+              inputTokens: result.usage.inputTokens,
+              outputTokens: result.usage.outputTokens,
+            }
+          : undefined,
       });
       evidence.push(...result.evidence);
+      if (result.usage) {
+        usage.inputTokens += result.usage.inputTokens;
+        usage.outputTokens += result.usage.outputTokens;
+        usage.estimatedCost += result.usage.estimatedCost;
+      }
     }
 
     const gotNewEvidence = evidence.length > 0;
@@ -86,6 +98,7 @@ export function createToolNode(deps: ToolNodeDeps) {
       messages,
       steps,
       evidence,
+      usage,
       toolInvocations: invocations,
       noProgressStreak: gotNewEvidence ? 0 : state.noProgressStreak + 1,
     };
