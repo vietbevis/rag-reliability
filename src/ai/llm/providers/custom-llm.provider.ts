@@ -9,15 +9,14 @@ import { BaseLangChainLlmProvider } from './base-langchain-llm.provider';
 
 /**
  * Tham số body gửi kèm để TẮT chế độ "thinking"/reasoning. Endpoint OpenAI-
- * compatible nào không hiểu key nào sẽ bỏ qua key đó; gửi nhiều biến thể để phủ
- * các họ model (OpenAI, Qwen3, DeepSeek, GLM, Gemini, Claude qua proxy).
+ * compatible nào không hiểu key nào sẽ bỏ qua key đó.
+ *
+ * LỊCH SỬ: từng gửi `reasoning_effort:'none'` — api.b.ai (2026-09) đã đổi, giờ
+ * validate chặt và chỉ nhận `low|medium|high|xhigh|max`, gửi `'none'` ⇒ HTTP
+ * 400. Bỏ hẳn key này; `enable_thinking:false` (vLLM/SGLang/DeepSeek) đủ để tắt
+ * thinking cho các model đang dùng và không bị endpoint nào từ chối.
  */
 const NO_REASONING_KWARGS: Record<string, unknown> = {
-  // OpenAI (gpt-5.1+), Gemini, DeepSeek, GLM, và hầu hết proxy (api.b.ai) map
-  // key này. Đã kiểm chứng với api.b.ai: `reasoning_effort:"none"` ⇒ 0 reasoning
-  // token, không còn xung đột `tool_choice` + thinking.
-  reasoning_effort: 'none',
-  // vLLM / SGLang phục vụ Qwen3 tự host — proxy không hiểu thì bỏ qua.
   enable_thinking: false,
 };
 

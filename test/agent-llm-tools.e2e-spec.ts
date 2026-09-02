@@ -50,6 +50,16 @@ const weatherTool: ToolSpec = {
       expect(provider.supportsNativeToolCalling()).toBe(true);
     });
 
+    it('reasoning:false không còn bị api.b.ai từ chối (regression)', async () => {
+      // NO_REASONING_KWARGS đã bỏ reasoning_effort:'none' — chỉ còn
+      // enable_thinking:false. Trước đây gửi 'none' ⇒ HTTP 400.
+      const res = await provider.chat(
+        [{ role: 'user', content: '2 cộng 2 bằng mấy? Trả lời ngắn gọn.' }],
+        { reasoning: false, timeoutMs: 30_000 },
+      );
+      expect(res.content).toMatch(/4|bốn/i);
+    }, 45_000);
+
     it('trả về tool_call hợp lệ khi câu hỏi cần tool', async () => {
       const res = await provider.chatWithTools(
         [{ role: 'user', content: 'Thời tiết ở Hà Nội hôm nay thế nào?' }],

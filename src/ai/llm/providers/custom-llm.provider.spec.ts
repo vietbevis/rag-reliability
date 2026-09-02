@@ -28,17 +28,17 @@ describe('CustomLlmProvider — tắt reasoning', () => {
     (probe.peek(o)?.modelKwargs ?? {}) as Record<string, unknown>;
 
   it('mặc định KHÔNG có tham số tắt thinking', () => {
-    expect(kwargs({})).not.toHaveProperty('reasoning_effort');
+    expect(kwargs({})).not.toHaveProperty('enable_thinking');
   });
 
-  it('reasoning:false → gửi kèm reasoning_effort/enable_thinking', () => {
-    expect(kwargs({ reasoning: false })).toMatchObject({
-      reasoning_effort: 'none',
-      enable_thinking: false,
-    });
+  it('reasoning:false → gửi enable_thinking:false, KHÔNG gửi reasoning_effort', () => {
+    const k = kwargs({ reasoning: false });
+    expect(k).toMatchObject({ enable_thinking: false });
+    // api.b.ai (2026-09) từ chối reasoning_effort:'none' — không được gửi lại.
+    expect(k).not.toHaveProperty('reasoning_effort');
   });
 
   it('reasoning:true → không có tham số tắt thinking', () => {
-    expect(kwargs({ reasoning: true })).not.toHaveProperty('reasoning_effort');
+    expect(kwargs({ reasoning: true })).not.toHaveProperty('enable_thinking');
   });
 });
