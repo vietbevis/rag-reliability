@@ -2,8 +2,27 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { DocumentsService } from '../../documents/documents.service';
 import { sha256 } from '../../common/utils';
-import { DocumentStatus } from '../../generated/prisma/client';
+import { DocumentStatus, Prisma } from '../../generated/prisma/client';
 import type { CorpusDoc, EvalCase } from './case.schema';
+
+/** Gom các field mở rộng của case vào một object JSON để lưu `EvaluationCase.metadata`. */
+function caseMetadata(c: EvalCase): Prisma.InputJsonValue {
+  return {
+    category: c.category ?? null,
+    difficulty: c.difficulty,
+    reasoningSteps: c.reasoningSteps,
+    language: c.language,
+    negativeType: c.negativeType,
+    expectedAction: c.expectedAction,
+    shouldAbstain: c.shouldAbstain,
+    acceptableAnswers: c.acceptableAnswers,
+    requiredFacts: c.requiredFacts,
+    forbiddenClaims: c.forbiddenClaims,
+    alternativeDocuments: c.alternativeDocuments,
+    distractorDocuments: c.distractorDocuments,
+    ...c.metadata,
+  };
+}
 
 export interface SeedResult {
   datasetId: string;
@@ -40,6 +59,9 @@ export class DatasetSeedService {
     });
 
     for (const c of cases) {
+      // Field mở rộng (category/difficulty/requiredFacts/…) lưu vào cột
+      // `metadata` JSON — không cần migration (xem case.schema.ts).
+      const metadata = caseMetadata(c);
       await this.prisma.evaluationCase.upsert({
         where: {
           datasetId_externalId: { datasetId: dataset.id, externalId: c.id },
@@ -53,6 +75,7 @@ export class DatasetSeedService {
           expectedAnswer: c.expectedAnswer,
           expectedDocuments: c.expectedDocuments,
           expectedChunks: c.expectedChunks,
+          metadata,
         },
         update: {
           type: c.type,
@@ -61,6 +84,7 @@ export class DatasetSeedService {
           expectedAnswer: c.expectedAnswer,
           expectedDocuments: c.expectedDocuments,
           expectedChunks: c.expectedChunks,
+          metadata,
         },
       });
     }

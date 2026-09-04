@@ -69,3 +69,6 @@ benchmarks/agent/results/latest.json
 benchmarks/agent/results/diff.json
 
 benchmarks/agent/thresholds.suggested.json
+
+# Embedding benchmark: kết quả sinh mỗi lần chạy evaluate:embeddings
+benchmarks/embedding/results/*.json

@@ -365,35 +365,49 @@ cross-provider · mcp-workflow. Chi tiết: [`docs/benchmark/README.md`](docs/be
 
 ## Đánh giá & benchmark
 
-RAG golden dataset: [`evaluation/datasets/*.jsonl`](evaluation/datasets/) —
-**111 case** / 5 file, mỗi case tự mang corpus.
+RAG / Agent golden dataset: [`evaluation/datasets/*.jsonl`](evaluation/datasets/)
+— **210 case / 13 file**, 39 tài liệu corpus, mỗi case tự mang corpus. Thiết kế
+để **tách lỗi theo tầng** (embedding → retriever → reranker → generation →
+hallucination → agent routing). Chi tiết: [`docs/evaluation-dataset.md`](docs/evaluation-dataset.md).
 
 ```bash
-npm run eval:datasets:gen             # sinh lại dataset JSONL
+npm run dataset:generate             # sinh lại dataset JSONL (generator gốc + extended)
+npm run dataset:validate             # schema Zod + bất biến chất lượng (CI gate)
+npm run dataset:stats                # phân bố category / difficulty / language / negative
 
-npm run evaluate:retrieval            # chỉ retrieval metrics (nhanh, KHÔNG LLM)
-npm run evaluate -- --baseline        # đầy đủ, chốt mốc
-npm run evaluate                      # so baseline, exit ≠ 0 nếu regression
-npm run evaluate -- answerable multi-hop --label=exp-e5
+npm run evaluate:retrieval           # chỉ retrieval metrics (nhanh, KHÔNG LLM)
+npm run evaluate -- --baseline       # đầy đủ, chốt mốc
+npm run evaluate                     # so baseline, exit ≠ 0 nếu regression
+npm run evaluate -- golden semantic --label=exp-e5
+npm run evaluate:embeddings          # ma trận đa embedding model (E5 vs Gemini vs …)
 
 # Benchmark before/after (REST)
-curl -XPOST localhost:3000/evaluation/benchmark-rerank    -d '{"datasetName":"answerable"}'
-curl -XPOST localhost:3000/evaluation/benchmark-strategies -d '{"datasetName":"answerable"}'
-curl -XPOST localhost:3000/evaluation/experiments/exp-003/run -d '{"datasetName":"answerable"}'
+curl -XPOST localhost:3000/evaluation/benchmark-strategies -d '{"datasetName":"golden"}'
+curl -XPOST localhost:3000/evaluation/experiments/exp-003/run -d '{"datasetName":"golden"}'
 ```
 
-| File | Case | Loại |
+| File | Case | Đo lỗi tầng nào |
 | --- | ---: | --- |
-| `answerable.jsonl` | 57 | DIRECT_RETRIEVAL, SEMANTIC_QUERY, EXACT_IDENTIFIER |
-| `multi-hop.jsonl` | 18 | MULTI_HOP |
-| `unanswerable.jsonl` | 15 | ngoài phạm vi (mục tiêu: abstain) |
+| `answerable.jsonl` | 57 | retrieval cơ bản + generation |
+| `semantic.jsonl` | 12 | **embedding** — paraphrase + keyword mismatch |
+| `numerical.jsonl` | 15 | số / port / version / ngày + temporal reasoning |
+| `multi-hop.jsonl` | 18 | nối 2+ chunk |
+| `cross-document.jsonl` | 7 | ghép ≥ 3 tài liệu |
+| `conflicting.jsonl` | 6 | tài liệu mâu thuẫn / version-aware |
+| `unanswerable.jsonl` | 15 | abstention (ngoài phạm vi) |
 | `adversarial.jsonl` | 15 | tiền đề sai / số bịa |
-| `conflicting.jsonl` | 6 | hai văn bản mâu thuẫn |
+| `entity-disambiguation.jsonl` | 8 | thực thể tên gần giống |
+| `distractor.jsonl` | 10 | tài liệu nhiễu gần đúng + long-context |
+| `vietnamese-robustness.jsonl` | 12 | typo / thiếu dấu / trộn Anh-Việt / khẩu ngữ |
+| `agent-routing.jsonl` | 12 | RAG vs tool vs rag_and_tool |
+| `golden.jsonl` | 23 | regression suite chất lượng cao |
 
 Chỉ số: retrieval (`recallAt5`, `mrr`, `ndcgAt5`, `contextPrecision/Recall`),
-generation (`abstentionAccuracy`, `answerCorrectness`, `citationAccuracy`,
-`faithfulness`, `claimLevelHallucinationRate`), thống kê (`passRate` + CI 95%
-bootstrap có seed). Định nghĩa: [`docs/evaluation/metrics.md`](docs/evaluation/metrics.md).
+generation (`abstentionAccuracy`, `answerCorrectness`, `requiredFactRecall`,
+`forbiddenClaimRate`, `citationAccuracy`, `faithfulness`,
+`claimLevelHallucinationRate`), thống kê (`passRate` + CI 95% bootstrap có
+seed). Định nghĩa: [`docs/evaluation/metrics.md`](docs/evaluation/metrics.md) ·
+[`docs/evaluation-dataset.md`](docs/evaluation-dataset.md).
 
 ---
 
@@ -520,8 +534,10 @@ src/
 └── health/
 
 prisma/migrations/     13 migration (mới nhất: phase18_agent_platform)
-evaluation/datasets/   golden dataset RAG *.jsonl (111 case)
+evaluation/datasets/   golden dataset RAG/agent *.jsonl (210 case / 13 file)
+evaluation/embedding-matrix.json   ma trận benchmark đa embedding model
 benchmarks/agent/      datasets/ (24 case) · results/{baseline,thresholds}.json
+benchmarks/embedding/  kết quả evaluate:embeddings
 scripts/               gen-eval-datasets.mjs · gen-agent-benchmark.mjs
 docs/                  xem docs/README.md
 ```

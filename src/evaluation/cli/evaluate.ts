@@ -2,6 +2,11 @@ import 'dotenv/config';
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../app.module';
+
+// CLI không có BullMQ worker chạy nền → ingest corpus phải chạy INLINE, nếu
+// không tài liệu kẹt ở QUEUED và mọi số liệu retrieval = 0 (§31). Giống
+// `benchmark/cli/run-benchmark.ts`.
+process.env.QUEUE_ENABLED = 'false';
 import { BenchmarkService } from '../benchmark.service';
 import { DatasetLoaderService } from '../datasets/dataset-loader.service';
 import { EvaluationService, type EvalMode } from '../evaluation.service';

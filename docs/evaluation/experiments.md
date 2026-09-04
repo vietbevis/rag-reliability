@@ -47,12 +47,21 @@
 
 ## Golden dataset (PROMPT §31, §32)
 
-Thư mục `evaluation/datasets/`:
-- `answerable.jsonl`: Câu hỏi có câu trả lời trực tiếp hoặc diễn đạt tương đương.
-- `unanswerable.jsonl`: Câu hỏi ngoài phạm vi tri thức (kiểm tra abstention).
-- `adversarial.jsonl`: Câu hỏi bẫy, cố ý thúc ép mô hình sinh hallucination.
-- `multi-hop.jsonl`: Câu hỏi đòi hỏi tổng hợp thông tin từ nhiều tài liệu/thực thể.
-- `conflicting.jsonl`: Câu hỏi có tài liệu mâu thuẫn trực tiếp (kiểm tra `CONFLICTING_EVIDENCE`).
+Thư mục `evaluation/datasets/` — **210 case / 13 file** (PHASE 19). Xem đầy đủ
+schema, category, metrics, benchmark methodology và cách thêm case ở
+[`docs/evaluation-dataset.md`](../evaluation-dataset.md).
 
-Bao gồm trọn vẹn 7 loại case: `DIRECT_RETRIEVAL` (Type A), `MULTI_HOP` (Type B), `UNANSWERABLE` (Type C), `ADVERSARIAL` (Type D), `CONFLICTING_SOURCES` (Type E), `EXACT_IDENTIFIER` (Type F), `SEMANTIC_QUERY` (Type G).
+- `answerable.jsonl` · `semantic.jsonl` (paraphrase + keyword mismatch —
+  benchmark embedding) · `numerical.jsonl` (số/port/version + temporal)
+- `multi-hop.jsonl` · `cross-document.jsonl` (ghép ≥ 3 tài liệu) ·
+  `conflicting.jsonl` (tài liệu mâu thuẫn)
+- `unanswerable.jsonl` · `adversarial.jsonl` (tiền đề sai) ·
+  `entity-disambiguation.jsonl` (thực thể tên gần giống)
+- `distractor.jsonl` (nhiễu gần đúng + long-context) ·
+  `vietnamese-robustness.jsonl` (typo / thiếu dấu / trộn Anh-Việt / khẩu ngữ)
+- `agent-routing.jsonl` (RAG vs tool vs rag_and_tool) · `golden.jsonl`
+  (regression suite ~23 case)
+
+Bao gồm trọn vẹn 7 `type` (enum DB) + 15 `category` mịn. `npm run dataset:validate`
+gate CI; `npm run dataset:stats` in phân bố.
 

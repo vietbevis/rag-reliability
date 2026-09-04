@@ -3,6 +3,9 @@ import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../app.module';
 import { EvaluationService } from '../evaluation.service';
+
+// Ingest corpus phải chạy inline trong CLI (không có BullMQ worker).
+process.env.QUEUE_ENABLED = 'false';
 import {
   ExperimentRunnerService,
   STANDARD_EXPERIMENTS,

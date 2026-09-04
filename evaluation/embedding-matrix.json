@@ -1,0 +1,47 @@
+{
+  "_note": [
+    "Ma trận benchmark đa embedding model (PROMPT §16, §25). Chạy:",
+    "  npm run evaluate:embeddings                 # tất cả entry, dataset mặc định",
+    "  npm run evaluate:embeddings -- semantic golden   # chỉ định dataset",
+    "Mỗi entry: đặt env → TRUNCATE Embedding → re-embed corpus → evaluate:retrieval.",
+    "RÀNG BUỘC: cột pgvector cố định 1024 chiều (migration phase14). Model khác",
+    "1024 chiều cần migration riêng / DB riêng — xem docs/evaluation-dataset.md §12.",
+    "Entry bị thiếu API key/URL sẽ được BỎ QUA (in cảnh báo), không làm hỏng run."
+  ],
+  "datasets": ["golden", "semantic", "numerical", "entity-disambiguation", "distractor"],
+  "entries": [
+    {
+      "label": "e5-large-local",
+      "description": "intfloat/multilingual-e5-large qua Ollama/TEI (OpenAI-compatible)",
+      "env": {
+        "EMBEDDING_PROVIDER": "custom",
+        "CUSTOM_EMBEDDING_MODEL": "zylonai/multilingual-e5-large",
+        "EMBEDDING_DIMENSION": "1024",
+        "EMBEDDING_QUERY_PREFIX": "query: ",
+        "EMBEDDING_PASSAGE_PREFIX": "passage: "
+      }
+    },
+    {
+      "label": "gemini-embedding-001",
+      "description": "Google Gemini embedding, cắt Matryoshka về 1024 chiều",
+      "env": {
+        "EMBEDDING_PROVIDER": "gemini",
+        "GEMINI_EMBEDDING_MODEL": "gemini-embedding-001",
+        "EMBEDDING_DIMENSION": "1024",
+        "EMBEDDING_QUERY_PREFIX": "",
+        "EMBEDDING_PASSAGE_PREFIX": ""
+      }
+    },
+    {
+      "label": "openai-3-large-1024",
+      "description": "OpenAI text-embedding-3-large, dimensions=1024",
+      "env": {
+        "EMBEDDING_PROVIDER": "openai",
+        "OPENAI_EMBEDDING_MODEL": "text-embedding-3-large",
+        "EMBEDDING_DIMENSION": "1024",
+        "EMBEDDING_QUERY_PREFIX": "",
+        "EMBEDDING_PASSAGE_PREFIX": ""
+      }
+    }
+  ]
+}

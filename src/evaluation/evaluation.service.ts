@@ -33,6 +33,7 @@ import {
   type CaseOutcome,
 } from './metrics/generation-metrics';
 import { AnswerJudgeService } from './metrics/answer-judge.service';
+import { forbiddenClaimRate, requiredFactRecall } from './metrics/fact-metrics';
 import { bootstrapCI } from './metrics/statistics';
 import type { RetrievalStrategy } from '../rag/retrieval/retrieval.service';
 
@@ -582,10 +583,16 @@ export class EvaluationService {
     let citationValid: number | null = null;
     let faithScore: number | null = null;
     let claimHallucination: number | null = null;
+    let factRecall: number | null = null;
+    let forbiddenRate: number | null = null;
 
     if (!retrievalOnly) {
       const j = await this.judge.judge(c.question, c.expectedAnswer, answer);
       answerCorrectness = j?.score ?? null;
+
+      // Kiểm tra tất định requiredFacts / forbiddenClaims (PROMPT §11-12).
+      factRecall = requiredFactRecall(answer, c.requiredFacts);
+      forbiddenRate = forbiddenClaimRate(answer, c.forbiddenClaims);
 
       const goldDocIds = expected
         .map((s) => ctx.sourceToDocId.get(s))
@@ -633,6 +640,8 @@ export class EvaluationService {
       citationValidRate: citationValid,
       faithfulness: faithScore,
       claimLevelHallucinationRate: claimHallucination,
+      requiredFactRecall: factRecall,
+      forbiddenClaimRate: forbiddenRate,
       latencyMs,
       estimatedCost,
     } as Prisma.InputJsonValue;
@@ -664,6 +673,8 @@ export class EvaluationService {
       citationValidRate: citationValid,
       faithfulness: faithScore,
       claimLevelHallucinationRate: claimHallucination,
+      requiredFactRecall: factRecall,
+      forbiddenClaimRate: forbiddenRate,
       latencyMs,
       estimatedCost,
       model,
@@ -774,6 +785,12 @@ export class EvaluationService {
       claimLevelHallucinationRate: meanIgnoringNull(
         outcomes.map((o) => o.claimLevelHallucinationRate),
       ),
+      requiredFactRecall: meanIgnoringNull(
+        answerable.map((o) => o.requiredFactRecall),
+      ),
+      forbiddenClaimRate: meanIgnoringNull(
+        outcomes.map((o) => o.forbiddenClaimRate),
+      ),
       hallucinationRateProxy: generated.length
         ? hallucinationRateProxy(caseOutcomes)
         : null,
@@ -804,6 +821,8 @@ interface PerCase {
   citationValidRate: number | null;
   faithfulness: number | null;
   claimLevelHallucinationRate: number | null;
+  requiredFactRecall: number | null;
+  forbiddenClaimRate: number | null;
   latencyMs: number;
   estimatedCost: number;
   model: string | null;
