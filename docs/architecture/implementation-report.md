@@ -44,6 +44,8 @@ SDK, không import Langfuse, không import benchmark. Thêm 1 tool / 1 MCP serve
 | `src/benchmark/` | case schema (15 category), mock env (canned rag + mock MCP), runner, `regression.ts`, dataset-loader, CLI |
 | `src/replay/` | `ReplayToolProvider` (dry-run/recorded/live-read) + `ReplayService` |
 | `src/cli/agent-cli.ts` | `run` / `tools` / `providers` / `replay` |
+| `src/ai/llm/providers/base-langchain-llm.provider.ts` | `chatStructured` 2 tầng: `withStructuredOutput` → fallback decode thủ công (`extractJsonObject` gỡ ```json fence) khi model bọc markdown (glm-5.3-flash) hoặc parsed sai schema |
+| `src/rag/grounding/grounding-resolution.ts` | LÕI verify dùng chung `AnswerVerificationService` ↔ `RagPipelineService`: `applyNumericProvenance` (§9.3) + `resolveGroundedStatus`. numeric-provenance nay áp cho `/rag/query` |
 | Prisma | migration `phase18`: `AgentRun.failureClass`/`failureDetail`, `AgentStep.providerId` |
 | config | nhóm `mcp` (`MCP_ENABLED`, `MCP_SERVERS` JSON, timeout, retries), `AGENT_TOOL_FAILURE_THRESHOLD` |
 
@@ -202,20 +204,24 @@ hoạt động (fake có script).
 
 ## 15. Known limitations
 
-- **Fallback `chatStructured`** đã impl nhưng chưa verify LIVE với provider
-  không hỗ trợ native tool-calling (backend hiện tại có hỗ trợ).
-- **HITL / write-tool**: risk gate từ chối high-risk tool thay vì hỏi người dùng
-  (nhánh `/approve` là backlog — PROMPT §14).
-- **Baseline benchmark**: chưa chốt (cần chạy với model thật).
-- **Replay** với run có LLM khác model gốc: kết quả replay phụ thuộc LLM hiện
-  tại (đúng bản chất regression-theo-trace, nhưng answer diff có thể do model).
-- **`RagPipelineService`** (`/rag/query`) vẫn có đường verify riêng — chưa hợp
-  nhất với `AnswerVerificationService` (nợ từ PHASE 17, cố ý hoãn).
+- **Fallback `chatStructured`**: ĐÃ verify deterministic
+  (`fake-llm.setNativeToolCalling(false)` + `scriptStructured` → 2 test trong
+  `agent-graph.builder.spec`). Backend b.ai hỗ trợ native ⇒ đường chính vẫn là
+  `chatWithTools`. `chatStructured` cũng đã 2 tầng (gỡ ```json fence) cho glm.
+- **HITL / write-tool**: risk gate **từ chối** high-risk tool
+  (`PERMISSION_DENIED`) — chấp nhận cho v1 read-only. Luồng `/approve` +
+  `PENDING_APPROVAL` là backlog khi có write-tool (PROMPT §14).
+- **`RagPipelineService`**: đã hợp nhất **phần thực sự chung** với
+  `AnswerVerificationService` qua `grounding-resolution.ts` (numeric-provenance +
+  map status). KHÔNG merge toàn bộ: `/rag/query` khớp evidence theo
+  citation-marker của generator + tối ưu `gen.claims` — merge hết sẽ degrade RAG
+  (thêm LLM call, mất tín hiệu citation-marker).
+- **Replay** với run có LLM khác model gốc: answer diff có thể do model (đúng
+  bản chất regression-theo-trace).
 - **MCP schema adapter**: subset JSON Schema (string/number/int/bool/array/
-  object/enum/anyOf). Schema MCP phức tạp hơn (allOf, $ref) → `z.unknown()`.
-- **Layout**: một số module đích trong `target-state.md §14` (vd tách
-  `src/evaluation/rag/` vs `src/evaluation/agent/`) mới làm phần agent — phần
-  RAG giữ nguyên vị trí để không đụng test.
+  object/enum/anyOf). allOf/$ref → `z.unknown()`.
+- **Layout**: `src/evaluation/agent/` mới; phần RAG (`src/evaluation/*`) giữ
+  nguyên vị trí để không đụng test.
 
 ## 16. How to add a new Local Tool
 
