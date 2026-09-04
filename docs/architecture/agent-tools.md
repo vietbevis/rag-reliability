@@ -1,5 +1,18 @@
 # Tool Calling & Agent Orchestration (PHASE 17)
 
+> **⚠️ PHASE 18 — Agent Reliability Platform** đã refactor lớp tool thành
+> **Tool Provider architecture** (Local / MCP / Future). Tài liệu này giữ để
+> tham chiếu quyết định PHASE 17; kiến trúc hiện hành xem:
+> - `current-state.md` (audit) · `target-state.md` (đích) ·
+>   `implementation-report.md` (những gì đã làm)
+> - `../tools/README.md` · `../mcp/README.md` · `../benchmark/README.md`
+>
+> Thay đổi chính so với dưới đây: `AgentTool` = `{ definition, execute }` (id
+> có namespace `rag.search`); tool đến từ `ToolProvider` chứ không phải mảng DI;
+> `ToolResult.error` là object `{ code, retryable }`; observability qua `Tracer`
+> interface; có evaluator framework + agent benchmark + replay + failure taxonomy.
+
+
 > Mở rộng RAG pipeline một chiều thành một **agent read-first, có kiểm soát**:
 > nhận task ngôn ngữ tự nhiên → tự chọn & gọi tool nhiều bước → tổng hợp câu
 > trả lời **grounded + có citation**, hoặc **abstain**.
