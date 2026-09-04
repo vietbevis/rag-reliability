@@ -1,0 +1,3 @@
+{
+  "note": "Chốt baseline: npm run benchmark:agent -- --baseline (với LLM tool-calling thật)"
+}

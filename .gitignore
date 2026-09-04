@@ -63,3 +63,7 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 # promptfoo agent eval output
 evaluation/agent/results.json
 .promptfoo/
+
+# Agent benchmark: latest/diff sinh mỗi lần chạy; baseline commit thủ công
+benchmarks/agent/results/latest.json
+benchmarks/agent/results/diff.json
