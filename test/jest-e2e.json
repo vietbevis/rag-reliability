@@ -15,7 +15,8 @@
         "useESM": true,
         "tsconfig": {
           "module": "esnext",
-          "moduleResolution": "bundler"
+          "moduleResolution": "bundler",
+          "resolvePackageJsonExports": false
         }
       }
     ]
