@@ -30,6 +30,10 @@
     "evaluate:retrieval": "nest build && node dist/evaluation/cli/evaluate.js --retrieval",
     "evaluate:experiment": "nest build && node dist/evaluation/cli/experiment.js",
     "evaluate:agent": "nest build && promptfoo eval -c evaluation/agent/promptfooconfig.yaml",
+    "benchmark:agent": "nest build && node dist/benchmark/cli/run-benchmark.js",
+    "benchmark:agent:gen": "node scripts/gen-agent-benchmark.mjs",
+    "agent:cli": "nest build && node dist/cli/agent-cli.js",
+    "replay": "nest build && node dist/cli/agent-cli.js replay",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down"
   },

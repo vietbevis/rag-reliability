@@ -2,6 +2,9 @@ import { Module } from '@nestjs/common';
 import { APP_FILTER } from '@nestjs/core';
 import { AgentModule } from './agent/agent.module';
 import { AiModule } from './ai/ai.module';
+import { BenchmarkModule } from './benchmark/benchmark.module';
+import { ObservabilityModule } from './observability/observability.module';
+import { ReplayModule } from './replay/replay.module';
 import { AllExceptionsFilter } from './common/errors';
 import { ConfigModule } from './config/config.module';
 import { DatabaseModule } from './database/database.module';
@@ -36,7 +39,10 @@ import { RagModule } from './rag/rag.module';
     EvaluationModule,
     HealthModule,
     ConsoleModule,
+    ObservabilityModule,
     AgentModule,
+    BenchmarkModule,
+    ReplayModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: AllExceptionsFilter }],
 })
