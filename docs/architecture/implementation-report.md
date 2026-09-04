@@ -44,6 +44,7 @@ SDK, không import Langfuse, không import benchmark. Thêm 1 tool / 1 MCP serve
 | `src/benchmark/` | case schema (15 category), mock env (canned rag + mock MCP), runner, `regression.ts`, dataset-loader, CLI |
 | `src/replay/` | `ReplayToolProvider` (dry-run/recorded/live-read) + `ReplayService` |
 | `src/cli/agent-cli.ts` | `run` / `tools` / `providers` / `replay` |
+| HTTP (cho console test) | `GET /agent/tools` (mọi tool + metadata), `GET /agent/providers` (health + collision), `POST /agent/runs/:id/replay` (`ReplayController`). `public/console.html` tab Agent nạp tool động từ `/agent/tools`; card ⑨ có tools/providers/replay + hiển thị `failureClass` |
 | `src/ai/llm/providers/base-langchain-llm.provider.ts` | `chatStructured` 2 tầng: `withStructuredOutput` → fallback decode thủ công (`extractJsonObject` gỡ ```json fence) khi model bọc markdown (glm-5.3-flash) hoặc parsed sai schema |
 | `src/rag/grounding/grounding-resolution.ts` | LÕI verify dùng chung `AnswerVerificationService` ↔ `RagPipelineService`: `applyNumericProvenance` (§9.3) + `resolveGroundedStatus`. numeric-provenance nay áp cho `/rag/query` |
 | Prisma | migration `phase18`: `AgentRun.failureClass`/`failureDetail`, `AgentStep.providerId` |

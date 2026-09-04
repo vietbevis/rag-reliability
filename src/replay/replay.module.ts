@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { AgentModule } from '../agent/agent.module';
 import { RagModule } from '../rag/rag.module';
+import { AgentEnabledGuard } from '../agent/agent-enabled.guard';
+import { ReplayController } from './replay.controller';
 import { ReplayService } from './replay.service';
 
 /**
@@ -9,7 +11,8 @@ import { ReplayService } from './replay.service';
  */
 @Module({
   imports: [AgentModule, RagModule],
-  providers: [ReplayService],
+  controllers: [ReplayController],
+  providers: [ReplayService, AgentEnabledGuard],
   exports: [ReplayService],
 })
 export class ReplayModule {}

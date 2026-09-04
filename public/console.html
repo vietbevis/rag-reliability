@@ -356,8 +356,8 @@
             </div>
             <h1 class="mt-4 text-lg font-semibold">Agent tool-calling</h1>
             <p class="mt-1 text-sm text-soft dark:text-soft-dark">
-              Task → vòng lặp tool (rag_search · calculator · current_time) →
-              finalize verify. Cần <code>AGENT_ENABLED=true</code>.
+              Task → vòng lặp tool (local + MCP) → finalize verify + phân loại
+              lỗi. Cần <code>AGENT_ENABLED=true</code>.
             </p>
             <div
               class="mt-5 flex flex-wrap justify-center gap-2"
@@ -375,32 +375,8 @@
               class="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-soft dark:text-soft-dark"
             >
               <span class="font-medium">tool:</span>
-              <label class="flex items-center gap-1.5"
-                ><input
-                  type="checkbox"
-                  class="aTool accent-brand"
-                  value="rag_search"
-                  checked
-                />
-                rag_search</label
-              >
-              <label class="flex items-center gap-1.5"
-                ><input
-                  type="checkbox"
-                  class="aTool accent-brand"
-                  value="calculator"
-                  checked
-                />
-                calculator</label
-              >
-              <label class="flex items-center gap-1.5"
-                ><input
-                  type="checkbox"
-                  class="aTool accent-brand"
-                  value="current_time"
-                  checked
-                />
-                current_time</label
+              <span id="agentTools" class="flex flex-wrap items-center gap-x-3 gap-y-1"
+                ><span class="text-soft dark:text-soft-dark">đang tải…</span></span
               >
               <label class="flex items-center gap-1.5"
                 >budget $
@@ -629,6 +605,7 @@
         $('#view-api').classList.toggle('hidden', name !== 'api');
         localStorage.setItem('rc.tab', name);
         if (name === 'api' && !$('#app').children.length) buildConsole();
+        if (name === 'agent') loadAgentTools();
       }
       $$('#tabs .tab').forEach((b) =>
         b.addEventListener('click', () => setTab(b.dataset.tab)),
@@ -993,6 +970,55 @@
         s.scrollTop = s.scrollHeight;
       }
 
+      // Nạp tool động từ /agent/tools (local + MCP) — value = canonical id.
+      let agentToolsLoaded = false;
+      async function loadAgentTools() {
+        if (agentToolsLoaded) return;
+        const box = $('#agentTools');
+        const r = await api('GET', '/agent/tools');
+        box.innerHTML = '';
+        if (r.status === 403) {
+          box.append(
+            el(
+              'span',
+              { class: 'text-amber-600 dark:text-amber-400' },
+              'AGENT_ENABLED=false',
+            ),
+          );
+          return;
+        }
+        const tools = (r.data && r.data.tools) || [];
+        if (!tools.length) {
+          box.append(el('span', {}, '(không có tool)'));
+          return;
+        }
+        agentToolsLoaded = true;
+        tools.forEach((t) => {
+          const src =
+            t.source === 'local'
+              ? ''
+              : ` · ${t.providerId}`;
+          box.append(
+            el(
+              'label',
+              {
+                class: 'flex items-center gap-1.5',
+                title: `${t.description}\n[${t.source}${src}] risk=${t.riskLevel} ${t.sideEffect}`,
+              },
+              el('input', {
+                type: 'checkbox',
+                class: 'aTool accent-brand',
+                value: t.id,
+                checked: '',
+              }),
+              t.id +
+                (t.riskLevel === 'high' ? ' ⚠' : '') +
+                src,
+            ),
+          );
+        });
+      }
+
       const STEP_STYLE = {
         THINK: 'bg-line/60 text-soft dark:bg-line-dark/60 dark:text-soft-dark',
         TOOL_CALL:
@@ -1114,6 +1140,13 @@
             chip(
               'stop: ' + d.stopReason,
               'bg-amber-500/15 text-amber-600 dark:text-amber-400',
+            ),
+          );
+        if (d.failureClass)
+          meta.append(
+            chip(
+              'fail: ' + d.failureClass,
+              'bg-red-500/15 text-red-600 dark:text-red-400',
             ),
           );
         if (d.faithfulness && d.faithfulness.score != null)
@@ -2202,13 +2235,25 @@
             },
           ]),
 
-          card('⑨ Agent tool-calling (PHASE 17)', [
+          card('⑨ Agent Reliability Platform (PHASE 17-18)', [
+            {
+              title: 'GET /agent/tools — mọi tool (local + MCP)',
+              method: 'GET',
+              path: '/agent/tools',
+              build: () => ({ path: '/agent/tools' }),
+            },
+            {
+              title: 'GET /agent/providers — health + collision',
+              method: 'GET',
+              path: '/agent/providers',
+              build: () => ({ path: '/agent/providers' }),
+            },
             {
               title: 'POST /agent/run',
               method: 'POST',
               path: '/agent/run',
               button: 'Chạy',
-              hint: 'Cần AGENT_ENABLED=true. sync → 200 + kết quả; async → 202 (cần QUEUE_ENABLED), theo dõi qua /runs/:id. Lưu id vào "gần nhất".',
+              hint: 'Cần AGENT_ENABLED=true. sync → 200 + kết quả; async → 202 (cần QUEUE_ENABLED). toolAllowlist: canonical id (rag.search, calculator.calculate, <provider>.<tool>).',
               fields: [
                 {
                   name: 'task',
@@ -2220,7 +2265,7 @@
                 {
                   name: 'toolAllowlist',
                   type: 'text',
-                  placeholder: 'phẩy, bỏ trống = tất cả',
+                  placeholder: 'vd rag.search,calculator.calculate — bỏ trống = tất cả',
                 },
                 {
                   name: 'costBudgetUsd',
@@ -2284,6 +2329,26 @@
               ],
               build: (c) => ({
                 path: '/agent/runs/' + encodeURIComponent(c.id) + '/cancel',
+              }),
+            },
+            {
+              title: 'Replay run đã ghi (regression theo trace)',
+              method: 'POST',
+              path: '/agent/runs/:id/replay',
+              button: 'Replay',
+              hint: 'recorded = dùng kết quả tool đã ghi · dry-run = không execute · live-read = chạy thật tool read-only. Tool side-effecting KHÔNG blind replay.',
+              fields: [
+                { name: 'id', type: 'text', grow: true, fillLast: 'agent' },
+                {
+                  name: 'mode',
+                  type: 'select',
+                  options: ['recorded', 'dry-run', 'live-read'],
+                  default: 'recorded',
+                },
+              ],
+              build: (c) => ({
+                path: '/agent/runs/' + encodeURIComponent(c.id) + '/replay',
+                body: { mode: c.mode },
               }),
             },
           ]),

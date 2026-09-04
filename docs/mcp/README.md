@@ -63,6 +63,7 @@ Files: `mcp-tool.provider.ts`, `sdk-mcp-client.ts`, `mcp-schema.adapter.ts`
 
 ## Kiểm tra
 
+**CLI:**
 ```
 npm run agent:cli -- providers health
 npm run agent:cli -- tools list --provider actvn-mcp
@@ -70,6 +71,15 @@ npm run agent:cli -- tools inspect actvn-mcp.student_search
 npm run agent:cli -- providers refresh actvn-mcp    # sau khi server đổi tool
 npm run agent:cli -- run "Sinh viên Nguyễn Văn An học lớp nào?"
 ```
+
+**HTTP / console** (`/console` — tab Agent + card ⑨):
+```
+GET  /agent/tools         → mọi tool local + MCP (id, provider, risk, sideEffect)
+GET  /agent/providers     → health từng provider + collision toolId
+POST /agent/run           → { task, toolAllowlist: ["actvn-mcp.student_search"] }
+POST /agent/runs/:id/replay { mode: "recorded" | "dry-run" | "live-read" }
+```
+Tab Agent tự nạp checkbox tool từ `/agent/tools` (kể cả MCP).
 
 ## Chuẩn hoá lỗi (PROMPT §13)
 

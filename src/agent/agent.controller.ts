@@ -14,6 +14,7 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { Response } from 'express';
 import { Observable, interval } from 'rxjs';
+import { ToolRegistryService } from '../tools/registry/tool-registry.service';
 import { AgentEnabledGuard } from './agent-enabled.guard';
 import { AgentService } from './agent.service';
 import { AgentQueueService } from './queue/agent-queue.service';
@@ -21,6 +22,12 @@ import { RunAgentDto } from './dto/run-agent.dto';
 
 const STREAM_POLL_MS = 700;
 const STREAM_MAX_MS = 5 * 60 * 1000;
+
+/** Rút tên field cấp 1 của input schema Zod (best-effort, không throw). */
+function inputShapeKeys(schema: unknown): string[] {
+  const def = (schema as { def?: { shape?: Record<string, unknown> } }).def;
+  return def?.shape ? Object.keys(def.shape) : [];
+}
 
 /**
  * HTTP cho agent (PHASE 17 §11). 17.7 sync · 17.8 async BullMQ + `/cancel` +
@@ -33,7 +40,42 @@ export class AgentController {
   constructor(
     private readonly agent: AgentService,
     private readonly queue: AgentQueueService,
+    private readonly registry: ToolRegistryService,
   ) {}
+
+  @Get('tools')
+  @ApiOperation({
+    summary:
+      'Danh sách tool agent đang thấy (mọi provider — local + MCP). Metadata + ' +
+      'shape input, KHÔNG kèm schema đầy đủ.',
+  })
+  tools() {
+    return {
+      tools: this.registry.list().map((d) => ({
+        id: d.id,
+        displayName: d.displayName,
+        description: d.description,
+        providerId: d.metadata.providerId,
+        source: d.metadata.source,
+        riskLevel: d.metadata.riskLevel,
+        sideEffect: d.metadata.sideEffect,
+        requiresConfirmation: d.metadata.requiresConfirmation,
+        tags: d.metadata.tags ?? [],
+        inputKeys: inputShapeKeys(d.inputSchema),
+      })),
+    };
+  }
+
+  @Get('providers')
+  @ApiOperation({
+    summary: 'Sức khoẻ từng tool provider + collision toolId (nếu có).',
+  })
+  async providers() {
+    return {
+      providers: await this.registry.providersHealth(),
+      collisions: this.registry.knownCollisions(),
+    };
+  }
 
   @Post('run')
   @HttpCode(200)
