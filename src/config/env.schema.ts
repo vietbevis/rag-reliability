@@ -388,6 +388,31 @@ export const envSchema = z
     // async = trả 202 + BullMQ worker (yêu cầu QUEUE_ENABLED); sync = chạy trong
     // request. Client vẫn có thể ghi đè từng request qua body `execution`.
     AGENT_EXECUTION: z.enum(['async', 'sync']).default('async'),
+    // Số lỗi tool RETRYABLE liên tiếp trước khi agent dừng sớm → finalize.
+    AGENT_TOOL_FAILURE_THRESHOLD: numeric({
+      int: true,
+      min: 1,
+      max: 20,
+      default: 4,
+    }),
+
+    // ---- Tool providers: MCP (Agent Reliability Platform) --------------
+    // MCP = một Tool Provider, KHÔNG phải tool-type đặc biệt. Agent Core không
+    // bao giờ biết. TẮT (mặc định) = chỉ LocalToolProvider. Xem
+    // docs/architecture/target-state.md §4, §12.
+    MCP_ENABLED: boolish(false),
+    // JSON mảng cấu hình MCP server. Ví dụ:
+    // [{"id":"actvn-mcp","transport":"streamable-http","url":"https://…",
+    //   "headers":{"Authorization":"Bearer …"},"defaultRiskLevel":"medium"}]
+    // Secrets nên inject qua ${ENV} ở tầng deploy, KHÔNG commit.
+    MCP_SERVERS: z.string().trim().default('[]'),
+    MCP_TOOL_TIMEOUT_MS: numeric({
+      int: true,
+      min: 1000,
+      max: 120000,
+      default: 30000,
+    }),
+    MCP_TOOL_MAX_RETRIES: numeric({ int: true, min: 0, max: 5, default: 1 }),
 
     // ---- Observability: Langfuse (PHASE 17.9) --------------------------
     // Bật ⇒ mỗi agent run được ghi thành 1 trace (span theo step) vào Langfuse
@@ -478,6 +503,26 @@ export const envSchema = z
       );
     }
 
+    // MCP_SERVERS luôn phải là JSON hợp lệ; nội dung bắt buộc chỉ khi bật.
+    const mcp = tryParseMcpServers(env.MCP_SERVERS);
+    if (!mcp.ok) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['MCP_SERVERS'],
+        message: mcp.error,
+      });
+    } else if (
+      env.MCP_ENABLED &&
+      mcp.value.filter((s) => s.enabled).length === 0
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['MCP_SERVERS'],
+        message:
+          'MCP_ENABLED=true nhưng MCP_SERVERS không có server nào enabled',
+      });
+    }
+
     switch (env.LLM_PROVIDER) {
       case 'openai':
         requireKey(
@@ -535,6 +580,74 @@ export const envSchema = z
   });
 
 export type Env = z.infer<typeof envSchema>;
+
+/**
+ * Cấu hình một MCP server (target-state.md §12). MCP là một Tool Provider —
+ * Agent Core không bao giờ thấy shape này.
+ */
+export const mcpServerConfigSchema = z
+  .object({
+    id: z
+      .string()
+      .trim()
+      .min(1)
+      .regex(/^[a-z0-9][a-z0-9-]*$/, 'id phải kebab-case ([a-z0-9-])'),
+    transport: z.enum(['stdio', 'sse', 'streamable-http']),
+    enabled: z.boolean().default(true),
+    command: z.string().trim().optional(),
+    args: z.array(z.string()).optional(),
+    env: z.record(z.string(), z.string()).optional(),
+    url: z.string().url().optional(),
+    headers: z.record(z.string(), z.string()).optional(),
+    defaultRiskLevel: z.enum(['low', 'medium', 'high']).default('medium'),
+  })
+  .superRefine((c, ctx) => {
+    if (c.transport === 'stdio' && !c.command) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `server "${c.id}": stdio cần command`,
+      });
+    }
+    if (c.transport !== 'stdio' && !c.url) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `server "${c.id}": ${c.transport} cần url`,
+      });
+    }
+  });
+
+export type McpServerConfig = z.infer<typeof mcpServerConfigSchema>;
+
+function tryParseMcpServers(
+  json: string,
+): { ok: true; value: McpServerConfig[] } | { ok: false; error: string } {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(json);
+  } catch {
+    return { ok: false, error: 'MCP_SERVERS không phải JSON hợp lệ' };
+  }
+  const parsed = z.array(mcpServerConfigSchema).safeParse(raw);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: parsed.error.issues
+        .map((i) => `${i.path.join('.') || '(gốc)'}: ${i.message}`)
+        .join('; '),
+    };
+  }
+  const ids = parsed.data.map((s) => s.id);
+  if (new Set(ids).size !== ids.length) {
+    return { ok: false, error: 'MCP_SERVERS có id trùng' };
+  }
+  return { ok: true, value: parsed.data };
+}
+
+/** Parse `MCP_SERVERS` đã validate (gọi sau `validateEnv`). */
+export function parseMcpServers(json: string): McpServerConfig[] {
+  const r = tryParseMcpServers(json);
+  return r.ok ? r.value : [];
+}
 
 export class EnvValidationError extends Error {
   constructor(public readonly issues: string[]) {

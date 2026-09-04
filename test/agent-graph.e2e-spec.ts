@@ -2,9 +2,9 @@ import type { LlmService } from '../src/ai/llm/llm.service';
 import { CustomLlmProvider } from '../src/ai/llm/providers/custom-llm.provider';
 import { TokenCounterService } from '../src/ai/tokenizer/token-counter.service';
 import { AgentGraphBuilder } from '../src/agent/graph/agent-graph.builder';
-import { CalculatorTool } from '../src/agent/tools/builtin/calculator.tool';
-import { CurrentTimeTool } from '../src/agent/tools/builtin/current-time.tool';
-import { ToolRegistryService } from '../src/agent/tools/tool-registry.service';
+import { CalculatorTool } from '../src/tools/impl/calculator.tool';
+import { CurrentTimeTool } from '../src/tools/impl/current-time.tool';
+import { makeTestRegistry } from '../src/tools/testing/local-registry';
 import { mockConfigService } from '../src/config/config.mock';
 import type { Neo4jService } from '../src/graph/neo4j.service';
 import { ContextBuilderService } from '../src/rag/context/context-builder.service';
@@ -25,7 +25,7 @@ const RUN =
   !!process.env.CUSTOM_LLM_BASE_URL &&
   !!process.env.CUSTOM_LLM_MODEL;
 
-function buildStack() {
+async function buildStack() {
   const config = mockConfigService(
     {},
     {
@@ -59,10 +59,9 @@ function buildStack() {
     new FaithfulnessService(llm, config),
     config,
   );
-  const registry = new ToolRegistryService([
-    new CalculatorTool(),
-    new CurrentTimeTool(),
-  ]);
+  const registry = await makeTestRegistry({
+    tools: [new CalculatorTool(), new CurrentTimeTool()],
+  });
   return new AgentGraphBuilder(llm, registry, verification, config);
 }
 
@@ -80,7 +79,10 @@ function skipIfRateLimited(err: unknown): void {
 }
 
 (RUN ? describe : describe.skip)('AgentGraphBuilder — LIVE (api.b.ai)', () => {
-  const builder = buildStack();
+  let builder: Awaited<ReturnType<typeof buildStack>>;
+  beforeAll(async () => {
+    builder = await buildStack();
+  });
 
   it('dùng calculator, đi qua finalize verify', async () => {
     let out;

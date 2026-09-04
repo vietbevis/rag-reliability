@@ -3,28 +3,23 @@ import { BullModule } from '@nestjs/bullmq';
 import { ConfigService } from '@nestjs/config';
 import type { AppConfig } from '../config/configuration';
 import { RagModule } from '../rag/rag.module';
+import { ObservabilityModule } from '../observability/observability.module';
+import { ToolsModule } from '../tools/tools.module';
 import { AgentController } from './agent.controller';
 import { AgentEnabledGuard } from './agent-enabled.guard';
 import { AgentService } from './agent.service';
 import { AgentGraphBuilder } from './graph/agent-graph.builder';
-import { LangfuseTracer } from './observability/langfuse.tracer';
 import {
   AGENT_RUN_QUEUE,
   agentQueueEnabled,
 } from './queue/agent-queue.constants';
 import { AgentQueueService } from './queue/agent-queue.service';
 import { AgentRunProcessor } from './queue/agent-run.processor';
-import { CalculatorTool } from './tools/builtin/calculator.tool';
-import { CurrentTimeTool } from './tools/builtin/current-time.tool';
-import { RagSearchTool } from './tools/rag-search.tool';
-import { AGENT_TOOLS, type AgentTool } from './tools/tool.interface';
-import { ToolRegistryService } from './tools/tool-registry.service';
 
 const AGENT_QUEUE_KEY = 'agentQueue';
 const queueOn = agentQueueEnabled();
 
-/** BullMQ chỉ nạp khi `QUEUE_ENABLED` — connection riêng (`configKey`) để không
- * đụng queue xử lý tài liệu. */
+/** BullMQ chỉ nạp khi `QUEUE_ENABLED` — connection riêng (`configKey`). */
 const queueImports = queueOn
   ? [
       BullModule.forRootAsync(AGENT_QUEUE_KEY, {
@@ -51,33 +46,22 @@ const queueImports = queueOn
 const queueProviders: Provider[] = queueOn ? [AgentRunProcessor] : [];
 
 /**
- * Agent tool-calling (PHASE 17). Xem `docs/architecture/agent-tools.md`.
- *
- * 17.0 config · 17.1 tool-calling LLM · 17.2 tool + registry · 17.3 graph +
- * guard · 17.4 rag_search · 17.5 finalize verify · 17.6 persistence · 17.7 HTTP
- * sync · 17.8 async BullMQ + cancel + SSE. `AGENT_ENABLED=false` ⇒ route bị
- * {@link AgentEnabledGuard} khoá (service vẫn chạy cho test/eval).
+ * Agent Runtime (Agent Reliability Platform). Tool đến từ {@link ToolsModule}
+ * (LocalToolProvider + MCPToolProvider từ config) — Agent Core KHÔNG biết
+ * provider nào. Observability qua {@link AGENT_TRACER} (interface), không phụ
+ * thuộc Langfuse trực tiếp. `AGENT_ENABLED=false` ⇒ route bị khoá (service vẫn
+ * chạy cho test/eval/benchmark).
  */
 @Module({
-  imports: [RagModule, ...queueImports],
+  imports: [RagModule, ToolsModule, ObservabilityModule, ...queueImports],
   controllers: [AgentController],
   providers: [
-    CalculatorTool,
-    CurrentTimeTool,
-    RagSearchTool,
-    {
-      provide: AGENT_TOOLS,
-      useFactory: (...tools: AgentTool[]): AgentTool[] => tools,
-      inject: [CalculatorTool, CurrentTimeTool, RagSearchTool],
-    },
-    ToolRegistryService,
     AgentGraphBuilder,
-    LangfuseTracer,
     AgentService,
     AgentQueueService,
     AgentEnabledGuard,
     ...queueProviders,
   ],
-  exports: [ToolRegistryService, AgentGraphBuilder, AgentService],
+  exports: [ToolsModule, AgentGraphBuilder, AgentService],
 })
 export class AgentModule {}

@@ -2,9 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { z } from 'zod';
 import type {
   AgentTool,
-  AgentToolContext,
-  AgentToolResult,
-} from '../tool.interface';
+  ToolExecutionContext,
+  ToolResult,
+} from '../core/tool.types';
+import { localToolDefinition } from './local-tool.helpers';
 
 const inputSchema = z.object({
   timezone: z
@@ -27,29 +28,30 @@ type CurrentTimeInput = z.infer<typeof inputSchema>;
 type CurrentTimeOutput = z.infer<typeof outputSchema>;
 
 /**
- * Trả thời điểm hiện tại (PHASE 17 §7). Khử phi-xác định cho câu hỏi kiểu "gần
- * đây", "hôm nay", "còn mấy ngày" — LLM không tự biết ngày giờ thực. KHÔNG gọi
- * LLM. Cùng một thời điểm gọi ⇒ cùng kết quả (không cache, đọc `Date.now()`).
+ * Trả thời điểm hiện tại (PROMPT §9). Khử phi-xác định cho câu hỏi kiểu "gần
+ * đây", "hôm nay", "còn mấy ngày". KHÔNG gọi LLM.
  */
 @Injectable()
 export class CurrentTimeTool implements AgentTool<
   CurrentTimeInput,
   CurrentTimeOutput
 > {
-  readonly name = 'current_time';
-  readonly description =
-    'Lấy ngày giờ hiện tại. Dùng khi câu hỏi phụ thuộc thời điểm hiện tại ' +
-    '("hôm nay", "gần đây", "còn bao lâu nữa", tính tuổi/thời hạn…).';
-  readonly inputSchema = inputSchema;
-  readonly outputSchema = outputSchema;
-  readonly access = 'read' as const;
-  readonly timeoutMs = 1000;
-  readonly maxRetries = 0;
+  readonly definition = localToolDefinition({
+    id: 'current_time.now',
+    displayName: 'Current time',
+    description:
+      'Lấy ngày giờ hiện tại. Dùng khi câu hỏi phụ thuộc thời điểm hiện tại ' +
+      '("hôm nay", "gần đây", "còn bao lâu nữa", tính tuổi/thời hạn…).',
+    inputSchema,
+    outputSchema,
+    timeoutMs: 1000,
+    tags: ['time', 'deterministic'],
+  });
 
   execute(
     input: CurrentTimeInput,
-    ctx: AgentToolContext,
-  ): Promise<AgentToolResult<CurrentTimeOutput>> {
+    ctx: ToolExecutionContext,
+  ): Promise<ToolResult<CurrentTimeOutput>> {
     const now = new Date();
     const timezone = input.timezone || 'UTC';
 
@@ -63,10 +65,13 @@ export class CurrentTimeTool implements AgentTool<
     } catch {
       ctx.logger.debug(`current_time: timezone không hợp lệ "${timezone}"`);
       return Promise.resolve({
-        ok: false,
-        data: { iso: '', unixMs: 0, timezone, localized: '' },
+        success: false,
+        error: {
+          code: 'TOOL_ARGUMENT_ERROR',
+          message: `Múi giờ không hợp lệ: "${timezone}". Dùng định danh IANA, ví dụ "Asia/Ho_Chi_Minh".`,
+          retryable: false,
+        },
         evidence: [],
-        error: `Múi giờ không hợp lệ: "${timezone}". Dùng định danh IANA, ví dụ "Asia/Ho_Chi_Minh".`,
       });
     }
 
@@ -77,7 +82,7 @@ export class CurrentTimeTool implements AgentTool<
       localized,
     };
     return Promise.resolve({
-      ok: true,
+      success: true,
       data: outputSchema.parse(data),
       evidence: [
         {

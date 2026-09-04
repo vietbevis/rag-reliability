@@ -1,4 +1,9 @@
-import { validateEnv, type Env } from './env.schema';
+import {
+  parseMcpServers,
+  validateEnv,
+  type Env,
+  type McpServerConfig,
+} from './env.schema';
 
 /**
  * Góc nhìn có kiểu, phân theo nhóm, của biến môi trường. Được truy cập qua
@@ -168,7 +173,15 @@ export interface AppConfig {
       costBudgetUsd: number;
       toolResultMaxTokens: number;
       loopRepeatThreshold: number;
+      toolFailureThreshold: number;
     };
+  };
+  /** Tool providers (Agent Reliability Platform — target-state.md §12). */
+  mcp: {
+    enabled: boolean;
+    toolTimeoutMs: number;
+    toolMaxRetries: number;
+    servers: McpServerConfig[];
   };
   /** Observability Langfuse cho agent (PHASE 17.9). */
   langfuse: {
@@ -367,7 +380,14 @@ export function loadConfiguration(): AppConfig {
         costBudgetUsd: env.AGENT_COST_BUDGET_USD,
         toolResultMaxTokens: env.AGENT_TOOL_RESULT_MAX_TOKENS,
         loopRepeatThreshold: env.AGENT_LOOP_REPEAT_THRESHOLD,
+        toolFailureThreshold: env.AGENT_TOOL_FAILURE_THRESHOLD,
       },
+    },
+    mcp: {
+      enabled: env.MCP_ENABLED,
+      toolTimeoutMs: env.MCP_TOOL_TIMEOUT_MS,
+      toolMaxRetries: env.MCP_TOOL_MAX_RETRIES,
+      servers: parseMcpServers(env.MCP_SERVERS),
     },
     langfuse: {
       enabled: env.LANGFUSE_ENABLED,

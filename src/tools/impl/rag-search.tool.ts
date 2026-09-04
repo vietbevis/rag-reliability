@@ -3,10 +3,11 @@ import { z } from 'zod';
 import { RetrievalService } from '../../rag/retrieval/retrieval.service';
 import type {
   AgentTool,
-  AgentToolContext,
-  AgentToolResult,
   ToolEvidence,
-} from './tool.interface';
+  ToolExecutionContext,
+  ToolResult,
+} from '../core/tool.types';
+import { localToolDefinition } from './local-tool.helpers';
 
 const DEFAULT_TOP_K = 6;
 /** Cắt content mỗi chunk trong `data` trả về model (evidence giữ toàn văn). */
@@ -31,8 +32,7 @@ const inputSchema = z.object({
     .optional()
     .describe(
       'vector = tương đồng ngữ nghĩa; keyword = khớp từ khoá chính xác; ' +
-        'graph = đi theo quan hệ giữa các thực thể (dùng khi hỏi về liên hệ ' +
-        'giữa các đối tượng); hybrid = kết hợp (mặc định).',
+        'graph = đi theo quan hệ giữa các thực thể; hybrid = kết hợp (mặc định).',
     ),
 });
 
@@ -56,35 +56,35 @@ const outputSchema = z.object({
 type RagSearchInput = z.infer<typeof inputSchema>;
 type RagSearchOutput = z.infer<typeof outputSchema>;
 
-const EMPTY: RagSearchOutput = { strategy: '', chunkCount: 0, chunks: [] };
-
 /**
- * Truy hồi tri thức nội bộ (PHASE 17 §7). Trả **chunk thô** (không generate) —
- * agent tự tổng hợp ở `finalize`. Bọc {@link RetrievalService}; lỗi hạ tầng
- * (embed query lỗi, Neo4j chết…) ⇒ `ok:false` để agent xoay hướng, KHÔNG che
- * thành "không có kết quả" (PROMPT §54).
+ * Truy hồi tri thức nội bộ (PROMPT §17). Trả **chunk thô** (không generate) —
+ * agent tự tổng hợp ở `finalize`. Bọc {@link RetrievalService}; lỗi hạ tầng ⇒
+ * `success:false` với code `RAG_RETRIEVAL_ERROR` để agent xoay hướng, KHÔNG che
+ * thành "không có kết quả" (PROMPT §47).
  */
 @Injectable()
 export class RagSearchTool implements AgentTool<
   RagSearchInput,
   RagSearchOutput
 > {
-  readonly name = 'rag_search';
-  readonly description =
-    'Tra cứu tài liệu trong knowledge base nội bộ và trả về các đoạn văn liên ' +
-    'quan (kèm nguồn). Dùng cho mọi câu hỏi cần dữ kiện từ tài liệu.';
-  readonly inputSchema = inputSchema;
-  readonly outputSchema = outputSchema;
-  readonly access = 'read' as const;
-  readonly timeoutMs = 30_000;
-  readonly maxRetries = 0;
+  readonly definition = localToolDefinition({
+    id: 'rag.search',
+    displayName: 'RAG search',
+    description:
+      'Tra cứu tài liệu trong knowledge base nội bộ và trả về các đoạn văn ' +
+      'liên quan (kèm nguồn). Dùng cho mọi câu hỏi cần dữ kiện từ tài liệu.',
+    inputSchema,
+    outputSchema,
+    timeoutMs: 30_000,
+    tags: ['rag', 'retrieval', 'knowledge-base'],
+  });
 
   constructor(private readonly retrieval: RetrievalService) {}
 
   async execute(
     input: RagSearchInput,
-    ctx: AgentToolContext,
-  ): Promise<AgentToolResult<RagSearchOutput>> {
+    ctx: ToolExecutionContext,
+  ): Promise<ToolResult<RagSearchOutput>> {
     const res = await this.retrieval.retrieve({
       query: input.query,
       topK: input.topK ?? DEFAULT_TOP_K,
@@ -93,12 +93,16 @@ export class RagSearchTool implements AgentTool<
     });
 
     if (res.error) {
-      ctx.logger.warn(`rag_search: lỗi hạ tầng truy hồi — ${res.error}`);
+      ctx.logger.warn(`rag.search: lỗi hạ tầng truy hồi — ${res.error}`);
       return {
-        ok: false,
-        data: EMPTY,
+        success: false,
+        error: {
+          code: 'RAG_RETRIEVAL_ERROR',
+          message: `Truy hồi thất bại (lỗi hạ tầng, không phải thiếu tài liệu): ${res.error}`,
+          retryable: true,
+          providerId: ctx.providerId,
+        },
         evidence: [],
-        error: `Truy hồi thất bại (lỗi hạ tầng, không phải thiếu tài liệu): ${res.error}`,
         usage: {
           inputTokens: 0,
           outputTokens: 0,
@@ -135,7 +139,7 @@ export class RagSearchTool implements AgentTool<
     }));
 
     return {
-      ok: true,
+      success: true,
       data: outputSchema.parse({
         strategy: res.strategy,
         chunkCount: chunks.length,
@@ -148,7 +152,11 @@ export class RagSearchTool implements AgentTool<
         totalTokens: 0,
         estimatedCost: res.usage.estimatedCost,
       },
-      truncated: res.chunks.some((c) => c.content.length > CHUNK_PREVIEW_CHARS),
+      metadata: {
+        truncated: res.chunks.some(
+          (c) => c.content.length > CHUNK_PREVIEW_CHARS,
+        ),
+      },
     };
   }
 }

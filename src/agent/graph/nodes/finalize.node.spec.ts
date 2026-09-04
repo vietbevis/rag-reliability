@@ -3,7 +3,7 @@ import type {
   AnswerVerificationService,
   VerificationResult,
 } from '../../../rag/grounding/answer-verification.service';
-import type { ToolEvidence } from '../../tools/tool.interface';
+import type { ToolEvidence } from '../../../tools/core/tool.types';
 import type { AgentState } from '../agent-state';
 import {
   computationToChunks,
@@ -30,6 +30,8 @@ function state(over: Partial<AgentState>): AgentState {
     toolFormatValid: 0,
     toolFormatTotal: 0,
     noProgressStreak: 0,
+    consecutiveToolFailures: 0,
+    toolErrorCodes: [],
     usage: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     answer: null,
     stopReason: null,

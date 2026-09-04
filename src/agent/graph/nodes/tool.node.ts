@@ -1,8 +1,14 @@
 import type { Logger } from '@nestjs/common';
 import type { ToolCall } from '../../../ai/llm/llm.interface';
-import { withTimeout } from '../../../common/utils';
-import type { AgentToolResult, ToolEvidence } from '../../tools/tool.interface';
-import type { ToolRegistryService } from '../../tools/tool-registry.service';
+import { sleep, withTimeout } from '../../../common/utils';
+import type {
+  AgentTool,
+  ToolError,
+  ToolErrorCode,
+  ToolResult,
+} from '../../../tools/core/tool.types';
+import type { ToolEvidence } from '../../../tools/core/tool.types';
+import type { ToolRegistryService } from '../../../tools/registry/tool-registry.service';
 import type {
   AgentState,
   AgentStateUpdate,
@@ -16,18 +22,25 @@ export interface ToolNodeDeps {
   /** Trần ký tự của một kết quả tool khi feed lại cho model (toàn văn vẫn lưu). */
   toolResultMaxChars: number;
   loopThreshold: number;
+  /** Backoff cơ sở giữa các lần retry tool (ms). */
+  retryBaseDelayMs: number;
   logger: Logger;
 }
 
-interface RunResult extends AgentToolResult {
+interface RunResult {
+  result: ToolResult;
   latencyMs: number;
+  retries: number;
+  providerId?: string;
 }
 
 /**
- * Node `tool` (PHASE 17 §4). Thực thi mọi tool call của lượt `agent` vừa rồi:
- * loop-detector chặn lời gọi lặp; mỗi tool chạy qua `withTimeout`; kết quả bọc
- * `<tool_result trusted="false">` + cắt bớt rồi feed lại làm `ChatMessage` role
- * `'tool'`. Evidence tích luỹ vào state cho `finalize` (17.5).
+ * Node `tool` (target-state.md §6). Với mỗi tool call của lượt `agent` vừa rồi:
+ * - loop-detector chặn lời gọi lặp;
+ * - risk gate: tool `enabled`? args hợp lệ Zod? high-risk cần confirm ⇒ từ chối;
+ * - `withRetry(withTimeout(execute))` — CHỈ retry khi `error.retryable`;
+ * - chuẩn hoá `ToolResult`, bọc `<tool_result trusted="false">` + cắt bớt;
+ * - đếm lỗi RETRYABLE liên tiếp cho failure-threshold guard.
  */
 export function createToolNode(deps: ToolNodeDeps) {
   return async (state: AgentState): Promise<AgentStateUpdate> => {
@@ -39,23 +52,28 @@ export function createToolNode(deps: ToolNodeDeps) {
     const evidence: ToolEvidence[] = [];
     const invocations: Record<string, number> = {};
     const usage = { inputTokens: 0, outputTokens: 0, estimatedCost: 0 };
+    const errorCodes: ToolErrorCode[] = [];
+    let consecutiveFailures = state.consecutiveToolFailures;
 
     for (let i = 0; i < calls.length; i++) {
       const call = calls[i]!;
+      const stepId = `${deps.agentRunId}:${base + i}`;
       const key = toolCallKey(call.name, call.args);
       invocations[key] = (invocations[key] ?? 0) + 1;
 
       const loop = checkLoop(call, state.toolInvocations, deps.loopThreshold);
-      const result: RunResult = loop.blocked
+      const run: RunResult = loop.blocked
         ? {
-            ok: false,
-            data: null,
-            evidence: [],
-            error: `Tool "${call.name}" với đúng input này đã chạy ${loop.count - 1} lần rồi. Dùng lại kết quả trước đó hoặc đổi cách tiếp cận — đừng gọi lại.`,
+            result: fail('LOOP_BLOCKED', {
+              message: `Tool "${call.name}" với đúng input này đã chạy ${loop.count - 1} lần rồi. Dùng lại kết quả trước đó hoặc đổi cách tiếp cận — đừng gọi lại.`,
+              retryable: false,
+            }),
             latencyMs: 0,
+            retries: 0,
           }
-        : await runTool(deps, call);
+        : await runTool(deps, call, stepId);
 
+      const result = run.result;
       const rendered = renderToolResult(
         call.name,
         result,
@@ -72,11 +90,14 @@ export function createToolNode(deps: ToolNodeDeps) {
         index: base + i,
         type: 'TOOL_RESULT',
         toolName: call.name,
+        providerId: run.providerId,
         toolInput: call.args,
-        toolOutput: result.ok ? result.data : undefined,
+        toolOutput: result.success ? result.data : undefined,
         evidence: result.evidence,
-        error: result.ok ? undefined : result.error,
-        latencyMs: result.latencyMs,
+        error: result.success ? undefined : result.error?.message,
+        errorCode: result.success ? undefined : result.error?.code,
+        retries: run.retries || undefined,
+        latencyMs: run.latencyMs,
         note: loop.blocked ? 'bị loop-detector chặn' : undefined,
         tokens: result.usage
           ? {
@@ -91,6 +112,17 @@ export function createToolNode(deps: ToolNodeDeps) {
         usage.outputTokens += result.usage.outputTokens;
         usage.estimatedCost += result.usage.estimatedCost;
       }
+
+      if (!result.success && result.error) {
+        errorCodes.push(result.error.code);
+        // Chỉ lỗi RETRYABLE mới tính vào ngưỡng — lỗi args/permission là "model
+        // sai", agent tự sửa được.
+        consecutiveFailures = result.error.retryable
+          ? consecutiveFailures + 1
+          : consecutiveFailures;
+      } else if (result.success) {
+        consecutiveFailures = 0;
+      }
     }
 
     const gotNewEvidence = evidence.length > 0;
@@ -100,6 +132,8 @@ export function createToolNode(deps: ToolNodeDeps) {
       evidence,
       usage,
       toolInvocations: invocations,
+      toolErrorCodes: errorCodes,
+      consecutiveToolFailures: consecutiveFailures,
       noProgressStreak: gotNewEvidence ? 0 : state.noProgressStreak + 1,
     };
   };
@@ -116,68 +150,150 @@ function lastRequestedCalls(state: AgentState): ToolCall[] {
   return [];
 }
 
-async function runTool(deps: ToolNodeDeps, call: ToolCall): Promise<RunResult> {
+function fail(
+  code: ToolErrorCode,
+  err: Partial<ToolError> & { message: string },
+): ToolResult {
+  return {
+    success: false,
+    error: { code, message: err.message, retryable: err.retryable ?? false },
+    evidence: [],
+  };
+}
+
+async function runTool(
+  deps: ToolNodeDeps,
+  call: ToolCall,
+  stepId: string,
+): Promise<RunResult> {
   const started = Date.now();
   const tool = deps.registry.get(call.name);
+  const providerId = deps.registry.providerOf(call.name);
+
   if (!tool) {
     return {
-      ok: false,
-      data: null,
-      evidence: [],
-      error: `Không có tool tên "${call.name}".`,
+      result: fail('TOOL_NOT_FOUND', {
+        message: `Không có tool tên "${call.name}".`,
+      }),
       latencyMs: 0,
+      retries: 0,
     };
   }
 
-  const parsed = tool.inputSchema.safeParse(call.args);
+  const meta = tool.definition.metadata;
+  if (!meta.enabled) {
+    return {
+      result: fail('TOOL_DISABLED', {
+        message: `Tool "${call.name}" đang bị tắt.`,
+      }),
+      latencyMs: 0,
+      retries: 0,
+      providerId,
+    };
+  }
+  // Risk gate (PROMPT §14, §21) — v1 read-only, không có nhánh HITL.
+  if (meta.requiresConfirmation) {
+    return {
+      result: fail('PERMISSION_DENIED', {
+        message: `Tool "${call.name}" (risk=${meta.riskLevel}) cần xác nhận của người dùng — chưa hỗ trợ trong phiên này.`,
+      }),
+      latencyMs: 0,
+      retries: 0,
+      providerId,
+    };
+  }
+
+  const parsed = tool.definition.inputSchema.safeParse(call.args);
   if (!parsed.success) {
     return {
-      ok: false,
-      data: null,
-      evidence: [],
-      error: `Tham số cho tool "${call.name}" không hợp lệ: ${parsed.error.issues
-        .map((iss) => `${iss.path.join('.') || '(gốc)'}: ${iss.message}`)
-        .join('; ')}`,
+      result: fail('TOOL_ARGUMENT_ERROR', {
+        message: `Tham số cho tool "${call.name}" không hợp lệ: ${parsed.error.issues
+          .map((iss) => `${iss.path.join('.') || '(gốc)'}: ${iss.message}`)
+          .join('; ')}`,
+      }),
       latencyMs: Date.now() - started,
+      retries: 0,
+      providerId,
     };
   }
 
+  const maxRetries = meta.maxRetries;
+  let retries = 0;
+  let lastResult: ToolResult = fail('UNKNOWN_ERROR', {
+    message: 'tool không trả kết quả',
+    retryable: false,
+  });
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (attempt > 0) {
+      retries = attempt;
+      await sleep(deps.retryBaseDelayMs * 2 ** (attempt - 1));
+    }
+    lastResult = await executeOnce(deps, tool, parsed.data, stepId, providerId);
+    if (lastResult.success || !lastResult.error?.retryable) break;
+    deps.logger.warn(
+      `tool "${call.name}" lỗi RETRYABLE (${lastResult.error.code}) — thử lại ${attempt + 1}/${maxRetries}`,
+    );
+  }
+
+  return {
+    result: lastResult,
+    latencyMs: Date.now() - started,
+    retries,
+    providerId,
+  };
+}
+
+async function executeOnce(
+  deps: ToolNodeDeps,
+  tool: AgentTool,
+  input: unknown,
+  stepId: string,
+  providerId?: string,
+): Promise<ToolResult> {
   try {
-    const res = await withTimeout(
+    return await withTimeout(
       (signal) =>
-        tool.execute(parsed.data, {
-          agentRunId: deps.agentRunId,
+        tool.execute(input, {
+          runId: deps.agentRunId,
+          stepId,
+          providerId: providerId ?? tool.definition.metadata.providerId,
           signal,
           logger: deps.logger,
         }),
-      tool.timeoutMs,
-      `tool.${call.name}`,
+      tool.definition.metadata.timeoutMs,
+      `tool.${tool.definition.id}`,
     );
-    return { ...res, latencyMs: Date.now() - started };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'lỗi không xác định';
-    deps.logger.warn(`tool "${call.name}" ném lỗi: ${message}`);
+    const isTimeout = /timed out/i.test(message);
+    deps.logger.warn(`tool "${tool.definition.id}" ném lỗi: ${message}`);
     return {
-      ok: false,
-      data: null,
+      success: false,
+      error: {
+        code: isTimeout ? 'TOOL_TIMEOUT' : 'TOOL_EXECUTION_ERROR',
+        message: `Tool "${tool.definition.id}" lỗi: ${message}`,
+        retryable: true,
+        providerId,
+      },
       evidence: [],
-      error: `Tool "${call.name}" lỗi: ${message}`,
-      latencyMs: Date.now() - started,
     };
   }
 }
 
 /**
  * Bọc kết quả tool cho model: đánh dấu `trusted="false"` (chống prompt
- * injection §13) + cắt theo `maxChars` (toàn văn đã lưu ở `AgentStepRecord`).
+ * injection PROMPT §14) + cắt theo `maxChars` (toàn văn đã lưu ở step).
  */
 export function renderToolResult(
   name: string,
-  result: AgentToolResult,
+  result: ToolResult,
   maxChars: number,
 ): { text: string; truncated: boolean } {
   const payload = JSON.stringify(
-    result.ok ? result.data : { error: result.error },
+    result.success
+      ? result.data
+      : { error: result.error?.message, code: result.error?.code },
   );
   const truncated = payload.length > maxChars;
   const body = truncated ? `${payload.slice(0, maxChars)}…[đã cắt]` : payload;

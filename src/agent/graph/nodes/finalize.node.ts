@@ -4,7 +4,7 @@ import type {
   AnswerVerificationService,
   VerificationResult,
 } from '../../../rag/grounding/answer-verification.service';
-import type { ToolEvidence } from '../../tools/tool.interface';
+import type { ToolEvidence } from '../../../tools/core/tool.types';
 import type {
   AgentCitation,
   AgentState,

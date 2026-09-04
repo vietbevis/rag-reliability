@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -20,12 +21,13 @@ import {
   Prisma,
   RagStatus as RagStatusEnum,
 } from '../generated/prisma/client';
+import { AGENT_TRACER, type Tracer } from '../observability/tracer';
+import { classifyRunFailure, type FailureClass } from '../tools/core/failure';
 import {
   AgentGraphBuilder,
   type AgentRunOutcome,
 } from './graph/agent-graph.builder';
 import type { AgentCitation, AgentUsage } from './graph/agent-state';
-import { LangfuseTracer } from './observability/langfuse.tracer';
 
 export interface AgentServiceRunOptions {
   toolAllowlist?: string[];
@@ -49,6 +51,7 @@ export interface AgentRunResult {
   toolFormatTotal: number;
   stepCount: number;
   latencyMs: number;
+  failureClass?: FailureClass | null;
   error?: string;
 }
 
@@ -76,7 +79,7 @@ export class AgentService implements OnModuleDestroy {
   constructor(
     private readonly prisma: PrismaService,
     private readonly graph: AgentGraphBuilder,
-    private readonly langfuse: LangfuseTracer,
+    @Inject(AGENT_TRACER) private readonly tracer: Tracer,
     config: ConfigService<AppConfig, true>,
   ) {
     this.defaultBudget = config.get('agent', {
@@ -138,7 +141,14 @@ export class AgentService implements OnModuleDestroy {
 
     const run = { id: agentRunId };
     const status = mapStatus(outcome);
-    const trace = sanitizeTrace(buildTrace(outcome));
+    const failure = classifyRunFailure({
+      stopReason: outcome.stopReason,
+      finalStatus: outcome.finalStatus,
+      toolErrorCodes: outcome.toolErrorCodes,
+      loopBlocked: outcome.loopBlocked,
+      errorMessage: outcome.error,
+    });
+    const trace = sanitizeTrace(buildTrace(outcome, failure?.failureClass));
 
     await this.prisma.$transaction([
       this.prisma.agentStep.createMany({
@@ -147,6 +157,7 @@ export class AgentService implements OnModuleDestroy {
           index: s.index,
           type: AgentStepType[s.type],
           toolName: s.toolName ?? null,
+          providerId: s.providerId ?? null,
           toolInput: asJson(s.toolInput),
           toolOutput: asJson(s.toolOutput),
           evidence: asJson(s.evidence),
@@ -169,6 +180,8 @@ export class AgentService implements OnModuleDestroy {
           claims: outcome.claims as unknown as Prisma.InputJsonValue,
           citations: outcome.citations as unknown as Prisma.InputJsonValue,
           faithfulness: outcome.faithfulness?.score ?? null,
+          failureClass: failure?.failureClass ?? null,
+          failureDetail: failure?.detail ?? null,
           latencyMs: outcome.latencyMs,
           stepCount: outcome.steps.length,
           trace: trace as Prisma.InputJsonValue,
@@ -198,10 +211,75 @@ export class AgentService implements OnModuleDestroy {
       toolFormatTotal: outcome.toolFormatTotal,
       stepCount: outcome.steps.length,
       latencyMs: outcome.latencyMs,
+      failureClass: failure?.failureClass ?? null,
       error: outcome.error,
     };
-    if (this.langfuse.enabled) void this.langfuse.record(result, outcome);
+    if (this.tracer.enabled)
+      this.recordTrace(result, outcome, failure?.failureClass ?? null);
     return result;
+  }
+
+  private recordTrace(
+    result: AgentRunResult,
+    outcome: AgentRunOutcome,
+    failureClass: FailureClass | null,
+  ): void {
+    try {
+      const span = this.tracer.startRun({
+        runId: result.id,
+        task: result.task,
+        metadata: {
+          stopReason: result.stopReason,
+          toolCallCount: result.toolCallCount,
+          stepCount: result.stepCount,
+          latencyMs: result.latencyMs,
+        },
+      });
+      const startMs = Date.now() - (result.latencyMs || 0);
+      let cursor = startMs;
+      for (const s of outcome.steps) {
+        const dur = s.latencyMs ?? 0;
+        if (s.toolName) {
+          span.toolCall({
+            stepId: `${result.id}:${s.index}`,
+            providerId: s.providerId,
+            toolId: s.toolName,
+            source: s.providerId,
+            arguments: s.toolInput,
+            startedAt: cursor,
+            endedAt: cursor + dur,
+            latencyMs: dur,
+            result: s.toolOutput ?? s.note,
+            error: s.error,
+          });
+        } else {
+          span.step({
+            stepId: `${result.id}:${s.index}`,
+            type: s.type,
+            note: s.note,
+            tokens: s.tokens,
+            latencyMs: dur,
+          });
+        }
+        cursor += dur;
+      }
+      span.end({
+        status: result.status,
+        finalStatus: result.finalStatus,
+        answer: result.answer,
+        failureClass,
+        usage: {
+          inputTokens: result.usage.inputTokens,
+          outputTokens: result.usage.outputTokens,
+          totalTokens: result.usage.inputTokens + result.usage.outputTokens,
+          estimatedCost: result.usage.estimatedCost,
+        },
+      });
+    } catch (err) {
+      this.logger.warn(
+        `tracer lỗi (bỏ qua): ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   async get(id: string): Promise<AgentRunResult> {
@@ -235,6 +313,7 @@ export class AgentService implements OnModuleDestroy {
       toolFormatTotal: 0,
       stepCount: run.stepCount,
       latencyMs: run.latencyMs ?? 0,
+      failureClass: (run.failureClass as FailureClass | null) ?? null,
       error: run.error ?? undefined,
     };
   }
@@ -321,11 +400,16 @@ function mapStatus(outcome: AgentRunOutcome): AgentRunStatus {
   return AgentRunStatus.COMPLETED;
 }
 
-function buildTrace(outcome: AgentRunOutcome): Record<string, unknown> {
+function buildTrace(
+  outcome: AgentRunOutcome,
+  failureClass?: FailureClass,
+): Record<string, unknown> {
   return {
     stopReason: outcome.stopReason,
     finalStatus: outcome.finalStatus,
+    failureClass: failureClass ?? null,
     toolCallCount: outcome.toolCallCount,
+    toolErrorCodes: outcome.toolErrorCodes,
     stepCount: outcome.steps.length,
     latencyMs: outcome.latencyMs,
     usage: outcome.usage,
@@ -334,8 +418,11 @@ function buildTrace(outcome: AgentRunOutcome): Record<string, unknown> {
       index: s.index,
       type: s.type,
       toolName: s.toolName,
+      providerId: s.providerId,
       note: s.note,
       error: s.error,
+      errorCode: s.errorCode,
+      retries: s.retries,
       latencyMs: s.latencyMs,
     })),
   };

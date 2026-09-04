@@ -9,8 +9,8 @@ import type {
   VerifiedClaim,
 } from '../../common/types';
 import { AnswerVerificationService } from '../../rag/grounding/answer-verification.service';
-import type { ToolEvidence } from '../tools/tool.interface';
-import { ToolRegistryService } from '../tools/tool-registry.service';
+import type { ToolErrorCode, ToolEvidence } from '../../tools/core/tool.types';
+import { ToolRegistryService } from '../../tools/registry/tool-registry.service';
 import {
   AgentStateAnnotation,
   type AgentCitation,
@@ -54,6 +54,10 @@ export interface AgentRunOutcome {
   toolsUsed: string[];
   toolFormatValid: number;
   toolFormatTotal: number;
+  /** Mã lỗi tool xuất hiện trong trajectory (cho failure classification). */
+  toolErrorCodes: ToolErrorCode[];
+  /** Có bị loop-detector chặn ít nhất một lần không. */
+  loopBlocked: boolean;
   latencyMs: number;
   /** Chỉ có khi `stopReason === 'error'`. */
   error?: string;
@@ -120,6 +124,8 @@ export class AgentGraphBuilder {
         toolsUsed: [],
         toolFormatValid: 0,
         toolFormatTotal: 0,
+        toolErrorCodes: [],
+        loopBlocked: false,
         latencyMs: Date.now() - startedAt,
         error: message,
       };
@@ -143,6 +149,7 @@ export class AgentGraphBuilder {
       agentRunId,
       toolResultMaxChars: limits.toolResultMaxTokens * 4,
       loopThreshold: limits.loopRepeatThreshold,
+      retryBaseDelayMs: 400,
       logger: this.logger,
     });
     const finalizeNode = createFinalizeNode({
@@ -208,6 +215,8 @@ export class AgentGraphBuilder {
         .map((s) => s.toolName as string),
       toolFormatValid: state.toolFormatValid,
       toolFormatTotal: state.toolFormatTotal,
+      toolErrorCodes: state.toolErrorCodes,
+      loopBlocked: state.steps.some((s) => s.note === 'bị loop-detector chặn'),
       latencyMs: Date.now() - startedAt,
     };
   }
@@ -221,6 +230,9 @@ function resolveStop(
   const budget = checkBudget(state, limits);
   if (budget.tripped) return budget.reason ?? 'budget_steps';
   if (state.noProgressStreak >= MAX_NO_PROGRESS_STREAK) return 'no_progress';
+  if (state.consecutiveToolFailures >= limits.toolFailureThreshold) {
+    return 'tool_failure_threshold';
+  }
   return null;
 }
 

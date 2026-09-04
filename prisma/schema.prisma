@@ -397,6 +397,10 @@ model AgentRun {
   /// [{ claimId, claimText, kind, documentId?, chunkId?, section?, page?, valid }]
   citations     Json           @default("[]")
   faithfulness  Float?
+  /// Phân loại lý do fail (PROMPT §32) — null khi run đạt. FailureClass enum ở
+  /// src/tools/core/failure.ts (giữ String để không cần migrate khi thêm loại).
+  failureClass  String?
+  failureDetail String?
   latencyMs     Int?
   stepCount     Int            @default(0)
   trace         Json           @default("{}")
@@ -419,6 +423,8 @@ model AgentStep {
   index      Int
   type       AgentStepType
   toolName   String?
+  /// Provider cung cấp tool (local / mcp:<id> / …) — trace phân biệt nguồn lỗi.
+  providerId String?
   toolInput  Json?
   /// Kết quả tool TOÀN VĂN (chưa cắt) — bản feed cho model đã cắt riêng.
   toolOutput Json?

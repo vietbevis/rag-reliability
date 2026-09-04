@@ -58,7 +58,11 @@ const RUN = !process.env.SKIP_DB_E2E;
 
     it('run có tool (scripted) → persist AgentStep với index duy nhất', async () => {
       fake.scriptToolTurns([
-        { toolCalls: [{ name: 'calculator', args: { expression: '21*2' } }] },
+        {
+          toolCalls: [
+            { name: 'calculator__calculate', args: { expression: '21*2' } },
+          ],
+        },
         { content: 'Kết quả là 42.' },
       ]);
       const res = await agent.run('Tính 21 nhân 2.');

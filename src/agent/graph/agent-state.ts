@@ -5,7 +5,8 @@ import type {
   RagStatus,
   VerifiedClaim,
 } from '../../common/types';
-import type { ToolEvidence } from '../tools/tool.interface';
+import type { ToolEvidence } from '../../tools/core/tool.types';
+import type { ToolErrorCode } from '../../tools/core/tool.types';
 
 /**
  * Citation của agent — mở rộng {@link CitationKind} của RAG cho nguồn tính
@@ -31,17 +32,20 @@ export type AgentStopReason =
   | 'budget_tokens'
   | 'budget_cost'
   | 'no_progress'
+  | 'tool_failure_threshold'
   | 'cancelled'
   | 'error';
 
 export type AgentStepType =
   'THINK' | 'TOOL_CALL' | 'TOOL_RESULT' | 'FINAL' | 'GUARD_STOP';
 
-/** Một mục trong trajectory — persist ở 17.6, hiện chỉ giữ trong RAM. */
+/** Một mục trong trajectory. */
 export interface AgentStepRecord {
   index: number;
   type: AgentStepType;
   toolName?: string;
+  /** Provider cung cấp tool (local / mcp / …) — cho trace phân biệt nguồn lỗi. */
+  providerId?: string;
   toolInput?: unknown;
   /** Kết quả tool (toàn văn — chưa cắt). */
   toolOutput?: unknown;
@@ -50,6 +54,10 @@ export interface AgentStepRecord {
   latencyMs?: number;
   note?: string;
   error?: string;
+  /** Mã lỗi tool đã chuẩn hoá (khi step lỗi). */
+  errorCode?: ToolErrorCode;
+  /** Số lần đã thử lại tool ở step này. */
+  retries?: number;
 }
 
 export interface AgentUsage {
@@ -103,6 +111,16 @@ export const AgentStateAnnotation = Annotation.Root({
   noProgressStreak: Annotation<number>({
     reducer: lastWrite,
     default: () => 0,
+  }),
+  /** Số lỗi tool RETRYABLE liên tiếp — cho failure-threshold guard (PROMPT §23). */
+  consecutiveToolFailures: Annotation<number>({
+    reducer: lastWrite,
+    default: () => 0,
+  }),
+  /** Mã lỗi tool xuất hiện trong run, theo thứ tự — cho failure classification. */
+  toolErrorCodes: Annotation<ToolErrorCode[]>({
+    reducer: concat,
+    default: () => [],
   }),
 
   usage: Annotation<AgentUsage>({

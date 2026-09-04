@@ -8,9 +8,10 @@ import {
 import { z } from 'zod';
 import type {
   AgentTool,
-  AgentToolContext,
-  AgentToolResult,
-} from '../tool.interface';
+  ToolExecutionContext,
+  ToolResult,
+} from '../core/tool.types';
+import { localToolDefinition } from './local-tool.helpers';
 
 const MAX_EXPRESSION_LENGTH = 500;
 
@@ -35,37 +36,33 @@ type CalculatorInput = z.infer<typeof inputSchema>;
 type CalculatorOutput = z.infer<typeof outputSchema>;
 
 /**
- * Máy tính tất định (PHASE 17 §7). Sửa điểm yếu số học của LLM — mọi phép tính
- * trong câu trả lời nên đi qua đây. KHÔNG gọi LLM.
- *
- * `mathjs` được vô hiệu hoá các hàm có thể chạy code / định nghĩa lại môi
- * trường (`import`, `createUnit`, `evaluate`, `parse`, `simplify`,
- * `derivative`) theo khuyến cáo bảo mật của mathjs.
+ * Máy tính tất định (PROMPT §9). Sửa điểm yếu số học của LLM. KHÔNG gọi LLM.
+ * `mathjs` hardened: vô hiệu hoá `import`/`createUnit`/`evaluate`/`parse`/
+ * `simplify`/`derivative` theo mathjs security playbook.
  */
 @Injectable()
 export class CalculatorTool implements AgentTool<
   CalculatorInput,
   CalculatorOutput
 > {
-  readonly name = 'calculator';
-  readonly description =
-    'Tính một biểu thức số học/toán học một cách chính xác, tất định. Dùng cho ' +
-    'MỌI phép tính (cộng trừ nhân chia, phần trăm, luỹ thừa, căn…) thay vì tự nhẩm.';
-  readonly inputSchema = inputSchema;
-  readonly outputSchema = outputSchema;
-  readonly access = 'read' as const;
-  readonly timeoutMs = 2000;
-  readonly maxRetries = 0;
+  readonly definition = localToolDefinition({
+    id: 'calculator.calculate',
+    displayName: 'Calculator',
+    description:
+      'Tính một biểu thức số học/toán học một cách chính xác, tất định. Dùng ' +
+      'cho MỌI phép tính (cộng trừ nhân chia, phần trăm, luỹ thừa, căn…) thay ' +
+      'vì tự nhẩm.',
+    inputSchema,
+    outputSchema,
+    timeoutMs: 2000,
+    tags: ['math', 'deterministic'],
+  });
 
   private readonly math: MathJsInstance;
-  /** `evaluate` đã hardened — bắt tham chiếu TRƯỚC khi vô hiệu hoá public API. */
   private readonly evaluate: MathJsInstance['evaluate'];
 
   constructor() {
     this.math = create(all as FactoryFunctionMap, {});
-    // Giữ tham chiếu để gọi từ JS; sau `import` bên dưới, `math.evaluate` công
-    // khai sẽ ném — nên biểu thức chứa `evaluate("...")`/`import(...)` bị chặn,
-    // còn ta vẫn tính được (mathjs security playbook).
     this.evaluate = this.math.evaluate.bind(this.math);
     const blocked = (): never => {
       throw new Error('function is disabled for security reasons');
@@ -85,8 +82,8 @@ export class CalculatorTool implements AgentTool<
 
   execute(
     input: CalculatorInput,
-    ctx: AgentToolContext,
-  ): Promise<AgentToolResult<CalculatorOutput>> {
+    ctx: ToolExecutionContext,
+  ): Promise<ToolResult<CalculatorOutput>> {
     const { expression } = input;
     try {
       const value: unknown = this.evaluate(expression, {});
@@ -94,10 +91,9 @@ export class CalculatorTool implements AgentTool<
         throw new Error('biểu thức trả về một hàm, không phải giá trị');
       }
       const result = this.math.format(value, { precision: 14 });
-      const data: CalculatorOutput = { expression, result };
       return Promise.resolve({
-        ok: true,
-        data: outputSchema.parse(data),
+        success: true,
+        data: outputSchema.parse({ expression, result }),
         evidence: [
           {
             kind: 'computation',
@@ -110,10 +106,13 @@ export class CalculatorTool implements AgentTool<
       const message = err instanceof Error ? err.message : 'lỗi không xác định';
       ctx.logger.debug(`calculator: "${expression}" lỗi — ${message}`);
       return Promise.resolve({
-        ok: false,
-        data: { expression, result: '' },
+        success: false,
+        error: {
+          code: 'TOOL_EXECUTION_ERROR',
+          message: `Không tính được "${expression}": ${message}`,
+          retryable: false,
+        },
         evidence: [],
-        error: `Không tính được "${expression}": ${message}`,
       });
     }
   }

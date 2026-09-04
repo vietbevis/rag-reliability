@@ -8,9 +8,9 @@ import type {
   AnswerVerificationService,
   VerificationResult,
 } from '../../rag/grounding/answer-verification.service';
-import { CalculatorTool } from '../tools/builtin/calculator.tool';
-import { CurrentTimeTool } from '../tools/builtin/current-time.tool';
-import { ToolRegistryService } from '../tools/tool-registry.service';
+import { CalculatorTool } from '../../tools/impl/calculator.tool';
+import { CurrentTimeTool } from '../../tools/impl/current-time.tool';
+import { makeTestRegistry } from '../../tools/testing/local-registry';
 import { AgentGraphBuilder } from './agent-graph.builder';
 
 const ZERO = {
@@ -53,12 +53,11 @@ function stubVerification(): AnswerVerificationService {
   } as unknown as AnswerVerificationService;
 }
 
-function makeBuilder(env: Record<string, string> = {}) {
+async function makeBuilder(env: Record<string, string> = {}) {
   const fake = new FakeLlmProvider();
-  const registry = new ToolRegistryService([
-    new CalculatorTool(),
-    new CurrentTimeTool(),
-  ]);
+  const registry = await makeTestRegistry({
+    tools: [new CalculatorTool(), new CurrentTimeTool()],
+  });
   const config = mockConfigService(
     {},
     {
@@ -83,12 +82,12 @@ function makeBuilder(env: Record<string, string> = {}) {
 }
 
 const calc = (expression: string): FakeToolTurn => ({
-  toolCalls: [{ name: 'calculator', args: { expression } }],
+  toolCalls: [{ name: 'calculator__calculate', args: { expression } }],
 });
 
 describe('AgentGraphBuilder.run', () => {
   it('trả lời thẳng khi model không gọi tool → đi qua finalize', async () => {
-    const { builder, script } = makeBuilder();
+    const { builder, script } = await makeBuilder();
     script([{ content: 'Đáp án là 42.' }]);
 
     const out = await builder.run('6 nhân 7 bằng mấy?');
@@ -101,7 +100,7 @@ describe('AgentGraphBuilder.run', () => {
   });
 
   it('một vòng tool rồi chốt câu trả lời', async () => {
-    const { builder, script } = makeBuilder();
+    const { builder, script } = await makeBuilder();
     script([calc('6*7'), { content: 'Kết quả là 42.' }]);
 
     const out = await builder.run('tính 6*7 giúp tôi');
@@ -128,7 +127,7 @@ describe('AgentGraphBuilder.run', () => {
   });
 
   it('guard AGENT_MAX_STEPS: GUARD_STOP + finalize tổng hợp từ evidence đã có', async () => {
-    const { builder, script } = makeBuilder({ AGENT_MAX_STEPS: '3' });
+    const { builder, script } = await makeBuilder({ AGENT_MAX_STEPS: '3' });
     script([calc('1+1'), calc('2+2'), calc('3+3'), { content: 'xong' }]);
 
     const out = await builder.run('làm gì đó nhiều bước');
@@ -141,7 +140,7 @@ describe('AgentGraphBuilder.run', () => {
   });
 
   it('guard AGENT_MAX_TOOL_CALLS', async () => {
-    const { builder, script } = makeBuilder({
+    const { builder, script } = await makeBuilder({
       AGENT_MAX_STEPS: '50',
       AGENT_MAX_TOOL_CALLS: '2',
       AGENT_LOOP_REPEAT_THRESHOLD: '10',
@@ -155,7 +154,7 @@ describe('AgentGraphBuilder.run', () => {
   });
 
   it('loop-detector chặn lời gọi tool lặp lại y hệt', async () => {
-    const { builder, script } = makeBuilder({
+    const { builder, script } = await makeBuilder({
       AGENT_MAX_STEPS: '50',
       AGENT_LOOP_REPEAT_THRESHOLD: '1',
     });
@@ -171,7 +170,7 @@ describe('AgentGraphBuilder.run', () => {
   });
 
   it('no_progress: dừng sau nhiều vòng không sinh evidence mới', async () => {
-    const { builder, script } = makeBuilder({
+    const { builder, script } = await makeBuilder({
       AGENT_MAX_STEPS: '50',
       AGENT_LOOP_REPEAT_THRESHOLD: '1',
     });
@@ -184,9 +183,13 @@ describe('AgentGraphBuilder.run', () => {
   });
 
   it('args tool sai schema → tool trả lỗi, model xoay hướng ở lượt sau', async () => {
-    const { builder, script } = makeBuilder();
+    const { builder, script } = await makeBuilder();
     script([
-      { toolCalls: [{ name: 'calculator', args: { expression: 123 } }] },
+      {
+        toolCalls: [
+          { name: 'calculator__calculate', args: { expression: 123 } },
+        ],
+      },
       { content: 'đã sửa, kết quả 5' },
     ]);
 
@@ -199,12 +202,12 @@ describe('AgentGraphBuilder.run', () => {
   });
 
   it('nhiều tool trong một lượt', async () => {
-    const { builder, script } = makeBuilder();
+    const { builder, script } = await makeBuilder();
     script([
       {
         toolCalls: [
-          { name: 'calculator', args: { expression: '10*10' } },
-          { name: 'current_time', args: {} },
+          { name: 'calculator__calculate', args: { expression: '10*10' } },
+          { name: 'current_time__now', args: {} },
         ],
       },
       { content: 'xong cả hai' },
