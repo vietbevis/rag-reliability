@@ -1,7 +1,11 @@
 # Regression Testing & CI Gate (PHASE 12)
 
 > Quy chuẩn phát hiện suy giảm chất lượng RAG và tự động chặn merge / fail CI
-> (PROMPT §37).
+> (PROMPT §37). File này là gate **RAG** (`npm run evaluate`).
+>
+> Gate **agent** song song: `npm run benchmark:agent` (24 case, mock tool env,
+> exit ≠ 0 nếu regressed). Ngưỡng config ở `benchmarks/agent/thresholds.json`.
+> Xem [`../benchmark/README.md`](../benchmark/README.md).
 
 ## 1. Nguyên tắc
 

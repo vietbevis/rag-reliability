@@ -2,6 +2,11 @@
 
 > Quy chuẩn theo dõi, thu thập telemetry và truy vết toàn diện vòng đời truy vấn RAG
 > (PROMPT §38).
+>
+> **Agent** (PHASE 18) có lớp observability riêng: `Tracer` interface
+> (`src/observability/tracer.ts`) + `LangfuseTracer` adapter — `AgentService`
+> KHÔNG import Langfuse trực tiếp. Trace agent ghi `providerId`/`toolId`/
+> `errorCode` mỗi tool call. Xem `implementation-report.md §11`.
 
 ## 1. Mục tiêu
 
