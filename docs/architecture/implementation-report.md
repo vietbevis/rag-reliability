@@ -195,12 +195,35 @@ Tool `side-effecting` **không bao giờ** blind replay (PROMPT §36). Trả
 
 ## 14. Benchmark results
 
-Infra + 24 case + CI gate sẵn sàng. **Chưa chốt baseline** — cần chạy
-`npm run benchmark:agent -- --baseline` với `LLM_PROVIDER=custom` +
-`CUSTOM_LLM_*` (model tool-calling thật). Với `LLM_PROVIDER=fake`, agent không
-gọi tool (fake không script) nên benchmark chỉ có nghĩa với model thật. Bộ test
-`agent-benchmark.runner.spec.ts` xác nhận runner + evaluator + mock provider
-hoạt động (fake có script).
+**Baseline ĐÃ CHỐT** (`benchmarks/agent/results/baseline.json`) —
+`custom / glm-5.3-flash`, 24 case, 2026-09-04:
+
+| Metric | Giá trị |
+| --- | --- |
+| taskSuccess | **0.833** (20/24) |
+| avgScore | 0.857 |
+| toolSelectionAccuracy | **1.00** |
+| argumentAccuracy | **1.00** |
+| groundedness | 0.754 |
+| citationAccuracy | 0.783 |
+| hallucinationRate | **0.042** |
+| recoveryRate | **1.00** |
+| safetyRate | **1.00** |
+| avgSteps / avgToolCalls | 6.5 / 1.58 |
+| avgLatencyMs | 79 968 (glm-flash + fallback chậm) |
+| totalTokens | 97 714 |
+
+**4 case FAIL** (đều `groundedness`/`citation` — glm yếu ở claim-extract/NLI
+trên answer từ MCP): `mcp-discovery-selection`, `mcp-execution`,
+`mcp-workflow-chain`, `rag-numeric-provenance`. `byFailureClass` cho các case
+inject-failure: `MCP_PROVIDER_ERROR` ×1, `TIMEOUT_ERROR` ×1 (agent recover
+đúng — passRate 100% nhóm failure).
+
+`benchmarks/agent/thresholds.json` đã hiệu chỉnh theo baseline này (gate =
+regression detector; siết lại khi đổi model mạnh hơn). Với `LLM_PROVIDER=fake`
+agent không gọi tool → benchmark chỉ có nghĩa với model thật;
+`agent-benchmark.runner.spec.ts` (fake có script) xác nhận runner + evaluator +
+mock provider hoạt động.
 
 ## 15. Known limitations
 

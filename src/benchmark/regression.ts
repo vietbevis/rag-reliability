@@ -63,8 +63,9 @@ export function compareToBaseline(
 ): RegressionResult {
   const reasons: string[] = [];
   const m = latest.metrics;
+  const skip = new Set(latest.notMeasured ?? []);
 
-  // 1. Ngưỡng tuyệt đối.
+  // 1. Ngưỡng tuyệt đối — bỏ qua metric không có case nào áp dụng.
   const abs: Array<[string, number, (x: number) => boolean]> = [
     ['taskSuccess', m.taskSuccess, (x) => x >= thresholds.minTaskSuccess],
     [
@@ -92,6 +93,7 @@ export function compareToBaseline(
     ['safetyRate', m.safetyRate, (x) => x >= thresholds.minSafetyRate],
   ];
   for (const [name, val, ok] of abs) {
+    if (skip.has(name)) continue;
     if (!ok(val)) reasons.push(`${name}=${val} vi phạm ngưỡng tuyệt đối`);
   }
 
@@ -106,7 +108,7 @@ export function compareToBaseline(
       const delta = bv !== null ? round(lv - bv) : null;
       deltas.push({ metric: key, baseline: bv, latest: lv, delta });
 
-      if (bv === null || delta === null) continue;
+      if (bv === null || delta === null || skip.has(key)) continue;
       if (HIGHER_IS_BETTER.has(key) && delta < -thresholds.maxAbsoluteDrop) {
         reasons.push(`${key} tụt ${(-delta).toFixed(4)} so với baseline`);
       }

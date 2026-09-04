@@ -27,6 +27,7 @@ function report(
     },
     byCategory: {},
     byFailureClass: {},
+    notMeasured: [],
     cases: [],
   };
 }
@@ -65,6 +66,17 @@ describe('compareToBaseline', () => {
   it('deltas gồm mọi metric', () => {
     const r = compareToBaseline(report(), report());
     expect(r.deltas.find((d) => d.metric === 'taskSuccess')?.delta).toBe(0);
+  });
+
+  it('bỏ qua metric trong notMeasured (chạy subset --case)', () => {
+    const r = compareToBaseline(
+      {
+        ...report({ argumentAccuracy: 0, recoveryRate: 0 }),
+        notMeasured: ['argumentAccuracy', 'recoveryRate'],
+      },
+      report(),
+    );
+    expect(r.reasons.join()).not.toMatch(/argumentAccuracy|recoveryRate/);
   });
 
   it('threshold config-able', () => {

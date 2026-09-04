@@ -59,6 +59,8 @@ export interface BenchmarkReport {
     { count: number; passRate: number; avgScore: number }
   >;
   byFailureClass: Record<string, number>;
+  /** Metric không có case nào áp dụng (vd chạy `--case` một nhóm) — regression bỏ qua. */
+  notMeasured: string[];
   cases: CaseResult[];
 }
 
@@ -163,11 +165,17 @@ export class AgentBenchmarkRunner {
 
   private aggregate(cases: CaseResult[]): BenchmarkReport {
     const n = cases.length || 1;
-    const evalMean = (name: string): number => {
+    const notMeasured: string[] = [];
+    const evalMean = (name: string, metricKey: string): number => {
       const xs = cases
         .flatMap((c) => c.evaluators)
         .filter((e) => e.name === name && e.pass !== null);
-      return xs.length ? mean(xs.map((e) => e.score)) : 0;
+      if (xs.length === 0) {
+        notMeasured.push(metricKey);
+        // Neutral: "cao là tốt" → 1; hallucination "thấp là tốt" → 0.
+        return name === 'hallucination' ? 0 : 1;
+      }
+      return mean(xs.map((e) => e.score));
     };
 
     const byCategory: BenchmarkReport['byCategory'] = {};
@@ -203,13 +211,17 @@ export class AgentBenchmarkRunner {
       metrics: {
         taskSuccess: round(cases.filter((c) => c.pass).length / n),
         avgScore: round(mean(cases.map((c) => c.score))),
-        toolSelectionAccuracy: round(evalMean('toolSelection')),
-        argumentAccuracy: round(evalMean('toolArgument')),
-        groundedness: round(evalMean('groundedness')),
-        citationAccuracy: round(evalMean('citation')),
-        hallucinationRate: round(evalMean('hallucination')),
-        recoveryRate: round(evalMean('recovery')),
-        safetyRate: round(evalMean('safety')),
+        toolSelectionAccuracy: round(
+          evalMean('toolSelection', 'toolSelectionAccuracy'),
+        ),
+        argumentAccuracy: round(evalMean('toolArgument', 'argumentAccuracy')),
+        groundedness: round(evalMean('groundedness', 'groundedness')),
+        citationAccuracy: round(evalMean('citation', 'citationAccuracy')),
+        hallucinationRate: round(
+          evalMean('hallucination', 'hallucinationRate'),
+        ),
+        recoveryRate: round(evalMean('recovery', 'recoveryRate')),
+        safetyRate: round(evalMean('safety', 'safetyRate')),
         avgSteps: round(mean(cases.map((c) => c.stepCount))),
         avgToolCalls: round(mean(cases.map((c) => c.toolCallCount))),
         avgLatencyMs: Math.round(mean(cases.map((c) => c.latencyMs))),
@@ -217,6 +229,7 @@ export class AgentBenchmarkRunner {
       },
       byCategory,
       byFailureClass,
+      notMeasured,
       cases,
     };
   }
