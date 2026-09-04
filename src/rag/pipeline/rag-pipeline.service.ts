@@ -28,6 +28,10 @@ import { ClaimExtractorService } from '../grounding/claim-extractor.service';
 import { EvidenceMatcherService } from '../grounding/evidence-matcher.service';
 import { CitationService } from '../grounding/citation.service';
 import { FaithfulnessService } from '../grounding/faithfulness.service';
+import {
+  applyNumericProvenance,
+  resolveGroundedStatus,
+} from '../grounding/grounding-resolution';
 
 export interface RagQueryRequest {
   query: string;
@@ -321,18 +325,21 @@ export class RagPipelineService {
                   : c;
               });
 
-              // Xử lý mâu thuẫn hoặc không grounded
-              const hasContradiction = claims.some(
-                (c) => c.verdict === 'CONTRADICTED',
+              // §9.3 numeric-provenance + map RagStatus — LÕI DÙNG CHUNG với
+              // AnswerVerificationService (grounding-resolution.ts).
+              const provCitations = applyNumericProvenance(
+                claims,
+                context.chunks,
               );
-              if (
-                hasContradiction ||
-                faithExec.result.rootCause === 'CONFLICTING_CONTEXT'
-              ) {
-                status = 'CONFLICTING_EVIDENCE';
-              } else if (!faithExec.result.grounded && status === 'GROUNDED') {
-                status = 'PARTIALLY_GROUNDED';
+              if (provCitations.length > 0) {
+                citations = [...citations, ...provCitations];
               }
+              status = resolveGroundedStatus({
+                claims,
+                faithGrounded: faithExec.result.grounded,
+                faithRootCause: faithExec.result.rootCause,
+                initialStatus: status,
+              });
             }
           } else {
             // Baseline P4: map thô usedContext → chunk, không tách claim.

@@ -41,6 +41,10 @@ export class FakeLlmProvider implements LLMProvider {
 
   /** Kịch bản cho các lượt `chatWithTools` kế tiếp. FIFO, cạn ⇒ trả lời thẳng. */
   private toolScript: FakeToolTurn[] = [];
+  /** Kịch bản cho `chatStructured` kế tiếp (FIFO). Cạn ⇒ dựng từ schema. */
+  private structuredScript: unknown[] = [];
+  /** `false` ⇒ ép agent loop đi đường fallback `chatStructured` (17.11 / PHASE 18). */
+  private nativeToolCalling = true;
 
   isConfigured(): boolean {
     return true;
@@ -51,8 +55,18 @@ export class FakeLlmProvider implements LLMProvider {
     this.toolScript = [...turns];
   }
 
+  /** Nạp kịch bản `chatStructured` (mỗi phần tử là object đã hợp schema). */
+  scriptStructured(values: unknown[]): void {
+    this.structuredScript = [...values];
+  }
+
+  /** Bật/tắt native tool-calling — test nhánh fallback. */
+  setNativeToolCalling(enabled: boolean): void {
+    this.nativeToolCalling = enabled;
+  }
+
   supportsNativeToolCalling(): boolean {
-    return true;
+    return this.nativeToolCalling;
   }
 
   chatWithTools(
@@ -130,10 +144,14 @@ export class FakeLlmProvider implements LLMProvider {
     options: LLMOptions = {},
   ): Promise<StructuredResult<T>> {
     const started = Date.now();
-    const raw = fakeValueForSchema(schema, {
-      messages,
-      sourceText: sourceText(messages),
-    });
+    const scripted = this.structuredScript.shift();
+    const raw =
+      scripted !== undefined
+        ? scripted
+        : fakeValueForSchema(schema, {
+            messages,
+            sourceText: sourceText(messages),
+          });
     const data = schema.parse(raw);
     return Promise.resolve({
       data,

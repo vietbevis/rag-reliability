@@ -214,39 +214,91 @@ export abstract class BaseLangChainLlmProvider implements LLMProvider {
     const model = this.requireModel(options);
     const lcMessages = toLangChainMessages(messages);
     const started = Date.now();
+    const modelName = this.resolveModelName(options);
 
     const structured = model.withStructuredOutput(
       schema as Parameters<typeof model.withStructuredOutput>[0],
       { includeRaw: true },
     );
 
-    const { value } = await withRetry(
+    // 1) Đường chính: `withStructuredOutput` (function-calling / json mode).
+    const primary = await withRetry(
       (signal) => structured.invoke(lcMessages, { signal }),
       this.retryOpts(options.traceLabel ?? 'llm.structured', options),
+    ).catch((err: unknown) => ({ err }));
+
+    if (!('err' in primary)) {
+      const { raw, parsed } = primary.value as { raw: AIMessage; parsed: T };
+      const check = schema.safeParse(parsed);
+      if (check.success) {
+        return {
+          data: check.data,
+          usage: this.toTokenUsage(
+            raw.usage_metadata,
+            raw.response_metadata,
+            modelName,
+          ),
+          model: modelName,
+          provider: this.provider,
+          latencyMs: Date.now() - started,
+        };
+      }
+      this.logger.warn(
+        `chatStructured: kết quả withStructuredOutput không hợp schema — thử decode thủ công`,
+      );
+    } else {
+      this.logger.warn(
+        `chatStructured: withStructuredOutput lỗi (${
+          (primary.err as Error)?.message ?? 'unknown'
+        }) — thử decode thủ công (model bọc \`\`\`json?)`,
+      );
+    }
+
+    // 2) Fallback: gọi chat thường, ép JSON, gỡ fence markdown, parse + validate.
+    //    Nhiều model (glm, một số vLLM build) trả JSON bọc ```json ... ```
+    //    khiến json-mode parser của LangChain gãy — KHÔNG tin output thô (§50).
+    const jsonInstruction: ChatMessage = {
+      role: 'system',
+      content:
+        'Trả về DUY NHẤT một JSON object hợp lệ (không giải thích, KHÔNG bọc ' +
+        'trong ```). Nếu không chắc trường nào, dùng giá trị mặc định hợp lý.',
+    };
+    const fallbackMessages = [
+      ...toLangChainMessages([jsonInstruction]),
+      ...lcMessages,
+    ];
+    const { value: chat } = await withRetry(
+      (signal) => model.invoke(fallbackMessages, { signal }),
+      this.retryOpts(options.traceLabel ?? 'llm.structured.fallback', options),
     ).catch((err) => {
       throw this.wrap(err, 'chatStructured');
     });
 
-    const { raw, parsed } = value as {
-      raw: AIMessage;
-      parsed: T;
-    };
-
-    // Không bao giờ tin tưởng mù quáng việc provider ép schema (PROMPT §50).
-    const validated = schema.parse(parsed);
-    const latencyMs = Date.now() - started;
-    const modelName = this.resolveModelName(options);
+    const text = messageContentToString((chat as AIMessage).content);
+    const jsonText = extractJsonObject(text);
+    let parsedJson: unknown;
+    try {
+      parsedJson = JSON.parse(jsonText);
+    } catch (err) {
+      throw this.wrap(
+        new Error(
+          `không trích được JSON hợp lệ từ output model: ${(err as Error).message}`,
+        ),
+        'chatStructured',
+      );
+    }
+    const validated = schema.parse(parsedJson);
 
     return {
       data: validated,
       usage: this.toTokenUsage(
-        raw.usage_metadata,
-        raw.response_metadata,
+        (chat as AIMessage).usage_metadata,
+        (chat as AIMessage).response_metadata,
         modelName,
       ),
       model: modelName,
       provider: this.provider,
-      latencyMs,
+      latencyMs: Date.now() - started,
     };
   }
 
@@ -391,6 +443,35 @@ export function validateToolCalls(
       argsValid: true,
     };
   });
+}
+
+/**
+ * Trích JSON object đầu tiên từ text model sinh: gỡ fence ```json … ```, bỏ
+ * chữ dẫn trước/sau, cắt từ `{` đầu tới `}` cân bằng cuối. Dùng khi
+ * `withStructuredOutput` gãy vì model bọc markdown.
+ */
+export function extractJsonObject(text: string): string {
+  let s = text.trim();
+  const fence = /```(?:json)?\s*([\s\S]*?)```/i.exec(s);
+  if (fence?.[1]) s = fence[1].trim();
+  const start = s.indexOf('{');
+  if (start === -1) return s;
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = start; i < s.length; i++) {
+    const ch = s[i]!;
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === '\\') esc = true;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') inStr = true;
+    else if (ch === '{') depth++;
+    else if (ch === '}' && --depth === 0) return s.slice(start, i + 1);
+  }
+  return s.slice(start);
 }
 
 export function messageContentToString(content: unknown): string {

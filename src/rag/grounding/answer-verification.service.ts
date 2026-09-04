@@ -15,7 +15,10 @@ import { CitationService } from './citation.service';
 import { ClaimExtractorService } from './claim-extractor.service';
 import { EvidenceMatcherService } from './evidence-matcher.service';
 import { FaithfulnessService } from './faithfulness.service';
-import { chunksBackingNumbers, extractNumbers } from './numeric-provenance';
+import {
+  applyNumericProvenance,
+  resolveGroundedStatus,
+} from './grounding-resolution';
 
 /** Câu từ chối chuẩn khi không đủ căn cứ (đồng bộ với RagPipelineService). */
 export const ABSTAIN_ANSWER =
@@ -47,13 +50,15 @@ function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
 }
 
 /**
- * Kiểm chứng một câu trả lời với tập chunk evidence (PROMPT §24-28). Đóng gói
- * đúng chuỗi mà `RagPipelineService` chạy inline — claim → evidence (lexical) →
- * citation → faithfulness verifier → map `RagStatus` — để **agent `finalize`**
- * (PHASE 17 §9) và pipeline RAG dùng chung một đường verify.
+ * Kiểm chứng một câu trả lời với tập chunk evidence (PROMPT §24-28): claim →
+ * evidence (lexical) → citation → faithfulness verifier → numeric-provenance →
+ * map `RagStatus`. Dùng bởi **agent `finalize`** (evidence từ tool result).
  *
- * (`RagPipelineService` sẽ được refactor để gọi service này — hiện giữ nguyên
- * để không đụng test RAG; xem docs/architecture/agent-tools.md §18.)
+ * `RagPipelineService` (/rag/query) KHÔNG gọi thẳng service này vì nó cần khớp
+ * evidence theo **citation-marker của generator** (`usedContextChunkIds`) +
+ * tối ưu tái dùng `gen.claims` — khác bản chất với agent. Hai bên **dùng chung
+ * lõi** `grounding-resolution.ts` (numeric-provenance + map status) để không
+ * lệch logic (PHASE 18 — hợp nhất phần thực sự chung).
  */
 @Injectable()
 export class AnswerVerificationService {
@@ -169,58 +174,14 @@ export class AnswerVerificationService {
       };
     });
 
-    // §9.3 numeric-provenance: claim chứa số ĐÃ có trong evidence (chuẩn hoá bỏ
-    // dấu phân cách) ⇒ nâng SUPPORTED — bù cho lexical/NLI trượt định dạng số.
-    // KHÔNG lấn CONTRADICTED.
-    const provCitations: typeof built.citations = [];
-    for (const c of claims) {
-      if (c.supported || c.verdict === 'CONTRADICTED') continue;
-      const claimNums = extractNumbers(c.text);
-      if (claimNums.size === 0) continue;
-      const backing = chunksBackingNumbers(c.text, chunks);
-      const allBacked = [...claimNums].every((n) =>
-        backing.some((id) =>
-          extractNumbers(
-            chunks.find((ch) => ch.chunkId === id)?.content ?? '',
-          ).has(n),
-        ),
-      );
-      if (!allBacked) continue;
-      c.supported = true;
-      c.verdict = 'SUPPORTED';
-      c.evidenceChunkIds = backing.slice(0, 3);
-      for (const chunkId of c.evidenceChunkIds) {
-        const ch = chunks.find((x) => x.chunkId === chunkId);
-        if (ch) {
-          provCitations.push({
-            claimId: c.id,
-            claimText: c.text,
-            kind: 'chunk',
-            documentId: ch.documentId,
-            chunkId: ch.chunkId,
-            page: ch.page,
-            section: ch.section,
-            valid: true,
-          });
-        }
-      }
-    }
-
-    let status: RagStatus = initialStatus;
-    const hasContradiction = claims.some((c) => c.verdict === 'CONTRADICTED');
-    if (hasContradiction || faith.result.rootCause === 'CONFLICTING_CONTEXT') {
-      status = 'CONFLICTING_EVIDENCE';
-    } else if (!faith.result.grounded && status === 'GROUNDED') {
-      status = 'PARTIALLY_GROUNDED';
-    }
-    // Answer hoàn toàn không có căn cứ ⇒ abstain — nhưng KHÔNG lấn mâu thuẫn.
-    if (
-      status !== 'CONFLICTING_EVIDENCE' &&
-      claims.length > 0 &&
-      claims.every((c) => !c.supported)
-    ) {
-      status = 'INSUFFICIENT_EVIDENCE';
-    }
+    // §9.3 numeric-provenance + map RagStatus — LÕI DÙNG CHUNG với RagPipelineService.
+    const provCitations = applyNumericProvenance(claims, chunks);
+    const status = resolveGroundedStatus({
+      claims,
+      faithGrounded: faith.result.grounded,
+      faithRootCause: faith.result.rootCause,
+      initialStatus,
+    });
 
     return {
       answer: status === 'INSUFFICIENT_EVIDENCE' ? ABSTAIN_ANSWER : answer,

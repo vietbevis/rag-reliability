@@ -201,6 +201,43 @@ describe('AgentGraphBuilder.run', () => {
     expect(out.evidence).toHaveLength(0);
   });
 
+  it('fallback chatStructured khi provider KHÔNG hỗ trợ native tool-calling', async () => {
+    const { builder, fake } = await makeBuilder();
+    fake.setNativeToolCalling(false);
+    fake.scriptStructured([
+      {
+        type: 'tool_call',
+        toolName: 'calculator__calculate',
+        arguments: { expression: '43*27' },
+      },
+      { type: 'final', answer: 'Kết quả là 1161.' },
+    ]);
+
+    const out = await builder.run('tính 43*27');
+
+    expect(out.stopReason).toBe('final');
+    expect(out.answer).toBe('Kết quả là 1161.');
+    expect(out.toolCallCount).toBe(1);
+    const toolResult = out.steps.find((s) => s.type === 'TOOL_RESULT');
+    expect(toolResult?.toolName).toBe('calculator__calculate');
+    expect(toolResult?.toolOutput).toMatchObject({ result: '1161' });
+    expect(out.finalStatus).toBe('GROUNDED');
+  });
+
+  it('fallback: tool lạ trong JSON → argsValid=false, agent nhận lỗi', async () => {
+    const { builder, fake } = await makeBuilder();
+    fake.setNativeToolCalling(false);
+    fake.scriptStructured([
+      { type: 'tool_call', toolName: 'khong_ton_tai', arguments: {} },
+      { type: 'final', answer: 'đã xoay hướng' },
+    ]);
+
+    const out = await builder.run('x');
+    expect(out.answer).toBe('đã xoay hướng');
+    const toolResult = out.steps.find((s) => s.type === 'TOOL_RESULT');
+    expect(toolResult?.error).toMatch(/Không có tool/);
+  });
+
   it('nhiều tool trong một lượt', async () => {
     const { builder, script } = await makeBuilder();
     script([

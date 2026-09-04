@@ -6,6 +6,7 @@ import { LlmProvider } from '../llm-provider.enum';
 import type { LLMOptions, ToolSpec } from '../llm.interface';
 import {
   BaseLangChainLlmProvider,
+  extractJsonObject,
   messageContentToString,
   toLangChainMessages,
 } from './base-langchain-llm.provider';
@@ -334,5 +335,63 @@ describe('BaseLangChainLlmProvider.chatStructured', () => {
     );
     expect(res.data).toEqual({ answer: 'yes', score: 0.9 });
     expect(res.usage.totalTokens).toBe(5);
+  });
+
+  it('withStructuredOutput gãy vì ```json → fallback decode thủ công', async () => {
+    const schema = z.object({ answer: z.string(), score: z.number() });
+    const withStructuredOutput = jest.fn().mockReturnValue({
+      invoke: jest
+        .fn()
+        .mockRejectedValue(new Error("Unexpected token '`', \"```json")),
+    });
+    const invoke = jest.fn().mockResolvedValue(
+      new AIMessage({
+        content:
+          'Chắc chắn rồi, đây là kết quả:\n```json\n{ "answer": "vâng", "score": 0.8 }\n```',
+        usage_metadata: { input_tokens: 4, output_tokens: 6, total_tokens: 10 },
+      }),
+    );
+    const provider = new FakeProvider(
+      fakeModel({ withStructuredOutput, invoke }),
+    );
+
+    const res = await provider.chatStructured(
+      [{ role: 'user', content: 'q' }],
+      schema,
+    );
+    expect(res.data).toEqual({ answer: 'vâng', score: 0.8 });
+    expect(invoke).toHaveBeenCalled();
+  });
+
+  it('withStructuredOutput trả kết quả sai schema → fallback', async () => {
+    const schema = z.object({ n: z.number() });
+    const withStructuredOutput = jest.fn().mockReturnValue({
+      invoke: jest.fn().mockResolvedValue({
+        raw: new AIMessage({ content: '' }),
+        parsed: { n: 'not-a-number' },
+      }),
+    });
+    const invoke = jest
+      .fn()
+      .mockResolvedValue(new AIMessage({ content: '{"n": 42}' }));
+    const provider = new FakeProvider(
+      fakeModel({ withStructuredOutput, invoke }),
+    );
+    const res = await provider.chatStructured(
+      [{ role: 'user', content: 'q' }],
+      schema,
+    );
+    expect(res.data).toEqual({ n: 42 });
+  });
+});
+
+describe('extractJsonObject', () => {
+  it.each([
+    ['```json\n{"a":1}\n```', '{"a":1}'],
+    ['text {"a": {"b": 2}} more', '{"a": {"b": 2}}'],
+    ['{"s": "}"}', '{"s": "}"}'],
+    ['no json here', 'no json here'],
+  ])('%s', (input, expected) => {
+    expect(extractJsonObject(input)).toBe(expected);
   });
 });
