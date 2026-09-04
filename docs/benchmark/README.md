@@ -34,6 +34,9 @@ Benchmark → Dataset (jsonl) → Case → buildCaseRegistry (mock) → AgentGra
   `evaluators`.
 - **Regression** (`regression.ts`): ngưỡng tuyệt đối + sụt so baseline. Config:
   `benchmarks/agent/thresholds.json` (partial `RegressionThresholds`).
+- Khi chạy `--baseline`, CLI cũng ghi `thresholds.suggested.json` (= baseline −
+  margin). Copy sang `thresholds.json` để gate hoạt động như **regression
+  detector** thay vì ngưỡng lý tưởng cứng (dùng khi model chưa đạt bar tuyệt đối).
 
 ## Metrics báo cáo
 

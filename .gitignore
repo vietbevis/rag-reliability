@@ -67,3 +67,5 @@ evaluation/agent/results.json
 # Agent benchmark: latest/diff sinh mỗi lần chạy; baseline commit thủ công
 benchmarks/agent/results/latest.json
 benchmarks/agent/results/diff.json
+
+benchmarks/agent/thresholds.suggested.json

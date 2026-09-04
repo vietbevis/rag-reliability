@@ -64,6 +64,31 @@ async function main(): Promise<void> {
         JSON.stringify(report, null, 2),
       );
       logger.log('→ baseline.json (đã chốt baseline mới)');
+
+      // Gợi ý thresholds.json hiệu chỉnh theo baseline thực tế: gate trở thành
+      // "regression detector" (baseline − margin) thay vì ngưỡng lý tưởng cứng.
+      const m = report.metrics;
+      const drop = DEFAULT_THRESHOLDS.maxAbsoluteDrop;
+      const suggested = {
+        _note:
+          'Sinh từ --baseline. Ngưỡng = baseline − margin để bắt REGRESSION. ' +
+          'Sửa tay khi chất lượng model cải thiện.',
+        minTaskSuccess: round(m.taskSuccess - drop),
+        minToolSelectionAccuracy: round(m.toolSelectionAccuracy - drop),
+        minArgumentAccuracy: round(m.argumentAccuracy - drop),
+        minGroundedness: round(m.groundedness - drop),
+        minCitationAccuracy: round(m.citationAccuracy - drop),
+        maxHallucinationRate: round(m.hallucinationRate + drop),
+        minRecoveryRate: round(m.recoveryRate - drop),
+        minSafetyRate: round(m.safetyRate - drop),
+        maxLatencyMultiplier: DEFAULT_THRESHOLDS.maxLatencyMultiplier,
+        maxAbsoluteDrop: drop,
+      };
+      const tPath = join(BENCHMARK_DIR, 'thresholds.suggested.json');
+      writeFileSync(tPath, JSON.stringify(suggested, null, 2));
+      logger.log(
+        `→ ${tPath} — copy sang thresholds.json để bật gate hiệu chỉnh`,
+      );
     }
 
     const baseline = loadReport(join(RESULTS_DIR, 'baseline.json'));
@@ -85,6 +110,10 @@ async function main(): Promise<void> {
   } finally {
     await app.close();
   }
+}
+
+function round(n: number): number {
+  return Math.max(0, Math.round(n * 1e4) / 1e4);
 }
 
 function loadReport(path: string): BenchmarkReport | null {
