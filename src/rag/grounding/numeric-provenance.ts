@@ -30,6 +30,19 @@ export function extractNumbers(text: string): Set<string> {
   return out;
 }
 
+/**
+ * true nếu `n` trông như một năm dương lịch trơ trọi (4 chữ số, 1900-2099).
+ * Năm KHÔNG đặc trưng cho một claim cụ thể — nó lặp lại ở hầu hết mọi câu nói
+ * về ngày tháng trong cùng ngữ cảnh (vd "hôm nay 4/9/2026" và "9/9/2026 là thứ
+ * Ba" đều chứa "2026"). Numeric-provenance (§9.3) chỉ nên "chứng thực" một
+ * claim khi ít nhất một số ĐẶC TRƯNG (giá tiền, cổng, id, số lượng…) trùng —
+ * một mình năm trùng không đủ, kẻo claim sai (ngày/thứ khác) bị ép SUPPORTED
+ * oan chỉ vì cùng năm với evidence không liên quan (agent-tools.md §9.3 [P1]).
+ */
+export function isGenericYear(n: string): boolean {
+  return n.length === 4 && Number(n) >= 1900 && Number(n) <= 2099;
+}
+
 export interface NumericProvenance {
   /** Số "có nghĩa" tìm thấy trong câu trả lời. */
   checked: number;

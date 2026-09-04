@@ -44,6 +44,27 @@ describe('applyNumericProvenance', () => {
     applyNumericProvenance(claims, [chunk('k1', 'Có 100 sinh viên.')]);
     expect(claims[0]!.supported).toBe(false);
   });
+
+  it('[P1] KHÔNG nâng SUPPORTED khi số DUY NHẤT trùng chỉ là năm dương lịch trơ trọi', () => {
+    // Tái hiện bug thật: agent nói hôm nay 4/9/2026 (đúng), rồi khẳng định sai
+    // "9/9/2026 là Thứ Ba" (thực ra Thứ Tư) — evidence duy nhất chỉ nói về
+    // 4/9/2026, chỉ trùng NĂM với claim, không chứng thực được ngày/thứ.
+    const claims = [claim({ text: 'Ngày 9 tháng 9, 2026 là Thứ Ba.' })];
+    applyNumericProvenance(claims, [
+      chunk('compute:1', 'Thời điểm hiện tại: Thứ Sáu, 4 tháng 9, 2026.'),
+    ]);
+    expect(claims[0]!.supported).toBe(false);
+    expect(claims[0]!.verdict).toBe('UNSUPPORTED');
+  });
+
+  it('vẫn nâng SUPPORTED khi có số ĐẶC TRƯNG khớp cùng với năm', () => {
+    const claims = [claim({ text: 'Redis chạy cổng 6380 (kể từ 2025).' })];
+    const cites = applyNumericProvenance(claims, [
+      chunk('k1', 'Redis chuyển sang cổng 6380 từ năm 2025.'),
+    ]);
+    expect(claims[0]!.supported).toBe(true);
+    expect(cites[0]).toMatchObject({ chunkId: 'k1', valid: true });
+  });
 });
 
 describe('resolveGroundedStatus', () => {

@@ -4,7 +4,11 @@ import type {
   RetrievedChunk,
   VerifiedClaim,
 } from '../../common/types';
-import { chunksBackingNumbers, extractNumbers } from './numeric-provenance';
+import {
+  chunksBackingNumbers,
+  extractNumbers,
+  isGenericYear,
+} from './numeric-provenance';
 
 /**
  * Lõi verify DÙNG CHUNG giữa `RagPipelineService` (/rag/query) và
@@ -17,6 +21,13 @@ import { chunksBackingNumbers, extractNumbers } from './numeric-provenance';
  * §9.3 numeric-provenance: claim chứa số ĐÃ xuất hiện trong evidence (chuẩn hoá
  * bỏ dấu phân cách — "684.500" ≡ "684500") ⇒ nâng verdict SUPPORTED + sinh
  * citation. Bù cho lexical/NLI trượt định dạng số. **KHÔNG lấn CONTRADICTED.**
+ *
+ * [P1] Không tự nâng SUPPORTED nếu số DUY NHẤT trùng là một năm dương lịch trơ
+ * trọi ({@link isGenericYear}) — năm lặp lại ở hầu hết câu cùng chủ đề ngày
+ * tháng nên trùng năm không chứng minh được nội dung thật của claim (vd claim
+ * sai "9/9/2026 là Thứ Ba" bị ép SUPPORTED chỉ vì evidence khác cũng nhắc
+ * "2026"). Cần ít nhất một số ĐẶC TRƯNG (giá tiền, cổng, id, số lượng…) khớp.
+ *
  * Mutate `claims` tại chỗ; trả citation phát sinh.
  */
 export function applyNumericProvenance(
@@ -28,6 +39,7 @@ export function applyNumericProvenance(
     if (c.supported || c.verdict === 'CONTRADICTED') continue;
     const claimNums = extractNumbers(c.text);
     if (claimNums.size === 0) continue;
+    if ([...claimNums].every(isGenericYear)) continue;
     const backing = chunksBackingNumbers(c.text, chunks);
     const allBacked = [...claimNums].every((n) =>
       backing.some((id) =>

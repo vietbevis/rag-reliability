@@ -2,6 +2,7 @@ import {
   checkNumericProvenance,
   chunksBackingNumbers,
   extractNumbers,
+  isGenericYear,
 } from './numeric-provenance';
 
 describe('extractNumbers', () => {
@@ -49,6 +50,23 @@ describe('checkNumericProvenance', () => {
     const r = checkNumericProvenance('không rõ', ['684500']);
     expect(r.checked).toBe(0);
     expect(r.allGrounded).toBe(false);
+  });
+});
+
+describe('isGenericYear', () => {
+  it('nhận diện năm dương lịch trơ trọi (1900-2099, 4 chữ số)', () => {
+    expect(isGenericYear('2026')).toBe(true);
+    expect(isGenericYear('1999')).toBe(true);
+  });
+
+  it('không nhận nhầm số 4 chữ số khác (cổng, mã, tiền)', () => {
+    expect(isGenericYear('6379')).toBe(false); // cổng Redis
+    expect(isGenericYear('1024')).toBe(false); // số chiều embedding
+  });
+
+  it('không nhận nhầm số khác 4 chữ số', () => {
+    expect(isGenericYear('20260904')).toBe(false);
+    expect(isGenericYear('99')).toBe(false);
   });
 });
 
