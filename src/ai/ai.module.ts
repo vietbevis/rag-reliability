@@ -18,6 +18,7 @@ import { TokenCounterService } from './tokenizer/token-counter.service';
 import { NoopRerankerProvider } from './reranking/providers/noop-reranker.provider';
 import { FakeRerankerProvider } from './reranking/providers/fake-reranker.provider';
 import { LlmRerankerProvider } from './reranking/providers/llm-reranker.provider';
+import { ApiRerankerProvider } from './reranking/providers/api-reranker.provider';
 import { RerankerFactoryService } from './reranking/reranker-factory.service';
 import { RerankerService } from './reranking/reranker.service';
 
@@ -48,6 +49,7 @@ import { RerankerService } from './reranking/reranker.service';
     NoopRerankerProvider,
     FakeRerankerProvider,
     LlmRerankerProvider,
+    ApiRerankerProvider,
     RerankerFactoryService,
     RerankerService,
   ],

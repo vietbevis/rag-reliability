@@ -97,9 +97,13 @@ export interface AppConfig {
   };
   rerank: {
     enabled: boolean;
-    provider: 'none' | 'fake' | 'llm';
+    provider: 'none' | 'fake' | 'llm' | 'api';
     candidates: number;
     topK: number;
+    /** Endpoint HTTP /v1/rerank tương thích Jina (chỉ khi provider=api). */
+    baseUrl?: string;
+    apiKey?: string;
+    model?: string;
   };
   reliability: {
     faithfulnessThreshold: number;
@@ -316,6 +320,9 @@ export function loadConfiguration(): AppConfig {
       provider: env.RERANK_PROVIDER,
       candidates: env.RERANK_CANDIDATES,
       topK: env.RERANK_TOP_K,
+      baseUrl: env.RERANK_BASE_URL,
+      apiKey: env.RERANK_API_KEY,
+      model: env.RERANK_MODEL,
     },
     reliability: {
       faithfulnessThreshold: env.FAITHFULNESS_THRESHOLD,

@@ -176,9 +176,16 @@ export const envSchema = z
     // Bật/tắt bước rerank. Tắt → đi thẳng retrieval(topK=RERANK_TOP_K) → context.
     RERANK_ENABLED: boolish(false),
     // none = identity (baseline) | fake = heuristic token-overlap (CI) | llm = listwise LLM
-    RERANK_PROVIDER: z.enum(['none', 'fake', 'llm']).default('none'),
+    // api = endpoint HTTP /v1/rerank tương thích Jina (llama.cpp --reranking, Infinity, TEI, vLLM)
+    RERANK_PROVIDER: z.enum(['none', 'fake', 'llm', 'api']).default('none'),
     // Số ứng viên lấy từ retrieval để đưa vào reranker (rerank topN → topK).
     RERANK_CANDIDATES: numeric({ int: true, min: 1, max: 200, default: 20 }),
+    // Endpoint reranker HTTP (chỉ dùng khi RERANK_PROVIDER=api). Ví dụ Ollama
+    // không có rerank ⇒ chạy `llama-server -m Qwen3-Reranker-0.6B --reranking
+    // --pooling rank` rồi trỏ vào đây.
+    RERANK_BASE_URL: z.string().trim().url().optional(),
+    RERANK_API_KEY: z.string().trim().optional(),
+    RERANK_MODEL: z.string().trim().optional(),
     MAX_CONTEXT_TOKENS: numeric({
       int: true,
       min: 256,
@@ -576,6 +583,14 @@ export const envSchema = z
           'CUSTOM_EMBEDDING_BASE_URL and CUSTOM_EMBEDDING_MODEL are required when EMBEDDING_PROVIDER=custom',
         );
         break;
+    }
+
+    if (env.RERANK_PROVIDER === 'api') {
+      requireKey(
+        !!env.RERANK_BASE_URL && !!env.RERANK_MODEL,
+        'RERANK_BASE_URL',
+        'RERANK_BASE_URL và RERANK_MODEL bắt buộc khi RERANK_PROVIDER=api',
+      );
     }
   });
 

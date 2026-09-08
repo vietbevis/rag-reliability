@@ -41,8 +41,17 @@ export class EmbeddingService {
     const emb = config.get('embedding', { infer: true });
     const model = this.safeModel();
     const autoE5 = /e5/i.test(model);
+    // Qwen3-Embedding: chỉ query có instruction ("Instruct: …\nQuery: …"),
+    // passage để thô (khuyến nghị chính chủ). Không nhầm với model chat qwen3.
+    const autoQwen3 = /qwen3.*embed/i.test(model);
 
-    this.queryPrefix = emb.queryPrefix || (autoE5 ? 'query: ' : '');
+    this.queryPrefix =
+      emb.queryPrefix ||
+      (autoE5
+        ? 'query: '
+        : autoQwen3
+          ? 'Instruct: Given a question, retrieve passages that answer it\nQuery: '
+          : '');
     this.passagePrefix = emb.passagePrefix || (autoE5 ? 'passage: ' : '');
 
     if (this.queryPrefix || this.passagePrefix) {

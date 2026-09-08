@@ -67,6 +67,20 @@ describe('validateEnv', () => {
     expect(env.LLM_PROVIDER).toBe('custom');
   });
 
+  it('RERANK_PROVIDER=api cần RERANK_BASE_URL và RERANK_MODEL', () => {
+    expect(() => validateEnv({ ...base, RERANK_PROVIDER: 'api' })).toThrow(
+      /RERANK_BASE_URL/,
+    );
+
+    const env = validateEnv({
+      ...base,
+      RERANK_PROVIDER: 'api',
+      RERANK_BASE_URL: 'http://localhost:11435/v1',
+      RERANK_MODEL: 'Qwen3-Reranker-0.6B',
+    });
+    expect(env.RERANK_PROVIDER).toBe('api');
+  });
+
   it('từ chối threshold ngoài khoảng [0,1]', () => {
     expect(() => validateEnv({ ...base, QUALITY_THRESHOLD: '1.4' })).toThrow(
       EnvValidationError,

@@ -61,12 +61,27 @@ export abstract class BaseLangChainLlmProvider implements LLMProvider {
     return this.getModel() !== null;
   }
 
+  /**
+   * Hook cho provider con biến đổi danh sách message ngay trước khi gửi (mặc
+   * định: giữ nguyên). `CustomLlmProvider` dùng để chèn `/no_think` cho Qwen3
+   * khi `options.reasoning === false` — Ollama `/v1` bỏ qua `enable_thinking`.
+   */
+  protected prepareMessages(
+    messages: ChatMessage[],
+    options: LLMOptions,
+  ): ChatMessage[] {
+    void options;
+    return messages;
+  }
+
   async chat(
     messages: ChatMessage[],
     options: LLMOptions = {},
   ): Promise<LLMResponse> {
     const model = this.requireModel(options);
-    const lcMessages = toLangChainMessages(messages);
+    const lcMessages = toLangChainMessages(
+      this.prepareMessages(messages, options),
+    );
     const started = Date.now();
 
     const { value: response } = await withRetry(
@@ -99,7 +114,9 @@ export abstract class BaseLangChainLlmProvider implements LLMProvider {
     options: LLMOptions = {},
   ): AsyncIterable<LLMStreamChunk> {
     const model = this.requireModel(options);
-    const lcMessages = toLangChainMessages(messages);
+    const lcMessages = toLangChainMessages(
+      this.prepareMessages(messages, options),
+    );
 
     let stream: AsyncIterable<{ content: unknown }>;
     try {
@@ -139,7 +156,9 @@ export abstract class BaseLangChainLlmProvider implements LLMProvider {
       );
     }
 
-    const lcMessages = toLangChainMessages(messages);
+    const lcMessages = toLangChainMessages(
+      this.prepareMessages(messages, options),
+    );
     // `tool()` chỉ dùng để bind schema — hàm thực thi không bao giờ được gọi ở
     // đây (agent loop tự thực thi tool rồi feed ToolMessage ở lượt sau).
     const lcTools = tools.map((spec) =>
@@ -212,7 +231,9 @@ export abstract class BaseLangChainLlmProvider implements LLMProvider {
     options: LLMOptions = {},
   ): Promise<StructuredResult<T>> {
     const model = this.requireModel(options);
-    const lcMessages = toLangChainMessages(messages);
+    const lcMessages = toLangChainMessages(
+      this.prepareMessages(messages, options),
+    );
     const started = Date.now();
     const modelName = this.resolveModelName(options);
 

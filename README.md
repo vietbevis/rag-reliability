@@ -142,18 +142,23 @@ curl localhost:3000/health
 LLM_PROVIDER=custom          # custom (OpenAI-compatible) | openai | gemini | anthropic | fake
 EMBEDDING_PROVIDER=custom    # custom | openai | gemini | fake
 
-# --- Ví dụ: API bên thứ 3 (b.ai) cho LLM, Ollama cho embedding ---
-CUSTOM_LLM_BASE_URL=https://api.b.ai/v1
-CUSTOM_LLM_API_KEY=sk-...
-CUSTOM_LLM_MODEL=glm-5.3-flash          # model hỗ trợ tool-calling native
-
+# --- Mặc định PHASE 19: toàn bộ Ollama local ---
+CUSTOM_LLM_BASE_URL=http://localhost:11434/v1
+CUSTOM_LLM_API_KEY=ollama
+CUSTOM_LLM_MODEL=qwen3:8b               # sinh câu trả lời RAG (thinking)
 CUSTOM_EMBEDDING_BASE_URL=http://localhost:11434/v1
 CUSTOM_EMBEDDING_API_KEY=ollama
-CUSTOM_EMBEDDING_MODEL=zylonai/multilingual-e5-large
+CUSTOM_EMBEDDING_MODEL=dengcao/Qwen3-Embedding-0.6B:Q8_0   # hoặc bge-m3
+GRAPH_EXTRACT_MODEL=qwen2.5:7b-instruct # structured/graph — non-thinking
+AGENT_MODEL=qwen2.5:7b-instruct         # agent loop — non-thinking
 
-# --- Hoặc Ollama cho cả hai ---
-# CUSTOM_LLM_BASE_URL=http://localhost:11434/v1
-# CUSTOM_LLM_MODEL=qwen2.5:7b
+RERANK_ENABLED=true
+RERANK_PROVIDER=api                     # HTTP /v1/rerank tương thích Jina
+RERANK_BASE_URL=http://localhost:11435/v1
+RERANK_MODEL=Qwen3-Reranker-0.6B
+
+# --- Hoặc API bên thứ 3 cho LLM ---
+# CUSTOM_LLM_BASE_URL=https://api.b.ai/v1 · CUSTOM_LLM_API_KEY=sk-... · CUSTOM_LLM_MODEL=glm-5.3-flash
 ```
 
 > `fake` = provider tất định theo hash — **chỉ CI/test**, không gọi mạng, không
@@ -164,8 +169,8 @@ CUSTOM_EMBEDDING_MODEL=zylonai/multilingual-e5-large
 ```env
 EMBEDDING_DIMENSION=1024      # PHẢI khớp cột vector trong DB — đổi cần migration mới
 EMBEDDING_DISTANCE=cosine     # phải khớp opclass HNSW index
-EMBEDDING_QUERY_PREFIX=       # để trống → tự thêm "query: " khi model chứa "e5"
-EMBEDDING_PASSAGE_PREFIX=     # để trống → tự thêm "passage: "
+EMBEDDING_QUERY_PREFIX=       # trống → tự suy ra: "e5"→"query: "; qwen3-embed→"Instruct: …\nQuery: "; bge-m3→không
+EMBEDDING_PASSAGE_PREFIX=     # trống → "e5"→"passage: "; còn lại → không tiền tố
 ```
 
 ### Agent (PHASE 17-18)
@@ -173,7 +178,7 @@ EMBEDDING_PASSAGE_PREFIX=     # để trống → tự thêm "passage: "
 ```env
 AGENT_ENABLED=false          # true = mở route /agent/* + tab Agent trong console
 AGENT_EXECUTION=async         # async (BullMQ, cần QUEUE_ENABLED) | sync
-AGENT_MODEL=                  # để trống → dùng CUSTOM_LLM_MODEL
+AGENT_MODEL=qwen2.5:7b-instruct  # non-thinking; trống → dùng CUSTOM_LLM_MODEL
 AGENT_FORCE_FIRST_TOOL=true   # ép tool_choice:required lượt đầu (model OSS hay "lười")
 AGENT_MAX_STEPS=8             # + MAX_TOOL_CALLS / MAX_WALL_CLOCK_MS / MAX_TOTAL_TOKENS
 AGENT_COST_BUDGET_USD=0.10    # trần cứng chống vòng lặp bỏ chạy
@@ -213,20 +218,36 @@ RAG_FAITHFULNESS_ENABLED=true
 
 ## LLM + embedding provider
 
-### Ollama local
+### Ollama local (mặc định PHASE 19)
 
 ```bash
 ollama serve                                   # cổng 11434
-ollama pull qwen2.5:7b                          # LLM (tool-calling: qwen2.5 / llama3.1+)
-ollama pull zylonai/multilingual-e5-large       # embedding 1024d, tiếng Việt tốt
+ollama pull qwen3:8b                            # LLM sinh câu trả lời RAG (thinking)
+ollama pull qwen2.5:7b-instruct                 # structured / graph extract / agent (non-thinking)
+ollama pull dengcao/Qwen3-Embedding-0.6B:Q8_0   # embedding 1024d (mặc định)
+ollama pull bge-m3                              # embedding thay thế 1024d — chỉ đổi CUSTOM_EMBEDDING_MODEL
 
 curl http://localhost:11434/v1/models
 curl -s -XPOST localhost:3000/ai/providers/test -H 'content-type: application/json' \
   -d '{"provider":"custom"}'
 ```
 
-Model thay thế: LLM `qwen3:8b` / `llama3.1:8b`; embedding `bge-m3` (1024d, không
-tiền tố) hoặc `nomic-embed-text` (768d → đổi `EMBEDDING_DIMENSION=768` + migration).
+**Reranker** (`RERANK_PROVIDER=api`) chạy process riêng — Ollama không có endpoint
+rerank:
+
+```bash
+# GGUF chính chủ ggml-org/Qwen3-Reranker-0.6B (GGUF cộng đồng trả điểm hỏng)
+llama-server -hf ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF \
+  --reranking --pooling rank --port 11435
+curl http://localhost:11435/v1/rerank -H 'content-type: application/json' \
+  -d '{"model":"Qwen3-Reranker-0.6B","query":"x","documents":["a","b"]}'
+```
+
+Chi tiết + sơ đồ 3 process: [`docs/architecture/local-inference.md`](docs/architecture/local-inference.md).
+
+Vì sao qwen3:8b thinking cho RAG nhưng qwen2.5 non-thinking cho structured: Ollama
+`/v1` bỏ qua `enable_thinking`; `CustomLlmProvider` chèn `/no_think` cho Qwen3 khi
+`reasoning:false`, còn structured/agent trỏ hẳn sang model không có thinking.
 
 ### API bên thứ 3
 

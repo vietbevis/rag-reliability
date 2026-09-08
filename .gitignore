@@ -49,6 +49,9 @@ docker-compose.override.yml
 .temp
 .tmp
 
+# Tài liệu test tải từ mạng (xem test-corpus/MANIFEST.md)
+/test-corpus
+
 # Runtime data
 pids
 *.pid

@@ -4,7 +4,7 @@ import { ChatOpenAI } from '@langchain/openai';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import type { AppConfig } from '../../../config/configuration';
 import { LlmProvider } from '../llm-provider.enum';
-import type { LLMOptions } from '../llm.interface';
+import type { ChatMessage, LLMOptions } from '../llm.interface';
 import { BaseLangChainLlmProvider } from './base-langchain-llm.provider';
 
 /**
@@ -46,6 +46,29 @@ export class CustomLlmProvider extends BaseLangChainLlmProvider {
 
   protected resolveModelName(options?: LLMOptions): string {
     return options?.model ?? this.custom.model ?? 'custom-model';
+  }
+
+  /**
+   * Qwen3 là model "hybrid thinking". `modelKwargs.enable_thinking:false` chỉ có
+   * tác dụng trên vLLM/SGLang; Ollama `/v1/chat/completions` BỎ QUA nó. Cách duy
+   * nhất tắt thinking qua endpoint OpenAI-compatible của Ollama là chèn token
+   * `/no_think` vào prompt. Chỉ áp cho model Qwen3 và chỉ khi `reasoning:false`
+   * (graph extraction, agent loop) — nơi khối thinking chỉ làm chậm mà không lợi.
+   */
+  protected prepareMessages(
+    messages: ChatMessage[],
+    options: LLMOptions,
+  ): ChatMessage[] {
+    if (options.reasoning !== false) return messages;
+    if (!/qwen3/i.test(this.resolveModelName(options))) return messages;
+    if (messages.length === 0) return messages;
+
+    const last = messages[messages.length - 1]!;
+    if (last.content.includes('/no_think')) return messages;
+    return [
+      ...messages.slice(0, -1),
+      { ...last, content: `${last.content} /no_think` },
+    ];
   }
 
   protected getModel(options?: LLMOptions): BaseChatModel | null {

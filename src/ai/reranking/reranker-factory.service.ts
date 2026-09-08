@@ -6,8 +6,9 @@ import type { RerankerProvider } from './reranker.interface';
 import { NoopRerankerProvider } from './providers/noop-reranker.provider';
 import { FakeRerankerProvider } from './providers/fake-reranker.provider';
 import { LlmRerankerProvider } from './providers/llm-reranker.provider';
+import { ApiRerankerProvider } from './providers/api-reranker.provider';
 
-export type RerankProviderName = 'none' | 'fake' | 'llm';
+export type RerankProviderName = 'none' | 'fake' | 'llm' | 'api';
 
 /**
  * Factory phân giải provider reranking dựa theo cấu hình hoặc tham số ghi đè.
@@ -21,11 +22,13 @@ export class RerankerFactoryService {
     noop: NoopRerankerProvider,
     fake: FakeRerankerProvider,
     llm: LlmRerankerProvider,
+    api: ApiRerankerProvider,
   ) {
     this.registry = {
       none: noop,
       fake: fake,
       llm: llm,
+      api: api,
     };
   }
 

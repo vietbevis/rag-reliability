@@ -57,6 +57,22 @@ describe('EmbeddingService prefix', () => {
     ]);
   });
 
+  it('Qwen3-Embedding: query có instruction, passage để thô', async () => {
+    const { svc, embed, embedBatch } = build({}, 'Qwen3-Embedding-0.6B');
+    await svc.embed('câu hỏi', { inputType: 'query' });
+    expect(embed).toHaveBeenCalledWith(
+      'Instruct: Given a question, retrieve passages that answer it\nQuery: câu hỏi',
+    );
+    await svc.embedBatch(['đoạn A'], { inputType: 'passage' });
+    expect(embedBatch).toHaveBeenCalledWith(['đoạn A']);
+  });
+
+  it('bge-m3: không prefix', async () => {
+    const { svc, embed } = build({}, 'bge-m3');
+    await svc.embed('câu hỏi', { inputType: 'query' });
+    expect(embed).toHaveBeenCalledWith('câu hỏi');
+  });
+
   it('tôn trọng EMBEDDING_QUERY_PREFIX / EMBEDDING_PASSAGE_PREFIX tường minh', async () => {
     const { svc, embed } = build({
       EMBEDDING_QUERY_PREFIX: 'Q> ',
