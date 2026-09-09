@@ -274,7 +274,20 @@ curl -H 'content-type: application/json' \
 curl localhost:3000/documents/<id>              # status + jobState
 curl localhost:3000/documents/<id>/jobs         # từng stage + thời gian
 curl localhost:3000/documents/<id>/chunks
+
+# Cập nhật nội dung một tài liệu đã có (file/text mới) — giữ nguyên id, version++
+curl -X PUT -F "file=@quy-che-dao-tao-2026.pdf" http://localhost:3000/documents/<id>
+curl -X PUT -H 'content-type: application/json' \
+  -d '{"text":"# Quy chế (bản 2026)\n\n## Điều 1..."}' \
+  http://localhost:3000/documents/<id>
 ```
+
+`PUT /documents/:id` ghi đè bytes gốc rồi chạy lại `ingest → chunk → embed →
+graph`: chunk/embedding/graph cũ được thay hoàn toàn, **`id` không đổi** nên mọi
+citation vẫn hợp lệ. Trả `202 { document, status, jobId, unchanged }` —
+`unchanged: true` (không reprocess) khi bytes trùng khít bản hiện tại. Trong lúc
+chạy lại, `status != COMPLETED` nên tài liệu tạm không xuất hiện trong retrieval.
+Không giữ lịch sử bản cũ (cần rollback → lưu file nguồn ngoài hệ thống).
 
 Bảng trong DOCX/XLSX/PPTX → Markdown GFM chính xác; PDF native-text có kẻ ô tái
 tạo tốt; PDF scan → `NEEDS_OCR` (cần `FIRECRAWL_API_KEY` hoặc `ANYDOC_OCR=hosted`).

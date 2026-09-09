@@ -24,9 +24,9 @@ import {
 } from '../rag/graph/graph-query.service';
 import {
   DocumentStatus,
+  Prisma,
   type Document,
   type DocumentChunk,
-  type Prisma,
 } from '../generated/prisma/client';
 import {
   DocumentQueueService,
@@ -34,6 +34,7 @@ import {
   type JobStateView,
 } from './pipeline/document-queue.service';
 import type { CreateDocumentDto } from './dto/create-document.dto';
+import type { UpdateDocumentContentDto } from './dto/update-document-content.dto';
 import type { ListChunksDto } from './dto/list-chunks.dto';
 import type { ListDocumentsDto } from './dto/list-documents.dto';
 
@@ -48,6 +49,12 @@ export type DocumentView = Omit<Document, 'rawContent'>;
 
 export interface CreateDocumentInput {
   dto: CreateDocumentDto;
+  file?: { buffer: Buffer; originalname: string; mimetype: string };
+}
+
+export interface UpdateDocumentContentInput {
+  id: string;
+  dto: UpdateDocumentContentDto;
   file?: { buffer: Buffer; originalname: string; mimetype: string };
 }
 
@@ -123,6 +130,89 @@ export class DocumentsService {
       omit: OMIT_RAW_CONTENT,
     });
     return { document, status: enqueued.status, jobId: enqueued.jobId };
+  }
+
+  /**
+   * Cập nhật NỘI DUNG một tài liệu đã tồn tại (file/text mới) rồi chạy lại
+   * pipeline. Giữ nguyên `id` — mọi citation/tham chiếu vẫn hợp lệ. `version`
+   * tăng mỗi lần sửa. Chunk cũ bị chunking xoá-tạo lại, embedding cascade theo
+   * chunk rồi sinh lại, graph `replaceDocument`. Nội dung y hệt bản hiện tại →
+   * no-op (`unchanged: true`), không tốn công reprocess.
+   */
+  async updateContent(input: UpdateDocumentContentInput): Promise<{
+    document: DocumentView;
+    status: DocumentStatus;
+    jobId: string | null;
+    unchanged: boolean;
+  }> {
+    const { dto, file } = input;
+    const existing = await this.getOrThrow(input.id);
+
+    const bytes: Buffer = file
+      ? file.buffer
+      : Buffer.from(dto.text ?? '', 'utf8');
+    if (bytes.length === 0) {
+      throw new BadRequestException(
+        'Cần upload `file` hoặc gửi `text` không rỗng',
+      );
+    }
+
+    const mimeType = file?.mimetype ?? dto.mimeType ?? existing.mimeType;
+    const checksum = sha256(bytes);
+
+    if (checksum === existing.checksum) {
+      const document = await this.prisma.document.findUniqueOrThrow({
+        where: { id: existing.id },
+        omit: OMIT_RAW_CONTENT,
+      });
+      return {
+        document,
+        status: existing.status,
+        jobId: null,
+        unchanged: true,
+      };
+    }
+
+    // Ghi đè bytes + reset các field dẫn xuất; pipeline reingest sẽ tính lại
+    // parser/clean/quality/chunk/embed/graph từ đầu.
+    await this.prisma.document.update({
+      where: { id: existing.id },
+      data: {
+        title: dto.title ?? existing.title,
+        source: dto.source ?? existing.source,
+        mimeType,
+        checksum,
+        version: { increment: 1 },
+        rawContent: new Uint8Array(bytes),
+        rawText: isTextMime(mimeType) ? bytes.toString('utf8') : null,
+        metadata: (file
+          ? { originalName: file.originalname, size: bytes.length }
+          : { size: bytes.length }) satisfies Prisma.InputJsonValue,
+        status: DocumentStatus.QUEUED,
+        cleanedText: null,
+        parsedMarkdown: null,
+        normalizedHash: null,
+        contentTokens: null,
+        qualityScore: null,
+        qualityReport: Prisma.DbNull,
+        parserUsed: null,
+        duplicateOfId: null,
+        rejectedReason: null,
+        transformations: [],
+      },
+    });
+
+    const enqueued = await this.queue.enqueue(existing.id, 'reingest');
+    const document = await this.prisma.document.findUniqueOrThrow({
+      where: { id: existing.id },
+      omit: OMIT_RAW_CONTENT,
+    });
+    return {
+      document,
+      status: enqueued.status,
+      jobId: enqueued.jobId,
+      unchanged: false,
+    };
   }
 
   /** Chạy lại toàn bộ pipeline (ingest → chunk → embed → graph) qua queue. */

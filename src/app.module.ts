@@ -3,18 +3,17 @@ import { APP_FILTER } from '@nestjs/core';
 import { AgentModule } from './agent/agent.module';
 import { AiModule } from './ai/ai.module';
 import { BenchmarkModule } from './benchmark/benchmark.module';
-import { ObservabilityModule } from './observability/observability.module';
-import { ReplayModule } from './replay/replay.module';
 import { AllExceptionsFilter } from './common/errors';
 import { ConfigModule } from './config/config.module';
+import { ConsoleModule } from './console/console.module';
 import { DatabaseModule } from './database/database.module';
 import { DocumentsModule } from './documents/documents.module';
 import { EvaluationModule } from './evaluation/evaluation.module';
 import { GraphModule } from './graph/graph.module';
 import { HealthModule } from './health/health.module';
-import { RateLimitModule } from './common/rate-limit/rate-limit.module';
-import { ConsoleModule } from './console/console.module';
+import { ObservabilityModule } from './observability/observability.module';
 import { RagModule } from './rag/rag.module';
+import { ReplayModule } from './replay/replay.module';
 
 /**
  * RAG Reliability Service — wiring.
@@ -30,7 +29,7 @@ import { RagModule } from './rag/rag.module';
 @Module({
   imports: [
     ConfigModule,
-    RateLimitModule,
+    // RateLimitModule,
     DatabaseModule,
     AiModule,
     GraphModule,

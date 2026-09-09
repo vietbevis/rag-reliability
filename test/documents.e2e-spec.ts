@@ -300,4 +300,94 @@ describe('Documents pipeline (e2e) — PHASE 1-3', () => {
       .send({ title: 'x' });
     expect(res.status).toBe(400);
   });
+
+  // --- PUT /documents/:id — cập nhật nội dung tài liệu ---------------------
+
+  const uniqueMd = (tag: string): string =>
+    `# Tài liệu ${tag}\n\n${Array.from(
+      { length: 30 },
+      (_, i) =>
+        `Điều ${i + 1}. ${tag}: sinh viên phải hoàn thành học phần theo kế hoạch của nhà trường.`,
+    ).join('\n\n')}\n`;
+
+  it('PUT /documents/:id (text mới) -> 202, reprocess, nội dung mới thay chunk cũ', async () => {
+    const { id } = await upload({
+      title: 'Doc để cập nhật',
+      source: 'test',
+      text: uniqueMd('ban-goc-A'),
+    });
+
+    const revised = `# Quy chế (bản cập nhật)\n\n${Array.from(
+      { length: 30 },
+      (_, i) =>
+        `Mục ${i + 1}. Học viên đăng ký học phần trước thời hạn do phòng đào tạo công bố.`,
+    ).join('\n\n')}\n`;
+
+    const res = await request(app.getHttpServer())
+      .put(`/documents/${id}`)
+      .send({ text: revised });
+    expect(res.status).toBe(202);
+    expect(res.body.unchanged).toBe(false);
+    expect(res.body.status).toBe('COMPLETED'); // queue tắt → inline
+    expect(res.body.document.version).toBe(2);
+
+    const doc = await request(app.getHttpServer()).get(`/documents/${id}`);
+    expect(doc.body.status).toBe('COMPLETED');
+    expect(doc.body.cleanedText).toContain('bản cập nhật');
+    expect(doc.body.cleanedText).not.toContain('ban-goc-A');
+
+    const chunks = await request(app.getHttpServer()).get(
+      `/documents/${id}/chunks`,
+    );
+    expect(chunks.body.total).toBeGreaterThan(0);
+    expect(
+      (chunks.body.items as Array<{ content: string }>).every(
+        (c) => !c.content.includes('ban-goc-A'),
+      ),
+    ).toBe(true);
+
+    const emb = await request(app.getHttpServer()).get(
+      `/documents/${id}/embeddings`,
+    );
+    expect(emb.body.total).toBe(chunks.body.total);
+  });
+
+  it('PUT /documents/:id với nội dung không đổi -> 202 unchanged, không bump version', async () => {
+    const text = uniqueMd('khong-doi-B');
+    const { id, document } = await upload({
+      title: 'Doc không đổi',
+      source: 'test',
+      text,
+    });
+    expect(document.status).toBe('COMPLETED');
+
+    const res = await request(app.getHttpServer())
+      .put(`/documents/${id}`)
+      .send({ text });
+    expect(res.status).toBe(202);
+    expect(res.body.unchanged).toBe(true);
+
+    const doc = await request(app.getHttpServer()).get(`/documents/${id}`);
+    expect(doc.body.version).toBe(1);
+    expect(doc.body.status).toBe('COMPLETED');
+  });
+
+  it('PUT /documents/:id rỗng -> 400', async () => {
+    const { id } = await upload({
+      title: 'Doc rỗng-body',
+      source: 'test',
+      text: uniqueMd('rong-C'),
+    });
+    const res = await request(app.getHttpServer())
+      .put(`/documents/${id}`)
+      .send({});
+    expect(res.status).toBe(400);
+  });
+
+  it('PUT /documents/:id không tồn tại -> 404', async () => {
+    const res = await request(app.getHttpServer())
+      .put('/documents/khong-ton-tai-999')
+      .send({ text: uniqueMd('x-D') });
+    expect(res.status).toBe(404);
+  });
 });

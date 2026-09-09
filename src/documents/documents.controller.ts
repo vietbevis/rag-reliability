@@ -7,6 +7,7 @@ import {
   Param,
   ParseFilePipeBuilder,
   Post,
+  Put,
   Query,
   UploadedFile,
   UseInterceptors,
@@ -16,6 +17,7 @@ import { ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { DocumentsService } from './documents.service';
 import { ChunkDocumentDto } from './dto/chunk-document.dto';
 import { CreateDocumentDto } from './dto/create-document.dto';
+import { UpdateDocumentContentDto } from './dto/update-document-content.dto';
 import { EmbedDocumentDto } from './dto/embed-document.dto';
 import { ListChunksDto } from './dto/list-chunks.dto';
 import { ListDocumentsDto } from './dto/list-documents.dto';
@@ -45,6 +47,37 @@ export class DocumentsController {
     file?: Express.Multer.File,
   ) {
     return this.documents.create({
+      dto,
+      file: file
+        ? {
+            buffer: file.buffer,
+            originalname: file.originalname,
+            mimetype: file.mimetype,
+          }
+        : undefined,
+    });
+  }
+
+  @Put(':id')
+  @HttpCode(202)
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD_BYTES } }),
+  )
+  @ApiConsumes('multipart/form-data', 'application/json')
+  @ApiOperation({
+    summary:
+      'Cập nhật nội dung tài liệu đã tồn tại (file/text mới) rồi chạy lại ' +
+      'pipeline. Giữ nguyên id, version tăng. Trả 202 + jobId; ' +
+      '`unchanged: true` nếu nội dung không đổi (không reprocess).',
+  })
+  updateContent(
+    @Param('id') id: string,
+    @Body() dto: UpdateDocumentContentDto,
+    @UploadedFile(new ParseFilePipeBuilder().build({ fileIsRequired: false }))
+    file?: Express.Multer.File,
+  ) {
+    return this.documents.updateContent({
+      id,
       dto,
       file: file
         ? {
