@@ -26,6 +26,13 @@ import type {
 import { estimateCost } from '../pricing';
 import { classifyProviderError, withRetry } from '../retry.util';
 
+/**
+ * Cách `withStructuredOutput` ép model trả JSON. `undefined` → để LangChain tự
+ * chọn (với ChatOpenAI thường là `jsonSchema` qua `response_format`).
+ */
+export type StructuredOutputMethod =
+  'functionCalling' | 'jsonMode' | 'jsonSchema';
+
 export interface BaseLangChainLlmConfig {
   timeoutMs: number;
   maxRetries: number;
@@ -72,6 +79,15 @@ export abstract class BaseLangChainLlmProvider implements LLMProvider {
   ): ChatMessage[] {
     void options;
     return messages;
+  }
+
+  /**
+   * Hook cho provider con ép method structured output (mặc định: không ép).
+   * `CustomLlmProvider` dùng khi endpoint (proxy) bỏ qua `response_format`
+   * nhưng vẫn tôn trọng tool calling.
+   */
+  protected structuredOutputMethod(): StructuredOutputMethod | undefined {
+    return undefined;
   }
 
   async chat(
@@ -237,9 +253,10 @@ export abstract class BaseLangChainLlmProvider implements LLMProvider {
     const started = Date.now();
     const modelName = this.resolveModelName(options);
 
+    const method = this.structuredOutputMethod();
     const structured = model.withStructuredOutput(
       schema as Parameters<typeof model.withStructuredOutput>[0],
-      { includeRaw: true },
+      { includeRaw: true, ...(method ? { method } : {}) },
     );
 
     // 1) Đường chính: `withStructuredOutput` (function-calling / json mode).

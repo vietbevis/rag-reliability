@@ -337,6 +337,42 @@ describe('BaseLangChainLlmProvider.chatStructured', () => {
     expect(res.usage.totalTokens).toBe(5);
   });
 
+  it('mặc định KHÔNG ép method → để LangChain tự chọn', async () => {
+    const schema = z.object({ n: z.number() });
+    const withStructuredOutput = jest.fn().mockReturnValue({
+      invoke: jest.fn().mockResolvedValue({
+        raw: new AIMessage({ content: '' }),
+        parsed: { n: 1 },
+      }),
+    });
+    const provider = new FakeProvider(fakeModel({ withStructuredOutput }));
+    await provider.chatStructured([{ role: 'user', content: 'q' }], schema);
+    expect(withStructuredOutput).toHaveBeenCalledWith(schema, {
+      includeRaw: true,
+    });
+  });
+
+  it('provider con chọn method → truyền xuống withStructuredOutput', async () => {
+    class FnCallingProvider extends FakeProvider {
+      protected structuredOutputMethod() {
+        return 'functionCalling' as const;
+      }
+    }
+    const schema = z.object({ n: z.number() });
+    const withStructuredOutput = jest.fn().mockReturnValue({
+      invoke: jest.fn().mockResolvedValue({
+        raw: new AIMessage({ content: '' }),
+        parsed: { n: 1 },
+      }),
+    });
+    const provider = new FnCallingProvider(fakeModel({ withStructuredOutput }));
+    await provider.chatStructured([{ role: 'user', content: 'q' }], schema);
+    expect(withStructuredOutput).toHaveBeenCalledWith(schema, {
+      includeRaw: true,
+      method: 'functionCalling',
+    });
+  });
+
   it('withStructuredOutput gãy vì ```json → fallback decode thủ công', async () => {
     const schema = z.object({ answer: z.string(), score: z.number() });
     const withStructuredOutput = jest.fn().mockReturnValue({

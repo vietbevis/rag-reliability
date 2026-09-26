@@ -22,6 +22,9 @@ class Probe extends CustomLlmProvider {
   prep(messages: ChatMessage[], o: LLMOptions): ChatMessage[] {
     return this.prepareMessages(messages, o);
   }
+  method(): string | undefined {
+    return this.structuredOutputMethod();
+  }
 }
 
 describe('CustomLlmProvider — tắt reasoning', () => {
@@ -85,5 +88,30 @@ describe('CustomLlmProvider — chèn /no_think cho Qwen3', () => {
   it('model không phải qwen3 → giữ nguyên dù reasoning:false', () => {
     const out = probe.prep(msgs, { reasoning: false, model: 'qwen2.5:7b' });
     expect(out).toBe(msgs);
+  });
+});
+
+describe('CustomLlmProvider — method structured output', () => {
+  const env = {
+    LLM_PROVIDER: 'custom',
+    CUSTOM_LLM_BASE_URL: 'https://api.example.test/v1',
+    CUSTOM_LLM_MODEL: 'some-model',
+    EMBEDDING_PROVIDER: 'custom',
+    CUSTOM_EMBEDDING_BASE_URL: 'https://api.example.test/v1',
+    CUSTOM_EMBEDDING_MODEL: 'e5',
+  };
+
+  it('mặc định (auto) → không ép method', () => {
+    expect(new Probe(mockConfigService({}, env)).method()).toBeUndefined();
+  });
+
+  it('CUSTOM_LLM_STRUCTURED_METHOD=functionCalling → ép tool calling', () => {
+    const probe = new Probe(
+      mockConfigService(
+        {},
+        { ...env, CUSTOM_LLM_STRUCTURED_METHOD: 'functionCalling' },
+      ),
+    );
+    expect(probe.method()).toBe('functionCalling');
   });
 });

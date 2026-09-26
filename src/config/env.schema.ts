@@ -112,6 +112,11 @@ export const envSchema = z
     CUSTOM_LLM_BASE_URL: z.string().trim().url().optional(),
     CUSTOM_LLM_API_KEY: z.string().trim().optional(),
     CUSTOM_LLM_MODEL: z.string().trim().optional(),
+    // Cách ép structured output: auto = LangChain tự chọn (json_schema qua
+    // response_format). Proxy nào bỏ qua response_format → đặt functionCalling.
+    CUSTOM_LLM_STRUCTURED_METHOD: z
+      .enum(['auto', 'functionCalling', 'jsonMode', 'jsonSchema'])
+      .default('auto'),
     CUSTOM_EMBEDDING_BASE_URL: z.string().trim().url().optional(),
     CUSTOM_EMBEDDING_API_KEY: z.string().trim().optional(),
     CUSTOM_EMBEDDING_MODEL: z.string().trim().optional(),
@@ -275,6 +280,14 @@ export const envSchema = z
       min: 1,
       max: 500,
       default: 40,
+    }),
+    // Số chunk trích song song trong MỘT tài liệu. 1 = tuần tự (LLM local phục
+    // vụ tuần tự). API cloud → 4-16 để rút ngắn thời gian dựng graph.
+    GRAPH_EXTRACT_CONCURRENCY: numeric({
+      int: true,
+      min: 1,
+      max: 32,
+      default: 1,
     }),
     // Danh sách loại thực thể (CSV) — giới hạn không gian output của extractor.
     GRAPH_ENTITY_TYPES: z

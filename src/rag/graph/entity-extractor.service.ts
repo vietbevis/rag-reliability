@@ -17,13 +17,28 @@ export interface ChunkExtractionResult {
   inputTokens: number;
   outputTokens: number;
   estimatedCost: number;
+  /**
+   * Lời gọi trích chính vẫn ra output sai schema sau khi đã thử lại — kết quả
+   * rỗng KHÔNG đáng tin, orchestrator không được cache (để lần sau trích lại).
+   */
+  failed: boolean;
 }
+
+/** Số lần gọi tối đa cho MỘT bước trích khi output sai schema (1 + thử lại). */
+const SCHEMA_ATTEMPTS = 2;
 
 interface LlmCallUsage {
   inputTokens: number;
   outputTokens: number;
   estimatedCost: number;
 }
+
+type LlmCallResult = GraphExtractionOutput & {
+  usage: LlmCallUsage;
+  /** Số lời gọi LLM thật đã tốn (gồm cả lần thử lại). */
+  calls: number;
+  failed: boolean;
+};
 
 /**
  * Trích entity + quan hệ từ MỘT chunk bằng structured output (graph-rag.md §3).
@@ -66,9 +81,16 @@ export class EntityExtractorService {
       inputTokens: 0,
       outputTokens: 0,
       estimatedCost: 0,
+      failed: false,
     };
 
-    this.merge(acc, await this.callLlm(this.initialMessages(text), text));
+    const initial = await this.callLlm(this.initialMessages(text), text);
+    this.merge(acc, initial);
+    // Lời gọi chính hỏng → gleaning vô nghĩa (không có gì để hỏi "còn sót").
+    if (initial.failed) {
+      acc.failed = true;
+      return acc;
+    }
 
     for (let round = 0; round < this.cfg.gleanings; round++) {
       const before = acc.entities.length + acc.relationships.length;
@@ -87,47 +109,56 @@ export class EntityExtractorService {
   private async callLlm(
     messages: ChatMessage[],
     sourceText: string,
-  ): Promise<GraphExtractionOutput & { usage: LlmCallUsage }> {
-    let res;
-    try {
-      res = await this.llm.chatStructured(messages, graphExtractionSchema, {
-        temperature: 0,
-        traceLabel: 'graph.extract',
-        model: this.cfg.model,
-        // Graph extraction là NER có ràng buộc schema. Model "thinking" +
-        // structured output/tool_choice: hoặc bị API từ chối, hoặc chậm gấp
-        // nhiều lần. Tắt cứng reasoning ở MỌI model.
-        reasoning: false,
-      });
-    } catch (err) {
-      // Output của model local không parse được schema (JSON méo) → coi chunk này
-      // KHÔNG trích được gì, KHÔNG làm hỏng cả job graph. Lỗi hạ tầng (timeout,
-      // network, rate limit) vẫn ném để retry.
-      if (!isSchemaValidationError(err)) throw err;
-      this.logger.warn(
-        `graph.extract: output không hợp schema — bỏ qua chunk. ${truncate(err)}`,
-      );
+  ): Promise<LlmCallResult> {
+    for (let attempt = 1; ; attempt++) {
+      let res;
+      try {
+        res = await this.llm.chatStructured(messages, graphExtractionSchema, {
+          temperature: 0,
+          traceLabel: 'graph.extract',
+          model: this.cfg.model,
+          // Graph extraction là NER có ràng buộc schema. Model "thinking" +
+          // structured output/tool_choice: hoặc bị API từ chối, hoặc chậm gấp
+          // nhiều lần. Tắt cứng reasoning ở MỌI model.
+          reasoning: false,
+        });
+      } catch (err) {
+        // Lỗi hạ tầng (timeout, network, rate limit) vẫn ném để retry cả job.
+        if (!isSchemaValidationError(err)) throw err;
+        // Output sai schema thường ngẫu nhiên (model/proxy lúc tuân thủ lúc
+        // không) → thử lại; hết lượt thì báo `failed`, KHÔNG làm hỏng cả job.
+        if (attempt < SCHEMA_ATTEMPTS) {
+          this.logger.warn(
+            `graph.extract: output không hợp schema — thử lại (${attempt}/${SCHEMA_ATTEMPTS}). ${truncate(err)}`,
+          );
+          continue;
+        }
+        this.logger.warn(
+          `graph.extract: output không hợp schema sau ${attempt} lần — bỏ qua chunk. ${truncate(err)}`,
+        );
+        return {
+          entities: [],
+          relationships: [],
+          usage: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
+          calls: attempt,
+          failed: true,
+        };
+      }
       return {
-        entities: [],
-        relationships: [],
-        usage: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
+        ...this.postValidate(res.data, sourceText),
+        usage: {
+          inputTokens: res.usage.inputTokens,
+          outputTokens: res.usage.outputTokens,
+          estimatedCost: res.usage.estimatedCost,
+        },
+        calls: attempt,
+        failed: false,
       };
     }
-    return {
-      ...this.postValidate(res.data, sourceText),
-      usage: {
-        inputTokens: res.usage.inputTokens,
-        outputTokens: res.usage.outputTokens,
-        estimatedCost: res.usage.estimatedCost,
-      },
-    };
   }
 
-  private merge(
-    acc: ChunkExtractionResult,
-    part: GraphExtractionOutput & { usage: LlmCallUsage },
-  ): void {
-    acc.llmCalls += 1;
+  private merge(acc: ChunkExtractionResult, part: LlmCallResult): void {
+    acc.llmCalls += part.calls;
     acc.inputTokens += part.usage.inputTokens;
     acc.outputTokens += part.usage.outputTokens;
     acc.estimatedCost += part.usage.estimatedCost;

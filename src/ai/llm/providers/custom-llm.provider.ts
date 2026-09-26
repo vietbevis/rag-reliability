@@ -5,7 +5,10 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { AppConfig } from '../../../config/configuration';
 import { LlmProvider } from '../llm-provider.enum';
 import type { ChatMessage, LLMOptions } from '../llm.interface';
-import { BaseLangChainLlmProvider } from './base-langchain-llm.provider';
+import {
+  BaseLangChainLlmProvider,
+  type StructuredOutputMethod,
+} from './base-langchain-llm.provider';
 
 /**
  * Tham số body gửi kèm để TẮT chế độ "thinking"/reasoning. Endpoint OpenAI-
@@ -69,6 +72,16 @@ export class CustomLlmProvider extends BaseLangChainLlmProvider {
       ...messages.slice(0, -1),
       { ...last, content: `${last.content} /no_think` },
     ];
+  }
+
+  /**
+   * `CUSTOM_LLM_STRUCTURED_METHOD=auto` → để LangChain tự chọn. Một số proxy
+   * (vd relay Claude) bỏ qua `response_format` json_schema và trả văn xuôi —
+   * đặt `functionCalling` để ép qua tool calling.
+   */
+  protected structuredOutputMethod(): StructuredOutputMethod | undefined {
+    const m = this.custom.structuredMethod;
+    return m === 'auto' ? undefined : m;
   }
 
   protected getModel(options?: LLMOptions): BaseChatModel | null {

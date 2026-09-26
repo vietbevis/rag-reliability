@@ -115,14 +115,72 @@ export class GraphIngestionService {
     });
 
     let cacheHits = 0;
+    let failedChunks = 0;
     let llmCalls = 0;
     let inputTokens = 0;
     let outputTokens = 0;
     let estimatedCost = 0;
     let budgetHitAt = -1;
-    const extractions: ChunkExtractionInput[] = [];
+    // Đánh chỉ số theo vị trí chunk → giữ đúng thứ tự dù trích song song.
+    const byIndex: Array<ChunkExtractionInput | undefined> = [];
+
+    const extractOne = async (
+      i: number,
+      ck: { id: string; content: string },
+      hash: string,
+    ): Promise<void> => {
+      const ext = await this.extractor.extract(ck.content);
+      llmCalls += ext.llmCalls;
+      inputTokens += ext.inputTokens;
+      outputTokens += ext.outputTokens;
+      estimatedCost += ext.estimatedCost;
+      // Kết quả rỗng do lỗi schema KHÔNG được cache — nếu không, chunk này sẽ
+      // mãi mãi "không có entity" dù lần chạy sau model trả đúng.
+      if (ext.failed) {
+        failedChunks++;
+        return;
+      }
+      // Cache ngay từng chunk: một chunk khác trong đợt ném lỗi thì phần đã
+      // trích xong vẫn được giữ cho lần chạy lại.
+      await this.cache.put(hash, model, promptVersion, {
+        entities: ext.entities,
+        relationships: ext.relationships,
+        inputTokens: ext.inputTokens,
+        outputTokens: ext.outputTokens,
+      });
+      byIndex[i] = {
+        chunkId: ck.id,
+        entities: ext.entities,
+        relationships: ext.relationships,
+      };
+    };
+
+    // Pool ≤ GRAPH_EXTRACT_CONCURRENCY chunk chạy cùng lúc: chunk nào xong thì
+    // nhường slot ngay cho chunk kế (không chờ chunk chậm nhất như chạy theo
+    // đợt). concurrency=1 ⇒ hành vi tuần tự như cũ.
+    // Promise trong `running` KHÔNG bao giờ reject: lỗi của chunk được ghi vào
+    // `firstError` — nếu để reject, chunk lỗi ngay có thể rời pool trước khi
+    // ai kịp await ⇒ lỗi bị nuốt, job "thành công" mà thiếu chunk.
+    const running = new Set<Promise<void>>();
+    let firstError: Error | undefined;
+    const launch = (
+      i: number,
+      ck: { id: string; content: string },
+      hash: string,
+    ) => {
+      const p: Promise<void> = extractOne(i, ck, hash)
+        .catch((err: unknown) => {
+          firstError ??= err instanceof Error ? err : new Error(String(err));
+        })
+        .finally(() => {
+          running.delete(p);
+        });
+      running.add(p);
+    };
 
     for (let i = 0; i < allChunks.length; i++) {
+      // Một chunk lỗi hạ tầng ⇒ ngừng khởi chạy chunk mới.
+      if (firstError !== undefined) break;
       const ck = allChunks[i]!;
       const hash = this.cache.hash(ck.content);
       const cached = await this.cache.get(hash, model, promptVersion);
@@ -130,38 +188,41 @@ export class GraphIngestionService {
         cacheHits++;
         inputTokens += cached.inputTokens;
         outputTokens += cached.outputTokens;
-        extractions.push({
+        byIndex[i] = {
           chunkId: ck.id,
           entities: cached.entities,
           relationships: cached.relationships,
-        });
+        };
         continue;
       }
 
-      // Trần LLM tính theo lời gọi THẬT — cache hit không tốn budget. Dừng khi
-      // lời gọi kế tiếp có thể vượt trần.
-      if (llmCalls + perChunkCalls > callBudget) {
+      // Trần LLM tính theo lời gọi THẬT — cache hit không tốn budget. Chunk
+      // đang chạy được giữ chỗ theo mức tối đa (1 + gleanings); chờ bớt chunk
+      // đang chạy để biết số lời gọi thật rồi xét lại. Không còn chunk nào
+      // chạy mà vẫn vượt trần ⇒ dừng.
+      while (llmCalls + (running.size + 1) * perChunkCalls > callBudget) {
+        if (running.size === 0) break;
+        await Promise.race(running);
+      }
+      if (llmCalls + (running.size + 1) * perChunkCalls > callBudget) {
         budgetHitAt = i;
         break;
       }
 
-      const ext = await this.extractor.extract(ck.content);
-      llmCalls += ext.llmCalls;
-      inputTokens += ext.inputTokens;
-      outputTokens += ext.outputTokens;
-      estimatedCost += ext.estimatedCost;
-      await this.cache.put(hash, model, promptVersion, {
-        entities: ext.entities,
-        relationships: ext.relationships,
-        inputTokens: ext.inputTokens,
-        outputTokens: ext.outputTokens,
-      });
-      extractions.push({
-        chunkId: ck.id,
-        entities: ext.entities,
-        relationships: ext.relationships,
-      });
+      while (running.size >= this.extractCfg.concurrency) {
+        await Promise.race(running);
+      }
+      if (firstError !== undefined) break;
+      launch(i, ck, hash);
     }
+    // Chờ mọi chunk đang chạy kết thúc (phần xong đã được cache) rồi mới ném
+    // lỗi để job retry — lần sau các chunk đó là cache hit.
+    await Promise.all(running);
+    if (firstError !== undefined) throw firstError;
+
+    const extractions = byIndex.filter(
+      (e): e is ChunkExtractionInput => e !== undefined,
+    );
 
     if (budgetHitAt >= 0) {
       this.logger.warn(
@@ -180,6 +241,7 @@ export class GraphIngestionService {
       chunkCountTotal: allChunks.length,
       llmCalls,
       cacheHits,
+      failedChunks,
       inputTokens,
       outputTokens,
       estimatedCost: round(estimatedCost),
@@ -205,7 +267,7 @@ export class GraphIngestionService {
 
     this.logger.log(
       `Graph ${documentId}: ${metrics.entityCount} entity, ${metrics.relationshipCount} quan hệ ` +
-        `(${extractions.length}/${allChunks.length} chunk, ${llmCalls} LLM call, ${cacheHits} cache hit, $${metrics.estimatedCost})`,
+        `(${extractions.length}/${allChunks.length} chunk, ${llmCalls} LLM call, ${cacheHits} cache hit, ${failedChunks} chunk lỗi, $${metrics.estimatedCost})`,
     );
     return { documentId, skipped: false, metrics };
   }

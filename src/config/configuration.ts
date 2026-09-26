@@ -44,7 +44,12 @@ export interface AppConfig {
     openai: { apiKey?: string; baseUrl?: string; chatModel: string };
     gemini: { apiKey?: string; chatModel: string };
     anthropic: { apiKey?: string; chatModel: string };
-    custom: { baseUrl?: string; apiKey?: string; model?: string };
+    custom: {
+      baseUrl?: string;
+      apiKey?: string;
+      model?: string;
+      structuredMethod: Env['CUSTOM_LLM_STRUCTURED_METHOD'];
+    };
   };
   embedding: {
     provider: Env['EMBEDDING_PROVIDER'];
@@ -129,6 +134,8 @@ export interface AppConfig {
       maxTokens: number;
       gleanings: number;
       maxLlmCallsPerDoc: number;
+      /** Số chunk trích song song trong một tài liệu (1 = tuần tự). */
+      concurrency: number;
       entityTypes: string[];
       promptVersion: string;
       /** Model riêng cho extraction; `undefined` → model LLM chính. */
@@ -253,6 +260,7 @@ export function loadConfiguration(): AppConfig {
         baseUrl: env.CUSTOM_LLM_BASE_URL,
         apiKey: env.CUSTOM_LLM_API_KEY,
         model: env.CUSTOM_LLM_MODEL,
+        structuredMethod: env.CUSTOM_LLM_STRUCTURED_METHOD,
       },
     },
     embedding: {
@@ -347,6 +355,7 @@ export function loadConfiguration(): AppConfig {
         maxTokens: env.GRAPH_EXTRACT_MAX_TOKENS,
         gleanings: env.GRAPH_EXTRACT_GLEANINGS,
         maxLlmCallsPerDoc: env.GRAPH_EXTRACT_MAX_LLM_CALLS_PER_DOC,
+        concurrency: env.GRAPH_EXTRACT_CONCURRENCY,
         entityTypes: env.GRAPH_ENTITY_TYPES,
         promptVersion: env.GRAPH_PROMPT_VERSION,
         model: env.GRAPH_EXTRACT_MODEL,

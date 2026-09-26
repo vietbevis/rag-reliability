@@ -14,6 +14,7 @@ function build(
     cached?: unknown;
     gleanings?: number;
     maxCalls?: number;
+    concurrency?: number;
   } = {},
 ) {
   const chunks = opts.chunks ?? [
@@ -62,6 +63,7 @@ function build(
         maxTokens: 3000,
         gleanings: opts.gleanings ?? 1,
         maxLlmCallsPerDoc: opts.maxCalls ?? 40,
+        concurrency: opts.concurrency ?? 1,
         entityTypes: ['ORG', 'PERSON', 'CONCEPT'],
         promptVersion: '1',
       },
@@ -109,6 +111,22 @@ describe('GraphIngestionService', () => {
     expect(documentUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ data: { status: 'GRAPHING' } }),
     );
+  });
+
+  it('chunk trích lỗi (failed) → KHÔNG ghi cache để lần sau trích lại', async () => {
+    const { svc, extractor, cachePut } = build();
+    extractor.mockResolvedValue({
+      entities: [],
+      relationships: [],
+      llmCalls: 2,
+      inputTokens: 0,
+      outputTokens: 0,
+      estimatedCost: 0,
+      failed: true,
+    });
+    const r = await svc.ingest('d1');
+    expect(cachePut).not.toHaveBeenCalled();
+    expect(r.metrics?.failedChunks).toBe(2);
   });
 
   it('cache hit → không gọi extractor cho chunk đó', async () => {
@@ -188,6 +206,96 @@ describe('GraphIngestionService', () => {
     const { svc } = build({ status: 'CHUNKING' });
     await expect(svc.ingest('d1')).rejects.toMatchObject({
       code: 'GRAPH_EXTRACTION_FAILED',
+    });
+  });
+
+  describe('GRAPH_EXTRACT_CONCURRENCY', () => {
+    const three = [
+      { id: 'c1', content: 'A B' },
+      { id: 'c2', content: 'C D' },
+      { id: 'c3', content: 'E F' },
+    ];
+    const okResult = {
+      entities: [{ name: 'A', type: 'ORG', description: '' }],
+      relationships: [],
+      llmCalls: 1,
+      inputTokens: 1,
+      outputTokens: 1,
+      estimatedCost: 0,
+      failed: false,
+    };
+
+    it('concurrency=3 → 3 chunk được trích cùng lúc', async () => {
+      const { svc, extractor } = build({ concurrency: 3, chunks: three });
+      let inFlight = 0;
+      let peak = 0;
+      extractor.mockImplementation(async () => {
+        inFlight++;
+        peak = Math.max(peak, inFlight);
+        await new Promise((r) => setTimeout(r, 5));
+        inFlight--;
+        return okResult;
+      });
+      await svc.ingest('d1');
+      expect(peak).toBe(3);
+    });
+
+    it('pool: chunk xong trước nhường slot ngay, không chờ chunk chậm cùng đợt', async () => {
+      const { svc, extractor } = build({ concurrency: 2, chunks: three });
+      const delays: Record<string, number> = { 'A B': 40, 'C D': 1, 'E F': 1 };
+      const events: string[] = [];
+      extractor.mockImplementation(async (text: string) => {
+        events.push(`start ${text}`);
+        await new Promise((r) => setTimeout(r, delays[text]));
+        events.push(`end ${text}`);
+        return okResult;
+      });
+      await svc.ingest('d1');
+      // 'E F' phải bắt đầu TRƯỚC khi 'A B' (chậm) xong.
+      expect(events.indexOf('start E F')).toBeLessThan(
+        events.indexOf('end A B'),
+      );
+    });
+
+    it('một chunk lỗi hạ tầng → chờ chunk đang chạy cache xong rồi mới báo lỗi', async () => {
+      const { svc, extractor, cachePut } = build({
+        concurrency: 2,
+        chunks: three,
+      });
+      extractor.mockImplementation(async (text: string) => {
+        if (text === 'A B') throw new Error('timed out');
+        await new Promise((r) => setTimeout(r, 20));
+        return okResult;
+      });
+      const r = await svc.ingest('d1');
+      expect(r.reason).toContain('timed out');
+      expect(cachePut).toHaveBeenCalledTimes(1); // 'C D' đã chạy song song
+    });
+
+    it('giữ thứ tự chunk dù kết quả về lệch thứ tự', async () => {
+      const { svc, extractor, replaceDocument } = build({
+        concurrency: 3,
+        chunks: three,
+      });
+      const delays: Record<string, number> = { 'A B': 15, 'C D': 5, 'E F': 1 };
+      extractor.mockImplementation(async (text: string) => {
+        await new Promise((r) => setTimeout(r, delays[text]));
+        return okResult;
+      });
+      await svc.ingest('d1');
+      const graph = replaceDocument.mock.calls[0][0] as { chunkIds: string[] };
+      expect(graph.chunkIds).toEqual(['c1', 'c2', 'c3']);
+    });
+
+    it('vẫn tôn trọng trần maxLlmCallsPerDoc khi chạy song song', async () => {
+      const { svc, extractor } = build({
+        concurrency: 4,
+        gleanings: 0,
+        maxCalls: 2,
+        chunks: three,
+      });
+      await svc.ingest('d1');
+      expect(extractor).toHaveBeenCalledTimes(2);
     });
   });
 });

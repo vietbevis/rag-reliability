@@ -66,6 +66,8 @@ export interface GraphIngestionMetrics {
   chunkCount: number;
   llmCalls: number;
   cacheHits: number;
+  /** Chunk trích lỗi (output sai schema sau khi thử lại) — không cache. */
+  failedChunks: number;
   inputTokens: number;
   outputTokens: number;
   estimatedCost: number;

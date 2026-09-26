@@ -12,6 +12,7 @@ function build(overrides: Partial<{ gleanings: number }> = {}) {
         maxTokens: 3000,
         gleanings: overrides.gleanings ?? 1,
         maxLlmCallsPerDoc: 40,
+        concurrency: 1,
         entityTypes: ['PERSON', 'ORG', 'CONCEPT'],
         promptVersion: '1',
       },
@@ -75,14 +76,39 @@ describe('EntityExtractorService (fake LLM)', () => {
     expect(r.relationships).toEqual([]);
   });
 
-  it('output LLM không hợp schema → bỏ qua chunk (không ném)', async () => {
+  it('output không hợp schema 2 lần liền → failed:true, không ném', async () => {
     const svc = build({ gleanings: 0 });
     const zodErr = Object.assign(new Error('too_big'), { name: 'ZodError' });
-    (svc as unknown as { llm: unknown }).llm = {
-      chatStructured: jest.fn().mockRejectedValue(zodErr),
-    };
+    const chatStructured = jest.fn().mockRejectedValue(zodErr);
+    (svc as unknown as { llm: unknown }).llm = { chatStructured };
     const r = await svc.extract('Bách Khoa và Phòng Đào Tạo.');
-    expect(r).toMatchObject({ entities: [], relationships: [], llmCalls: 1 });
+    expect(r).toMatchObject({
+      entities: [],
+      relationships: [],
+      failed: true,
+      llmCalls: 2,
+    });
+    expect(chatStructured).toHaveBeenCalledTimes(2);
+  });
+
+  it('lỗi schema lần đầu, lần thử lại thành công → dùng kết quả, failed:false', async () => {
+    const svc = build({ gleanings: 0 });
+    const zodErr = Object.assign(new Error('too_big'), { name: 'ZodError' });
+    const chatStructured = jest
+      .fn()
+      .mockRejectedValueOnce(zodErr)
+      .mockResolvedValueOnce({
+        data: {
+          entities: [{ name: 'Bách Khoa', type: 'ORG', description: '' }],
+          relationships: [],
+        },
+        usage: { inputTokens: 1, outputTokens: 1, estimatedCost: 0 },
+      });
+    (svc as unknown as { llm: unknown }).llm = { chatStructured };
+    const r = await svc.extract('Bách Khoa và Phòng Đào Tạo.');
+    expect(r.failed).toBe(false);
+    expect(r.entities.map((e) => e.name)).toEqual(['Bách Khoa']);
+    expect(r.llmCalls).toBe(2);
   });
 
   it('lỗi hạ tầng (timeout) vẫn ném để retry', async () => {
