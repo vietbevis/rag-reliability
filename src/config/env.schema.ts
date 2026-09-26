@@ -391,8 +391,16 @@ export const envSchema = z
       max: 32000,
       default: 2000,
     }),
-    // Số lần gọi lặp cùng (toolName + input chuẩn hoá) trước khi loop-detector
-    // chặn tool đó.
+    // Trần số chunk tri thức đưa vào bước verify khi finalize (giữ chunk điểm
+    // cao nhất). Agent search nhiều vòng gom vài chục chunk ⇒ verify LLM rất chậm.
+    AGENT_FINALIZE_MAX_EVIDENCE: numeric({
+      int: true,
+      min: 1,
+      max: 100,
+      default: 12,
+    }),
+    // Số lần gọi lặp cùng tool (input trùng hoặc gần trùng — vd diễn đạt lại
+    // cùng query search) trước khi loop-detector chặn tool đó.
     AGENT_LOOP_REPEAT_THRESHOLD: numeric({
       int: true,
       min: 1,

@@ -17,6 +17,12 @@ export interface FinalizeNodeDeps {
     'verifyAnswer' | 'synthesizeAndVerify'
   >;
   logger: Logger;
+  /**
+   * Trần số chunk tri thức đưa vào verify (giữ chunk điểm cao nhất; evidence
+   * tính toán luôn giữ). Không đặt ⇒ không giới hạn. Agent search nhiều vòng
+   * có thể gom vài chục chunk ⇒ verify bằng LLM rất chậm.
+   */
+  maxEvidenceChunks?: number;
 }
 
 const COMPUTATION_DOC_ID = 'computation';
@@ -35,7 +41,10 @@ const COMPUTATION_DOC_ID = 'computation';
  */
 export function createFinalizeNode(deps: FinalizeNodeDeps) {
   return async (state: AgentState): Promise<AgentStateUpdate> => {
-    const kbChunks = evidenceToChunks(state.evidence);
+    const kbChunks = topByScore(
+      evidenceToChunks(state.evidence),
+      deps.maxEvidenceChunks,
+    );
     const computeChunks = computationToChunks(state.evidence);
     const allChunks = [...kbChunks, ...computeChunks];
     const base = state.steps.length;
@@ -80,6 +89,15 @@ export function createFinalizeNode(deps: FinalizeNodeDeps) {
       ],
     };
   };
+}
+
+/** Giữ `max` chunk điểm cao nhất (giảm dần); `max` không đặt ⇒ giữ nguyên. */
+function topByScore(
+  chunks: RetrievedChunk[],
+  max: number | undefined,
+): RetrievedChunk[] {
+  if (max === undefined || chunks.length <= max) return chunks;
+  return [...chunks].sort((a, b) => b.score - a.score).slice(0, max);
 }
 
 /** Evidence chunk/graph → RetrievedChunk (dedupe theo chunkId). */

@@ -155,6 +155,7 @@ export class AgentGraphBuilder {
     const finalizeNode = createFinalizeNode({
       verification: this.verification,
       logger: this.logger,
+      maxEvidenceChunks: limits.finalizeMaxEvidence,
     });
 
     const stoppedNode = (state: AgentState) => {

@@ -23,6 +23,7 @@ export type FailureClass =
   | 'SAFETY_POLICY_ERROR'
   | 'LOOP_ERROR'
   | 'TIMEOUT_ERROR'
+  | 'BUDGET_EXHAUSTED'
   | 'UNKNOWN_ERROR';
 
 /** Map `ToolErrorCode` → `FailureClass`. */
@@ -104,7 +105,15 @@ export function classifyRunFailure(
     if (v.loopBlocked || v.stopReason === 'no_progress') {
       return { failureClass: 'LOOP_ERROR', detail: v.stopReason };
     }
-    return { failureClass: 'TIMEOUT_ERROR', detail: v.stopReason };
+    // Chỉ hết thời gian thật mới là timeout; chạm trần bước/tool/token/chi
+    // phí là agent tiêu hết ngân sách (thường do gọi tool thừa).
+    return {
+      failureClass:
+        v.stopReason === 'budget_wall_clock'
+          ? 'TIMEOUT_ERROR'
+          : 'BUDGET_EXHAUSTED',
+      detail: v.stopReason,
+    };
   }
 
   if (v.stopReason === 'tool_failure_threshold' && lastToolError) {

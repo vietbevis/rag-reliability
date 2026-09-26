@@ -76,4 +76,32 @@ describe('classifyRunFailure', () => {
     });
     expect(r?.failureClass).toBe('RAG_GROUNDEDNESS_ERROR');
   });
+
+  it.each([
+    'budget_steps',
+    'budget_tool_calls',
+    'budget_tokens',
+    'budget_cost',
+  ])(
+    '%s không kèm lỗi tool → BUDGET_EXHAUSTED (không phải timeout)',
+    (stopReason) => {
+      const r = classifyRunFailure({
+        stopReason,
+        finalStatus: 'GROUNDED',
+        toolErrorCodes: [],
+        loopBlocked: false,
+      });
+      expect(r?.failureClass).toBe('BUDGET_EXHAUSTED');
+    },
+  );
+
+  it('budget_wall_clock → TIMEOUT_ERROR (hết thời gian thật)', () => {
+    const r = classifyRunFailure({
+      stopReason: 'budget_wall_clock',
+      finalStatus: 'GROUNDED',
+      toolErrorCodes: [],
+      loopBlocked: false,
+    });
+    expect(r?.failureClass).toBe('TIMEOUT_ERROR');
+  });
 });

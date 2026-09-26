@@ -240,3 +240,49 @@ describe('evidence → chunk helpers', () => {
     });
   });
 });
+
+describe('createFinalizeNode — giới hạn evidence đưa vào verify', () => {
+  const kb = (id: string, score: number): ToolEvidence => ({
+    kind: 'chunk',
+    ref: id,
+    text: `nội dung ${id}`,
+    documentId: 'doc-1',
+    chunkId: id,
+    score,
+  });
+
+  it('chỉ giữ maxEvidenceChunks chunk điểm cao nhất + mọi evidence tính toán', async () => {
+    const verifyAnswer = jest.fn().mockResolvedValue({
+      answer: 'x',
+      status: 'GROUNDED',
+      claims: [],
+      citations: [],
+      faithfulness: { score: 1, grounded: true, claims: [] },
+      usage: ZERO,
+    });
+    const node = createFinalizeNode({
+      verification: stubVerification({}, { verifyAnswer }),
+      logger: new Logger('test'),
+      maxEvidenceChunks: 2,
+    });
+    await node(
+      state({
+        answer: 'câu trả lời',
+        stopReason: 'final',
+        evidence: [
+          kb('low', 0.1),
+          kb('top', 0.95),
+          computeEvidence,
+          kb('mid', 0.6),
+          kb('second', 0.8),
+        ],
+      }),
+    );
+    const chunks = verifyAnswer.mock.calls[0][1] as Array<{ chunkId: string }>;
+    expect(chunks.map((c) => c.chunkId)).toEqual([
+      'top',
+      'second',
+      'compute:1',
+    ]);
+  });
+});

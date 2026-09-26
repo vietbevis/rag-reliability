@@ -317,8 +317,11 @@ export type FailureClass =
   | 'MCP_PROVIDER_ERROR' | 'MCP_CONNECTION_ERROR' | 'MCP_TIMEOUT'
   | 'RAG_RETRIEVAL_ERROR' | 'RAG_GROUNDEDNESS_ERROR'
   | 'LLM_ERROR' | 'CONTEXT_ERROR' | 'AUTHORIZATION_ERROR' | 'SAFETY_POLICY_ERROR'
-  | 'LOOP_ERROR' | 'TIMEOUT_ERROR' | 'UNKNOWN_ERROR';
+  | 'LOOP_ERROR' | 'TIMEOUT_ERROR' | 'BUDGET_EXHAUSTED' | 'UNKNOWN_ERROR';
 ```
+
+`TIMEOUT_ERROR` chỉ dành cho hết thời gian thật (`budget_wall_clock`); chạm trần
+bước / tool call / token / chi phí mà không kèm lỗi tool là `BUDGET_EXHAUSTED`.
 
 - `AgentRun` thêm cột `failureClass String?` + `failureDetail String?`.
 - `classifyRunFailure(outcome)` — hàm thuần: map `stopReason` + step errors +

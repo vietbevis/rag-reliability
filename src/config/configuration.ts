@@ -185,6 +185,8 @@ export interface AppConfig {
       toolResultMaxTokens: number;
       loopRepeatThreshold: number;
       toolFailureThreshold: number;
+      /** Trần số chunk tri thức đưa vào verify khi finalize. */
+      finalizeMaxEvidence: number;
     };
   };
   /** Tool providers (Agent Reliability Platform — target-state.md §12). */
@@ -397,6 +399,7 @@ export function loadConfiguration(): AppConfig {
         toolResultMaxTokens: env.AGENT_TOOL_RESULT_MAX_TOKENS,
         loopRepeatThreshold: env.AGENT_LOOP_REPEAT_THRESHOLD,
         toolFailureThreshold: env.AGENT_TOOL_FAILURE_THRESHOLD,
+        finalizeMaxEvidence: env.AGENT_FINALIZE_MAX_EVIDENCE,
       },
     },
     mcp: {
