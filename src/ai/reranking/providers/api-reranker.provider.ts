@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { RerankedChunk, RetrievedChunk } from '../../../common/types';
 import type { AppConfig } from '../../../config/configuration';
@@ -10,6 +10,37 @@ import type {
 
 /** ~1200 ký tự ≈ 200-300 token tiếng Việt/chunk — đủ ngữ cảnh, request còn gọn. */
 const CHUNK_CLIP = 1200;
+
+/**
+ * Chênh lệch điểm tối thiểu giữa 2 tài liệu selfCheck() để coi là "còn phân
+ * biệt được". Một GGUF hỏng trả logit cực âm cho mọi input (sigmoid ~1e-20
+ * cho cả hai) → chênh lệch gần 0 dù câu trả lời có ok về mặt HTTP.
+ */
+const SELF_CHECK_MIN_SPREAD = 0.05;
+
+const SELF_CHECK_RELEVANT_ID = '__selfcheck_relevant__';
+const SELF_CHECK_IRRELEVANT_ID = '__selfcheck_irrelevant__';
+
+function selfCheckProbe(): RetrievedChunk[] {
+  return [
+    {
+      chunkId: SELF_CHECK_RELEVANT_ID,
+      documentId: '__selfcheck__',
+      content: 'Việt Nam hiện có 34 tỉnh, thành phố trực thuộc trung ương.',
+      score: 0,
+      source: 'vector',
+      metadata: {},
+    },
+    {
+      chunkId: SELF_CHECK_IRRELEVANT_ID,
+      documentId: '__selfcheck__',
+      content: 'Phương trình bậc hai có dạng ax^2 + bx + c = 0, với a khác 0.',
+      score: 0,
+      source: 'vector',
+      metadata: {},
+    },
+  ];
+}
 
 function clip(text: string): string {
   return text.length > CHUNK_CLIP ? text.slice(0, CHUNK_CLIP) + '…' : text;
@@ -48,7 +79,7 @@ interface RerankItem {
  * về identity để một lỗi reranker không bao giờ làm hỏng truy vấn (§54).
  */
 @Injectable()
-export class ApiRerankerProvider implements RerankerProvider {
+export class ApiRerankerProvider implements RerankerProvider, OnModuleInit {
   readonly name = 'api';
   private readonly logger = new Logger(ApiRerankerProvider.name);
   private readonly cfg: AppConfig['rerank'];
@@ -61,6 +92,60 @@ export class ApiRerankerProvider implements RerankerProvider {
 
   isConfigured(): boolean {
     return !!this.cfg.baseUrl && !!this.cfg.model;
+  }
+
+  /**
+   * Không await trong onModuleInit: endpoint rerank (llama-server riêng) có
+   * thể chưa lên khi app khởi động — không để nó chặn boot. Kết quả chỉ log.
+   */
+  onModuleInit(): void {
+    if (!this.isConfigured()) return;
+    void this.selfCheck();
+  }
+
+  /**
+   * Tự kiểm tra khi khởi động: một GGUF reranker hỏng (vd bản quant cộng
+   * đồng thay vì ggml-org cho Qwen3-Reranker) vẫn trả HTTP 200 nhưng logit
+   * suy biến (~1e-20 sau sigmoid) cho MỌI tài liệu — không phân biệt được
+   * liên quan/không liên quan. `rerank()` không ném lỗi trong trường hợp này
+   * nên `RerankerService` (§54, chỉ bắt exception) không phát hiện được và
+   * âm thầm rerank sai suốt runtime. Log ERROR rõ ràng ngay lúc khởi động
+   * thay vì để lỗi trôi vào production không ai biết.
+   */
+  private async selfCheck(): Promise<void> {
+    try {
+      const result = await this.rerank(
+        'Việt Nam có bao nhiêu tỉnh thành?',
+        selfCheckProbe(),
+        2,
+      );
+      const relevantScore =
+        result.chunks.find((c) => c.chunkId === SELF_CHECK_RELEVANT_ID)
+          ?.rerankScore ?? 0;
+      const irrelevantScore =
+        result.chunks.find((c) => c.chunkId === SELF_CHECK_IRRELEVANT_ID)
+          ?.rerankScore ?? 0;
+      const spread = relevantScore - irrelevantScore;
+
+      if (spread < SELF_CHECK_MIN_SPREAD) {
+        this.logger.error(
+          `Reranker self-check THẤT BẠI: điểm không phân biệt được tài liệu ` +
+            `liên quan/không liên quan (relevant=${relevantScore.toFixed(6)}, ` +
+            `irrelevant=${irrelevantScore.toFixed(6)}). Model rerank có thể là ` +
+            `bản GGUF hỏng — kiểm tra lại RERANK_MODEL/RERANK_BASE_URL, dùng ` +
+            `đúng bản ggml-org cho Qwen3-Reranker.`,
+        );
+        return;
+      }
+      this.logger.log(
+        `Reranker self-check OK (relevant=${relevantScore.toFixed(4)}, ` +
+          `irrelevant=${irrelevantScore.toFixed(4)}).`,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `Reranker self-check bỏ qua (không gọi được API lúc khởi động): ${(err as Error)?.message}`,
+      );
+    }
   }
 
   private endpoint(): string {

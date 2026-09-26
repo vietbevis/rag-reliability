@@ -45,7 +45,7 @@ describe('PrismaService (integration)', () => {
     expect(gone).toBeNull();
   });
 
-  it('ghi và đọc lại được cột vector(1536) + toán tử cosine', async () => {
+  it('ghi và đọc lại được cột vector(1024) + toán tử cosine', async () => {
     const doc = await prisma.document.create({
       data: {
         title: 't',
@@ -63,8 +63,8 @@ describe('PrismaService (integration)', () => {
         tokenCount: 1,
       },
     });
-    // PHASE 3: cột là vector(1536) sau migration -> vector phải đủ 1536 chiều.
-    const dim = 1536;
+    // PHASE 19: cột là vector(1024) sau migration e5/Qwen3-Embedding -> vector phải đủ 1024 chiều.
+    const dim = 1024;
     const v = `[${Array.from({ length: dim }, (_, i) => (i === 0 ? 1 : 0)).join(',')}]`;
     const id = `emb-${Date.now()}`;
     await prisma.$executeRaw`

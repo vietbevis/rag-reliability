@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import type { RetrievedChunk } from '../../../common/types';
 import type { AppConfig } from '../../../config/configuration';
@@ -232,5 +233,74 @@ describe('ApiRerankerProvider', () => {
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(init.body as string) as { documents: string[] };
     expect(body.documents[0]!.length).toBeLessThan(1300);
+  });
+
+  describe('onModuleInit — self-check GGUF suy biến', () => {
+    let errorSpy: jest.SpyInstance;
+    let logSpy: jest.SpyInstance;
+    let warnSpy: jest.SpyInstance;
+
+    beforeEach(() => {
+      errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+      logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation();
+      warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+    });
+
+    it('không tự kiểm tra khi provider chưa được cấu hình', () => {
+      const provider = new ApiRerankerProvider(
+        makeConfig({ provider: 'api' }),
+      );
+      provider.onModuleInit();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('điểm phân biệt tốt → log OK, không log ERROR', async () => {
+      fetchMock.mockResolvedValueOnce(
+        okResponse({
+          results: [
+            { index: 0, relevance_score: 0.9 },
+            { index: 1, relevance_score: 0.05 },
+          ],
+        }),
+      );
+      const provider = new ApiRerankerProvider(makeConfig(baseCfg));
+      provider.onModuleInit();
+      await new Promise((r) => setImmediate(r));
+
+      expect(errorSpy).not.toHaveBeenCalled();
+      expect(logSpy).toHaveBeenCalledWith(
+        expect.stringContaining('self-check OK'),
+      );
+    });
+
+    it('điểm suy biến (GGUF hỏng, cả hai gần 0) → log ERROR rõ ràng', async () => {
+      fetchMock.mockResolvedValueOnce(
+        okResponse({
+          results: [
+            { index: 0, relevance_score: -50 },
+            { index: 1, relevance_score: -50 },
+          ],
+        }),
+      );
+      const provider = new ApiRerankerProvider(makeConfig(baseCfg));
+      provider.onModuleInit();
+      await new Promise((r) => setImmediate(r));
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('self-check THẤT BẠI'),
+      );
+    });
+
+    it('endpoint chưa sẵn sàng (lỗi mạng) → chỉ warn, không throw', async () => {
+      fetchMock.mockRejectedValueOnce(new Error('connect ECONNREFUSED'));
+      const provider = new ApiRerankerProvider(makeConfig(baseCfg));
+      provider.onModuleInit();
+      await new Promise((r) => setImmediate(r));
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('self-check bỏ qua'),
+      );
+      expect(errorSpy).not.toHaveBeenCalled();
+    });
   });
 });
