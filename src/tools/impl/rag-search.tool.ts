@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { z } from 'zod';
+import { PrismaService } from '../../database/prisma.service';
+import { DocumentStatus } from '../../generated/prisma/client';
 import { RetrievalService } from '../../rag/retrieval/retrieval.service';
 import type {
   AgentTool,
@@ -12,6 +14,19 @@ import { localToolDefinition } from './local-tool.helpers';
 const DEFAULT_TOP_K = 6;
 /** Cắt content mỗi chunk trong `data` trả về model (evidence giữ toàn văn). */
 const CHUNK_PREVIEW_CHARS = 1200;
+/** Số tên tài liệu tối đa liệt kê khi `document` không khớp tài liệu nào. */
+const MAX_LISTED_TITLES = 60;
+
+/** Tách tên thành các từ: bỏ dấu, chữ thường, cắt theo ký tự không phải chữ/số. */
+function titleTokens(s: string): string[] {
+  return s
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/đ/gi, 'd')
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean);
+}
 
 const inputSchema = z.object({
   query: z
@@ -34,11 +49,24 @@ const inputSchema = z.object({
       'vector = tương đồng ngữ nghĩa; keyword = khớp từ khoá chính xác; ' +
         'graph = đi theo quan hệ giữa các thực thể; hybrid = kết hợp (mặc định).',
     ),
+  document: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .optional()
+    .describe(
+      'Chỉ tra trong tài liệu có TÊN chứa mọi từ này (không phân biệt hoa ' +
+        'thường), vd "HUST 2023" hoặc "HCMUS". Dùng khi câu hỏi nêu rõ ' +
+        'trường / năm / văn bản để tránh lẫn quy định của văn bản khác. Tên ' +
+        'tài liệu xem ở trường documentTitle của kết quả.',
+    ),
 });
 
 const chunkSchema = z.object({
   chunkId: z.string(),
   documentId: z.string(),
+  documentTitle: z.string().optional(),
   score: z.number(),
   source: z.string(),
   heading: z.string().optional(),
@@ -79,16 +107,41 @@ export class RagSearchTool implements AgentTool<
     tags: ['rag', 'retrieval', 'knowledge-base'],
   });
 
-  constructor(private readonly retrieval: RetrievalService) {}
+  constructor(
+    private readonly retrieval: RetrievalService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   async execute(
     input: RagSearchInput,
     ctx: ToolExecutionContext,
   ): Promise<ToolResult<RagSearchOutput>> {
+    let documentIds: string[] | undefined;
+    if (input.document) {
+      const resolved = await this.resolveDocuments(input.document);
+      if (resolved.ids.length === 0) {
+        return {
+          success: false,
+          error: {
+            code: 'TOOL_ARGUMENT_ERROR',
+            message:
+              `Không có tài liệu nào có tên chứa "${input.document}". ` +
+              `Bỏ tham số document hoặc dùng từ trong tên tài liệu có sẵn: ` +
+              resolved.available.join(', '),
+            retryable: false,
+            providerId: ctx.providerId,
+          },
+          evidence: [],
+        };
+      }
+      documentIds = resolved.ids;
+    }
+
     const res = await this.retrieval.retrieve({
       query: input.query,
       topK: input.topK ?? DEFAULT_TOP_K,
       strategy: input.strategy,
+      filters: documentIds ? { documentIds } : undefined,
       log: false,
     });
 
@@ -112,9 +165,11 @@ export class RagSearchTool implements AgentTool<
       };
     }
 
+    const titles = await this.titlesOf(res.chunks.map((c) => c.documentId));
     const chunks = res.chunks.map((c) => ({
       chunkId: c.chunkId,
       documentId: c.documentId,
+      documentTitle: titles.get(c.documentId),
       score: Number(c.score.toFixed(4)),
       source: c.source,
       heading: c.heading,
@@ -158,5 +213,40 @@ export class RagSearchTool implements AgentTool<
         ),
       },
     };
+  }
+
+  /**
+   * Tài liệu (đã xử lý xong) có tên chứa MỌI từ của `query` — so sánh theo từ
+   * đã bỏ dấu, vd "HUST 2023" ⇒ `HUST_quyche-daotao-2023.pdf`.
+   */
+  private async resolveDocuments(
+    query: string,
+  ): Promise<{ ids: string[]; available: string[] }> {
+    const docs = await this.prisma.document.findMany({
+      where: { status: DocumentStatus.COMPLETED },
+      select: { id: true, title: true },
+      orderBy: { title: 'asc' },
+    });
+    const wanted = titleTokens(query);
+    const ids = docs
+      .filter((d) => {
+        const have = new Set(titleTokens(d.title));
+        return wanted.every((t) => have.has(t));
+      })
+      .map((d) => d.id);
+    return {
+      ids,
+      available: docs.slice(0, MAX_LISTED_TITLES).map((d) => d.title),
+    };
+  }
+
+  private async titlesOf(ids: string[]): Promise<Map<string, string>> {
+    const unique = [...new Set(ids)];
+    if (unique.length === 0) return new Map();
+    const docs = await this.prisma.document.findMany({
+      where: { id: { in: unique } },
+      select: { id: true, title: true },
+    });
+    return new Map(docs.map((d) => [d.id, d.title]));
   }
 }

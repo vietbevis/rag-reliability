@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import type { RetrievalService } from '../../rag/retrieval/retrieval.service';
 import type { ToolExecutionContext } from '../core/tool.types';
+import type { PrismaService } from '../../database/prisma.service';
 import { RagSearchTool } from './rag-search.tool';
 
 const ctx: ToolExecutionContext = {
@@ -13,8 +14,31 @@ const ctx: ToolExecutionContext = {
 
 type RetrieveFn = RetrievalService['retrieve'];
 
+const DOCS = [
+  { id: 'd1', title: 'HUST_quyche-daotao-2023.pdf' },
+  { id: 'd2', title: 'HUST_quyche-daotao-2018.pdf' },
+  { id: 'd3', title: 'HCMUS_quyche-daotao-DH-2021.pdf' },
+];
+
+/** Prisma giả: `document.findMany` lọc theo `where.id.in` nếu có. */
+function fakePrisma(): PrismaService {
+  return {
+    document: {
+      findMany: jest.fn((args: { where?: { id?: { in?: string[] } } } = {}) => {
+        const ids = args.where?.id?.in;
+        return Promise.resolve(
+          ids ? DOCS.filter((d) => ids.includes(d.id)) : DOCS,
+        );
+      }),
+    },
+  } as unknown as PrismaService;
+}
+
 function toolWith(retrieve: RetrieveFn): RagSearchTool {
-  return new RagSearchTool({ retrieve } as unknown as RetrievalService);
+  return new RagSearchTool(
+    { retrieve } as unknown as RetrievalService,
+    fakePrisma(),
+  );
 }
 
 function response(over: Partial<Awaited<ReturnType<RetrieveFn>>> = {}) {
@@ -113,5 +137,57 @@ describe('RagSearchTool', () => {
       strategy: 'keyword',
       log: false,
     });
+  });
+
+  describe('lọc theo tài liệu (document)', () => {
+    it('"HUST 2023" → chỉ truy hồi trong tài liệu khớp mọi từ của tên', async () => {
+      const retrieve = jest.fn(() => Promise.resolve(response()));
+      const tool = toolWith(retrieve);
+      await tool.execute(
+        { query: 'tín chỉ tối đa', document: 'HUST 2023' },
+        ctx,
+      );
+      expect(retrieve).toHaveBeenCalledWith(
+        expect.objectContaining({ filters: { documentIds: ['d1'] } }),
+      );
+    });
+
+    it('khớp nhiều tài liệu → lọc theo tất cả', async () => {
+      const retrieve = jest.fn(() => Promise.resolve(response()));
+      const tool = toolWith(retrieve);
+      await tool.execute({ query: 'x', document: 'hust' }, ctx);
+      expect(retrieve).toHaveBeenCalledWith(
+        expect.objectContaining({ filters: { documentIds: ['d1', 'd2'] } }),
+      );
+    });
+
+    it('không tài liệu nào khớp → TOOL_ARGUMENT_ERROR kèm danh sách tên, không truy hồi', async () => {
+      const retrieve = jest.fn(() => Promise.resolve(response()));
+      const tool = toolWith(retrieve);
+      const res = await tool.execute({ query: 'x', document: 'NEU 2024' }, ctx);
+      expect(res.success).toBe(false);
+      expect(res.error?.code).toBe('TOOL_ARGUMENT_ERROR');
+      expect(res.error?.message).toContain('HCMUS_quyche-daotao-DH-2021.pdf');
+      expect(retrieve).not.toHaveBeenCalled();
+    });
+
+    it('không truyền document → không lọc', async () => {
+      const retrieve = jest.fn(() => Promise.resolve(response()));
+      const tool = toolWith(retrieve);
+      await tool.execute({ query: 'x' }, ctx);
+      expect(retrieve).toHaveBeenCalledWith(
+        expect.objectContaining({ filters: undefined }),
+      );
+    });
+  });
+
+  it('mỗi chunk trả về kèm documentTitle để model biết nguồn thuộc văn bản nào', async () => {
+    const tool = toolWith(() =>
+      Promise.resolve(response({ chunks: [chunk({ documentId: 'd2' })] })),
+    );
+    const res = await tool.execute({ query: 'x' }, ctx);
+    expect(res.data?.chunks[0]?.documentTitle).toBe(
+      'HUST_quyche-daotao-2018.pdf',
+    );
   });
 });
